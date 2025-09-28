@@ -1,0 +1,18 @@
+Flask==2.3.3
+selenium==4.15.0
+requests==2.31.0
+webdriver-manager==4.0.1
+Werkzeug==2.3.7
+
+# Linux-compatible packages
+python-dotenv==1.0.0
+urllib3==2.0.7
+
+# Audio processing for reCAPTCHA
+pydub==0.25.1
+
+# Additional system dependencies for Linux:
+# sudo apt-get update
+# sudo apt-get install -y wget unzip xvfb
+# sudo apt-get install -y google-chrome-stable chromium-browser
+# sudo apt-get install -y ffmpeg

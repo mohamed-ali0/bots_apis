@@ -1,0 +1,39 @@
+2025-09-28 13:56:44,505 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.234.38:5000
+2025-09-28 13:56:44,505 - INFO - [33mPress CTRL+C to quit[0m
+2025-09-28 13:56:50,971 - INFO - 127.0.0.1 - - [28/Sep/2025 13:56:50] "GET /health HTTP/1.1" 200 -
+2025-09-28 13:56:50,976 - INFO - [req_20250928_135650_976269] Login request received
+2025-09-28 13:56:50,976 - ERROR - [req_20250928_135650_976269] Missing required fields: ['username']
+2025-09-28 13:56:50,977 - INFO - 127.0.0.1 - - [28/Sep/2025 13:56:50] "[31m[1mPOST /login HTTP/1.1[0m" 400 -
+2025-09-28 13:56:50,981 - INFO - [req_20250928_135650_981616] Login request received
+2025-09-28 13:56:50,981 - ERROR - [req_20250928_135650_981616] Invalid request - not JSON
+2025-09-28 13:56:50,981 - INFO - 127.0.0.1 - - [28/Sep/2025 13:56:50] "[31m[1mPOST /login HTTP/1.1[0m" 400 -
+2025-09-28 13:57:16,620 - INFO - [req_20250928_135716_620116] Login request received
+2025-09-28 13:57:16,621 - INFO - [req_20250928_135716_620116] Starting login for user: jfernandez
+2025-09-28 13:57:16,621 - INFO - [req_20250928_135716_620116] VPN profile: enabled
+2025-09-28 13:57:27,586 - WARNING - [req_20250928_135716_620116] Login failed for user: jfernandez
+2025-09-28 13:57:27,586 - WARNING - [req_20250928_135716_620116] Error type: login_button_not_found
+2025-09-28 13:57:27,586 - WARNING - [req_20250928_135716_620116] Error message: LOGIN button not found
+2025-09-28 13:57:27,586 - INFO - 127.0.0.1 - - [28/Sep/2025 13:57:27] "[31m[1mPOST /login HTTP/1.1[0m" 401 -
+2025-09-28 13:59:33,534 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.234.38:5000
+2025-09-28 13:59:33,534 - INFO - [33mPress CTRL+C to quit[0m
+2025-09-28 14:02:40,590 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.234.38:5000
+2025-09-28 14:02:40,591 - INFO - [33mPress CTRL+C to quit[0m
+2025-09-28 14:02:57,897 - INFO - 127.0.0.1 - - [28/Sep/2025 14:02:57] "GET /health HTTP/1.1" 200 -
+2025-09-28 14:33:57,128 - INFO - 127.0.0.1 - - [28/Sep/2025 14:33:57] "GET /health HTTP/1.1" 200 -
+2025-09-28 14:33:57,134 - INFO - 127.0.0.1 - - [28/Sep/2025 14:33:57] "[33mGET /sessions HTTP/1.1[0m" 404 -
+2025-09-28 14:35:09,517 - INFO - 127.0.0.1 - - [28/Sep/2025 14:35:09] "[33mPOST /get_containers HTTP/1.1[0m" 404 -
+2025-09-28 14:35:09,523 - INFO - 127.0.0.1 - - [28/Sep/2025 14:35:09] "[33mGET /sessions HTTP/1.1[0m" 404 -
+2025-09-28 14:35:39,048 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.228.30:5000
+2025-09-28 14:35:39,048 - INFO - [33mPress CTRL+C to quit[0m
