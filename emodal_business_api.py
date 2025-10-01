@@ -683,65 +683,6 @@ class EModalBusinessOperations:
             print("☑️ Looking for 'Select All' checkbox...")
             self._capture_screenshot("before_select_all")
             
-            # Fast-path for Angular Material header checkbox: click component label/span/input and verify via aria-checked
-            try:
-                header_mat_checkbox = self.wait.until(EC.presence_of_element_located((By.XPATH, "//thead//mat-checkbox")))
-                clickable_target = None
-                # Prefer <label>
-                try:
-                    clickable_target = header_mat_checkbox.find_element(By.TAG_NAME, "label")
-                    print("   - Using <label> as primary target for header mat-checkbox")
-                except Exception:
-                    pass
-                # Fallback: inner span
-                if not clickable_target:
-                    try:
-                        clickable_target = header_mat_checkbox.find_element(By.XPATH, ".//span[contains(@class,'mat-checkbox-inner-container')]")
-                        print("   - Using inner <span> as fallback target for header mat-checkbox")
-                    except Exception:
-                        pass
-                # Fallback: hidden input
-                if not clickable_target:
-                    try:
-                        clickable_target = header_mat_checkbox.find_element(By.XPATH, ".//input[contains(@class,'mat-checkbox-input') or contains(@id,'-input')]")
-                        print("   - Using <input> as last-resort target for header mat-checkbox")
-                    except Exception:
-                        pass
-                if clickable_target:
-                    try:
-                        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", clickable_target)
-                        time.sleep(0.5)
-                        self.driver.execute_script("arguments[0].click();", clickable_target)
-                        print("   ✅ JS click sent to header mat-checkbox target")
-                        time.sleep(2)
-                        final_state = (header_mat_checkbox.get_attribute("aria-checked") or '').lower()
-                        print(f"   - Header mat-checkbox aria-checked after click: '{final_state}'")
-                        if final_state == 'true':
-                            # Count selected rows by class mat-selected on mat-row/tr
-                            try:
-                                selected_rows = self.driver.find_elements(
-                                    By.XPATH,
-                                    "//tbody//mat-row[contains(@class,'mat-selected')] | //tbody//tr[contains(@class,'mat-selected')]"
-                                )
-                                selected_count = len(selected_rows)
-                            except Exception:
-                                selected_count = 0
-                            print(f"✅ Verification successful: {selected_count} rows are now selected.")
-                            self._capture_screenshot("after_select_all")
-                            return {
-                                "success": True,
-                                "checkboxes_selected": selected_count,
-                                "checkbox_state": "checked"
-                            }
-                        else:
-                            print("   ⚠️ Header mat-checkbox did not become checked; falling back to generic strategy")
-                    except Exception as head_click_e:
-                        print(f"   ⚠️ Header mat-checkbox click attempt failed: {head_click_e}")
-                else:
-                    print("   ⚠️ Could not derive a clickable target inside header mat-checkbox")
-            except Exception as header_e:
-                print(f"   ⚠️ Header mat-checkbox not found or not ready: {header_e}")
-            
             # Common selectors for "select all" checkbox (header-first with fallbacks)
             select_all_selectors = [
                 # Native inputs in header
