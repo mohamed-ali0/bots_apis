@@ -1997,14 +1997,22 @@ def get_containers():
                     "error": f"Navigation failed: {nav_result['error']}"
                 }), 500
             
-            # Step 1.5: Load all containers with infinite scroll
-            print("📜 Loading all containers with infinite scroll...")
-            scroll_result = operations.load_all_containers_with_infinite_scroll()
-            if not scroll_result["success"]:
-                print(f"⚠️ Infinite scroll failed: {scroll_result['error']}")
-                # Continue anyway - maybe all containers are already loaded
-            else:
-                print(f"✅ Infinite scroll completed: {scroll_result.get('total_containers', 'unknown')} containers loaded")
+            # Step 1.5: Load all containers with infinite scroll (TEMPORARILY DISABLED FOR SPEED)
+            print("📜 Infinite scrolling DISABLED - using first page only for speed...")
+            # scroll_result = operations.load_all_containers_with_infinite_scroll()
+            # if not scroll_result["success"]:
+            #     print(f"⚠️ Infinite scroll failed: {scroll_result['error']}")
+            #     # Continue anyway - maybe all containers are already loaded
+            # else:
+            #     print(f"✅ Infinite scroll completed: {scroll_result.get('total_containers', 'unknown')} containers loaded")
+            
+            # Mock scroll result for compatibility
+            scroll_result = {
+                "success": True,
+                "total_containers": "first_page_only",
+                "scroll_cycles": 0,
+                "message": "Infinite scroll disabled - first page only"
+            }
             
             # Step 2: Select all containers
             print("🔘 Calling select_all_containers...")
