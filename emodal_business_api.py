@@ -678,14 +678,14 @@ class EModalBusinessOperations:
             return {"success": False, "error": f"Navigation failed: {str(e)}"}
     
     def select_all_containers(self) -> Dict[str, Any]:
-        """Select all containers using the master checkbox"""
+        """Select all containers using a precise click on the mat-checkbox inner container."""
         try:
             from selenium.common.exceptions import TimeoutException, NoSuchElementException
             from selenium.webdriver.support import expected_conditions as EC
             print("☑️ Looking for 'Select All' checkbox...")
             self._capture_screenshot("before_select_all")
 
-            # Target the exact Angular Material inner container in table header
+            # 1. Target the specific, clickable inner container of the header checkbox
             try:
                 clickable_target = self.wait.until(
                     EC.presence_of_element_located((
@@ -693,59 +693,47 @@ class EModalBusinessOperations:
                         "//thead//span[contains(@class,'mat-checkbox-inner-container')]"
                     ))
                 )
-                print("   - Found mat-checkbox-inner-container in header")
+                print("   - Found mat-checkbox-inner-container in header.")
             except TimeoutException:
-                return {"success": False, "error": "Could not find mat-checkbox inner container in header."}
+                return {"success": False, "error": "Could not find 'mat-checkbox-inner-container' in the table header."}
 
-            # Also capture the mat-checkbox container for aria-checked verification
+            # 2. Get the parent <mat-checkbox> for state verification later
             try:
                 checkbox_container = clickable_target.find_element(By.XPATH, "ancestor::mat-checkbox")
             except NoSuchElementException:
-                # Fallback: closest role=checkbox element
-                try:
-                    checkbox_container = clickable_target.find_element(By.XPATH, "ancestor::*[@role='checkbox'][1]")
-                except Exception:
-                    checkbox_container = None
+                return {"success": False, "error": "Could not find parent 'mat-checkbox' for verification."}
 
-            # Perform the click using JavaScript for reliability
+            # 3. Perform a reliable JavaScript click
             try:
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", clickable_target)
-                time.sleep(0.4)
+                time.sleep(0.5)
                 self.driver.execute_script("arguments[0].click();", clickable_target)
-                print("   ✅ Click command sent to mat-checkbox inner container")
-                time.sleep(1.5)
+                print("   ✅ Click command sent to the checkbox inner container.")
+                time.sleep(2)
             except Exception as click_e:
-                return {"success": False, "error": f"Failed to click inner-container: {click_e}"}
+                return {"success": False, "error": f"Failed to execute click on the inner container: {click_e}"}
 
-            # Verify aria-checked on the container if available
-            is_checked = None
-            if checkbox_container is not None:
-                try:
-                    final_state = (checkbox_container.get_attribute("aria-checked") or "").strip().lower()
-                    is_checked = (final_state == 'true')
-                    print(f"   - aria-checked after click: '{final_state}'")
-                except Exception:
-                    pass
-
-            # Fallback: consider it checked if subsequent rows show selection
+            # 4. Verify the click was successful using 'aria-checked'
             try:
-                selected_rows = self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class,'mat-selected') or @aria-selected='true'] | //tbody//tr[contains(@class,'mat-selected') or @aria-selected='true']")
-                selected_count = len(selected_rows)
-            except Exception:
-                selected_count = 0
+                final_state = checkbox_container.get_attribute("aria-checked")
+                if final_state != 'true':
+                    return {"success": False, "error": f"Click failed. The 'aria-checked' state is '{final_state}', not 'true'."}
 
-            self._capture_screenshot("after_select_all")
-            if is_checked is False and selected_count == 0:
-                return {"success": False, "error": "Checkbox did not toggle and no rows selected."}
-
-            return {
-                "success": True,
-                "checkboxes_selected": selected_count,
-                "checkbox_state": "checked" if (is_checked or selected_count > 0) else "unknown"
-            }
+                selected_count = len(self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class, 'mat-selected')]"))
+                print(f"✅ Verification successful: {selected_count} rows are now selected.")
+                
+                self._capture_screenshot("after_select_all")
+                
+                return {
+                    "success": True,
+                    "checkboxes_selected": selected_count,
+                    "checkbox_state": "checked"
+                }
+            except Exception as verify_e:
+                return {"success": False, "error": f"Could not verify the checkbox state after the click: {verify_e}"}
 
         except Exception as e:
-            return {"success": False, "error": f"Select all containers failed: {str(e)}"}
+            return {"success": False, "error": f"A critical error occurred in select_all_containers: {str(e)}"}
     
     def download_excel_file(self) -> Dict[str, Any]:
         """Download Excel file with container data"""
@@ -760,7 +748,7 @@ class EModalBusinessOperations:
                 "//*[@aria-label='Export to Excel' or @title='Export to Excel' or contains(., 'Export to Excel')]",
                 "//i[contains(@class, 'fa-file-excel')]/..",
                 "//i[contains(@class, 'excel-icon')]/..",
-                # Angular Material mat-icon with svgicon="xls"
+                # Angular Material icon/button variants
                 "//mat-icon[@svgicon='xls']/ancestor::*[self::button or self::a][1]",
                 "//mat-icon[contains(@class,'excel-icon')]/ancestor::*[self::button or self::a][1]",
                 # SVG group/id for excel icon
@@ -789,18 +777,21 @@ class EModalBusinessOperations:
             for selector in excel_selectors:
                 try:
                     if selector.startswith("//"):
-                        # XPath selector
                         element = self.driver.find_element(By.XPATH, selector)
                     else:
-                        # CSS selector
                         element = self.driver.find_element(By.CSS_SELECTOR, selector)
                     
-                    if element.is_displayed() and element.is_enabled():
-                        excel_button = element
+                    # For icons, prefer the clickable ancestor button/a
+                    try:
+                        clickable = element.find_element(By.XPATH, "ancestor::*[self::button or self::a][1]")
+                    except Exception:
+                        clickable = element
+                    
+                    if clickable.is_displayed():
+                        excel_button = clickable
                         used_selector = selector
                         print(f"✅ Found Excel download button with: {selector}")
                         break
-                        
                 except Exception:
                     continue
             
@@ -809,37 +800,45 @@ class EModalBusinessOperations:
                 try:
                     export_candidates = self.driver.find_elements(
                         By.XPATH,
-                        "//button[contains(text(), 'Export') or contains(text(), 'Download') or contains(text(), 'Excel')] | "
-                        "//a[contains(text(), 'Export') or contains(text(), 'Download') or contains(text(), 'Excel')] | "
-                        "//path[@id='Path_346' or @data-name='Path 346' or @fill='#1a8e07']/ancestor::*[self::button or self::a] | "
-                        "//mat-icon[@svgicon='xls']/ancestor::*[self::button or self::a] | //g[@id='excel_icon']/ancestor::*[self::button or self::a]"
+                        "//button[contains(., 'Export') or contains(., 'Excel') or contains(@title, 'Excel') or contains(@aria-label,'Excel')] | "
+                        "//a[contains(., 'Export') or contains(., 'Excel') or contains(@title, 'Excel') or contains(@aria-label,'Excel')] | "
+                        "//g[@id='excel_icon']/ancestor::*[self::button or self::a] | //mat-icon[@svgicon='xls']/ancestor::*[self::button or self::a]"
                     )
-                    
                     print(f"🔍 Found {len(export_candidates)} potential export buttons")
-                    
                     for i, candidate in enumerate(export_candidates):
                         try:
-                            button_text = candidate.text.strip()
-                            button_title = candidate.get_attribute("title") or ""
-                            button_class = candidate.get_attribute("class") or ""
-                            
-                            print(f"  Button {i+1}: text='{button_text}', title='{button_title}', class='{button_class}'")
-                            
-                            if any(keyword in (button_text + button_title + button_class).lower() 
-                                   for keyword in ['excel', 'xlsx', 'export', 'download']):
+                            if candidate.is_displayed():
                                 excel_button = candidate
                                 used_selector = f"export_candidate_{i+1}"
-                                print(f"✅ Using button {i+1} as Excel download")
+                                print(f"✅ Using button candidate {i+1}")
                                 break
-                                
                         except Exception:
                             continue
-                            
                 except Exception as fallback_e:
                     print(f"❌ Fallback button search failed: {fallback_e}")
             
             if not excel_button:
                 return {"success": False, "error": "Could not find Excel download button"}
+            
+            # Ensure button is enabled (Angular Material often uses aria-disabled or class flags)
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", excel_button)
+                time.sleep(0.5)
+                # Wait up to 10s for enablement after selection
+                t0 = time.time()
+                while time.time() - t0 < 10:
+                    aria_disabled = (excel_button.get_attribute('aria-disabled') or '').lower()
+                    disabled_attr = excel_button.get_attribute('disabled')
+                    class_attr = (excel_button.get_attribute('class') or '').lower()
+                    is_enabled = (aria_disabled in ['', 'false']) and (disabled_attr is None) and ('disabled' not in class_attr and 'mat-button-disabled' not in class_attr)
+                    if is_enabled:
+                        break
+                    time.sleep(0.5)
+                print(f"   - Export button enabled: {is_enabled}")
+                if not is_enabled:
+                    return {"success": False, "error": "Export button remains disabled (no rows selected)."}
+            except Exception as en_e:
+                print(f"⚠️ Enablement check failed: {en_e}")
             
             # Set up session-specific download directory under project downloads/
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
@@ -857,73 +856,53 @@ class EModalBusinessOperations:
             except Exception as cdp_e:
                 print(f"⚠️ Could not set download behavior via CDP: {cdp_e}")
             
-            # Click the Excel download button
+            # Click the Excel download button (use JS for reliability)
             try:
-                # Scroll to element
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", excel_button)
-                time.sleep(1)
-                
-                button_text = (excel_button.text or '').strip()
-                print(f"📥 Clicking Excel download button: '{button_text}'")
-                
+                time.sleep(0.3)
                 try:
                     excel_button.click()
-                except Exception as e_click:
-                    print(f"⚠️ Direct click failed: {e_click}. Trying JS click...")
-                    try:
-                        self.driver.execute_script("arguments[0].click();", excel_button)
-                    except Exception:
-                        # If excel_button is the path itself, click its clickable ancestor
-                        try:
-                            ancestor = excel_button.find_element(By.XPATH, "ancestor::*[self::button or self::a][1]")
-                            self.driver.execute_script("arguments[0].click();", ancestor)
-                        except Exception:
-                            raise
+                except Exception:
+                    self.driver.execute_script("arguments[0].click();", excel_button)
+                print("📥 Clicked Excel download button")
                 self._capture_screenshot("after_export_click")
-                
-                # Wait for download to complete
-                print("⏳ Waiting for file download...")
-                download_timeout = 60  # allow longer for large files
-                start_time = time.time()
-                downloaded_file = None
-                
-                while (time.time() - start_time) < download_timeout:
-                    try:
-                        entries = os.listdir(download_dir)
-                    except Exception:
-                        entries = []
-                    # Any crdownload indicates in-progress
-                    in_progress = [f for f in entries if f.endswith('.crdownload')]
-                    # Completed known extensions
-                    complete_files = [f for f in entries if f.lower().endswith((".xlsx", ".xls", ".csv"))]
-                    if complete_files and not in_progress:
-                        # Pick the newest completed file
-                        complete_files.sort(key=lambda f: os.path.getmtime(os.path.join(download_dir, f)), reverse=True)
-                        downloaded_file = os.path.join(download_dir, complete_files[0])
-                        # Additional small grace period to ensure file handlers closed
-                        time.sleep(0.5)
-                        break
-                    
-                    time.sleep(1)
-
-                if downloaded_file:
-                    file_size = os.path.getsize(downloaded_file)
-                    print(f"✅ File downloaded: {os.path.basename(downloaded_file)} ({file_size} bytes)")
-                    self._capture_screenshot("after_download")
-                    
-                    return {
-                        "success": True,
-                        "file_path": downloaded_file,
-                        "file_name": os.path.basename(downloaded_file),
-                        "file_size": file_size,
-                        "download_dir": download_dir,
-                        "selector_used": used_selector
-                    }
-                else:
-                    return {"success": False, "error": "Download timeout - file not found"}
-                    
             except Exception as click_e:
                 return {"success": False, "error": f"Failed to click download button: {str(click_e)}"}
+            
+            # Wait for download to complete
+            print("⏳ Waiting for file download...")
+            download_timeout = 60
+            start_time = time.time()
+            downloaded_file = None
+            
+            while (time.time() - start_time) < download_timeout:
+                try:
+                    entries = os.listdir(download_dir)
+                except Exception:
+                    entries = []
+                in_progress = [f for f in entries if f.endswith('.crdownload')]
+                complete_files = [f for f in entries if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+                if complete_files and not in_progress:
+                    complete_files.sort(key=lambda f: os.path.getmtime(os.path.join(download_dir, f)), reverse=True)
+                    downloaded_file = os.path.join(download_dir, complete_files[0])
+                    time.sleep(0.5)
+                    break
+                time.sleep(1)
+
+            if downloaded_file:
+                file_size = os.path.getsize(downloaded_file)
+                print(f"✅ File downloaded: {os.path.basename(downloaded_file)} ({file_size} bytes)")
+                self._capture_screenshot("after_download")
+                return {
+                    "success": True,
+                    "file_path": downloaded_file,
+                    "file_name": os.path.basename(downloaded_file),
+                    "file_size": file_size,
+                    "download_dir": download_dir,
+                    "selector_used": used_selector
+                }
+            else:
+                return {"success": False, "error": "Download timeout - file not found"}
                 
         except Exception as e:
             return {"success": False, "error": f"Excel download failed: {str(e)}"}
