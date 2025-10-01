@@ -63,7 +63,7 @@ class EModalLoginHandler:
     Professional E-Modal login handler with comprehensive error detection
     """
     
-    def __init__(self, captcha_api_key: str, use_vpn_profile: bool = True, timeout: int = 30):
+    def __init__(self, captcha_api_key: str, use_vpn_profile: bool = True, timeout: int = 30, auto_close: bool = True, user_data_dir: Optional[str] = None):
         """
         Initialize E-Modal login handler
         
@@ -75,6 +75,8 @@ class EModalLoginHandler:
         self.captcha_api_key = captcha_api_key
         self.use_vpn_profile = use_vpn_profile
         self.timeout = timeout
+        self.auto_close = auto_close
+        self.custom_user_data_dir = user_data_dir
         
         self.driver = None
         self.wait = None
@@ -100,7 +102,27 @@ class EModalLoginHandler:
         """Setup Chrome WebDriver with optimal configuration"""
         chrome_options = Options()
         
-        if self.use_vpn_profile:
+        # Headless/Xvfb configuration for non-GUI servers
+        self._virtual_display = None
+        try:
+            # Enable virtual framebuffer (Xvfb) when requested (Linux only)
+            use_xvfb = os.environ.get('USE_XVFB', '1').lower() in ['1', 'true', 'yes', 'y']
+            if os.name != 'nt' and use_xvfb:
+                try:
+                    from pyvirtualdisplay import Display  # type: ignore
+                    self._virtual_display = Display(visible=0, size=(1920, 1080))
+                    self._virtual_display.start()
+                    print("🖥️ Started virtual X framebuffer (Xvfb) 1920x1080")
+                except Exception as xvfb_e:
+                    print(f"⚠️ Could not start Xvfb virtual display: {xvfb_e}")
+        except Exception:
+            pass
+        
+        # Optional user profiles
+        if self.custom_user_data_dir:
+            chrome_options.add_argument(f"--user-data-dir={self.custom_user_data_dir}")
+            chrome_options.add_argument("--profile-directory=Default")
+        elif self.use_vpn_profile:
             # Use existing Chrome profile with VPN - cross-platform paths
             if os.name == 'nt':  # Windows
                 user_data_dir = os.path.join(
@@ -110,10 +132,8 @@ class EModalLoginHandler:
             else:  # Linux/Unix
                 home_dir = os.path.expanduser('~')
                 user_data_dir = os.path.join(home_dir, '.config', 'google-chrome')
-                # Alternative locations for different Linux distributions
                 if not os.path.exists(user_data_dir):
                     user_data_dir = os.path.join(home_dir, '.config', 'chromium')
-            
             if os.path.exists(user_data_dir):
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
@@ -122,10 +142,22 @@ class EModalLoginHandler:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--disable-gpu")  # Required on Linux
-        chrome_options.add_argument("--disable-extensions-except")  # Better extension handling
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-extensions")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # Headless sizing and stability
+        headless = os.environ.get('HEADLESS', '1').lower() in ['1', 'true', 'yes', 'y']
+        if headless:
+            # Use new headless for Chrome >=109
+            chrome_options.add_argument("--headless=new")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--hide-scrollbars")
+            chrome_options.add_argument("--force-device-scale-factor=1")
+        else:
+            # Ensure a large window even if running under Xvfb
+            chrome_options.add_argument("--window-size=1920,1080")
         
         # Linux-specific optimizations
         if os.name != 'nt':  # Non-Windows systems
@@ -137,6 +169,16 @@ class EModalLoginHandler:
         # Initialize driver
         self.driver = webdriver.Chrome(options=chrome_options)
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        # Maximize or set size explicitly to ensure scroll containers render fully
+        try:
+            if not headless:
+                self.driver.maximize_window()
+        except Exception:
+            try:
+                self.driver.set_window_size(1920, 1080)
+            except Exception:
+                pass
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
@@ -504,7 +546,7 @@ class EModalLoginHandler:
         
         finally:
             # Cleanup
-            if self.driver:
+            if self.driver and self.auto_close:
                 try:
                     self.driver.quit()
                     print("🔒 Browser closed")

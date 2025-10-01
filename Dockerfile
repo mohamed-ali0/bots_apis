@@ -66,3 +66,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 # Start script that handles display and runs the API
 CMD ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 & sleep 2 && source venv/bin/activate && python emodal_business_api.py"]
+
+

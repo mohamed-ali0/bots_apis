@@ -42,19 +42,28 @@ def test_get_containers():
     """Test get_containers endpoint"""
     print("\n📦 Testing get_containers endpoint...")
     
-    # Get credentials
-    username = input("Enter E-Modal username (or press Enter for 'jfernandez'): ").strip() or "jfernandez"
-    password = input("Enter E-Modal password (or press Enter for 'taffie'): ").strip() or "taffie"
-    api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "5a0a4a97f8b4c9505d0b719cd92a9dcb"
-    
-    keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
-    keep_alive = keep_alive_input in ['y', 'yes']
+    # Non-interactive mode via environment variables
+    auto_test = os.environ.get('AUTO_TEST', '1') == '1'
+    if auto_test:
+        username = os.environ.get('EMODAL_USERNAME', 'jfernandez')
+        password = os.environ.get('EMODAL_PASSWORD', 'taffie')
+        api_key = os.environ.get('CAPTCHA_API_KEY', '5a0a4a97f8b4c9505d0b719cd92a9dcb')
+        keep_alive = os.environ.get('KEEP_BROWSER_ALIVE', 'true').lower() in ['1', 'true', 'yes', 'y']
+    else:
+        # Interactive fallback
+        username = input("Enter E-Modal username (or press Enter for 'jfernandez'): ").strip() or "jfernandez"
+        password = input("Enter E-Modal password (or press Enter for 'taffie'): ").strip() or "taffie"
+        api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "5a0a4a97f8b4c9505d0b719cd92a9dcb"
+        keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
+        keep_alive = keep_alive_input in ['y', 'yes']
     
     payload = {
         "username": username,
         "password": password,
         "captcha_api_key": api_key,
-        "keep_browser_alive": keep_alive
+        "keep_browser_alive": keep_alive,
+        "capture_screens": True,
+        "screens_label": username
     }
     
     print(f"🚀 Testing container extraction for user: {username}")
@@ -65,9 +74,8 @@ def test_get_containers():
         start_time = time.time()
         response = requests.post(
             "http://localhost:5000/get_containers",
-            json=payload,
-            timeout=300,  # 5 minute timeout
-            stream=True   # For file download
+            json={**payload, "return_url": True},
+            timeout=300
         )
         duration = time.time() - start_time
         
@@ -75,41 +83,39 @@ def test_get_containers():
         print(f"📊 HTTP Status: {response.status_code}")
         
         if response.status_code == 200:
-            # Check if response is a file
-            content_type = response.headers.get('content-type', '')
-            
-            if 'excel' in content_type or 'spreadsheet' in content_type:
-                # It's an Excel file
-                filename = f"containers_{username}_{int(time.time())}.xlsx"
-                
-                with open(filename, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                file_size = os.path.getsize(filename)
+            # Expect JSON with download_url
+            data = response.json()
+            bundle_url = data.get('bundle_url')
+            if bundle_url:
                 print("🎉 CONTAINER EXTRACTION SUCCESSFUL!")
-                print(f"  📄 File saved: {filename}")
-                print(f"  📊 File size: {file_size} bytes")
+                print(f"  📦 Bundle URL: {bundle_url}")
                 
+                # Always close any sessions for this user after the test finishes
                 if keep_alive:
                     print("  🔄 Browser session kept alive for more operations")
                     print("  💡 Use GET /sessions to see active sessions")
                 else:
-                    print("  🔒 Browser session closed")
+                    # Close sessions for this user after test completes
+                    try:
+                        sessions = requests.get("http://localhost:5000/sessions").json().get('sessions', [])
+                        closed_any = False
+                        for s in sessions:
+                            if s.get('username') == username:
+                                sid = s.get('session_id')
+                                if sid:
+                                    requests.delete(f"http://localhost:5000/sessions/{sid}")
+                                    print(f"  🔒 Closed session: {sid}")
+                                    closed_any = True
+                        if not closed_any:
+                            print("  🔒 No sessions to close for user")
+                    except Exception as ce:
+                        print(f"  ⚠️ Could not auto-close session(s): {ce}")
                 
                 return True
-                
             else:
-                # It's a JSON error response
-                try:
-                    data = response.json()
-                    print("❌ CONTAINER EXTRACTION FAILED")
-                    print(f"  📝 Error: {data.get('error', 'Unknown error')}")
-                    return False
-                except:
-                    print("❌ Unexpected response format")
-                    print(f"  📝 Content: {response.text[:200]}...")
-                    return False
+                print("❌ Unexpected response (no download_url)")
+                print(f"  📝 Payload: {data}")
+                return False
         else:
             # Error response
             try:
@@ -149,6 +155,77 @@ def test_get_containers():
         return False
     except Exception as e:
         print(f"❌ Container extraction test error: {e}")
+        return False
+
+
+def test_make_appointment():
+    """Test make_appointment endpoint"""
+    print("\n📅 Testing make_appointment endpoint...")
+    
+    # Non-interactive mode via environment variables
+    auto_test = os.environ.get('AUTO_TEST', '1') == '1'
+    if auto_test:
+        username = os.environ.get('EMODAL_USERNAME', 'jfernandez')
+        password = os.environ.get('EMODAL_PASSWORD', 'taffie')
+        api_key = os.environ.get('CAPTCHA_API_KEY', '5a0a4a97f8b4c9505d0b719cd92a9dcb')
+        keep_alive = os.environ.get('KEEP_BROWSER_ALIVE', 'true').lower() in ['1', 'true', 'yes', 'y']
+    else:
+        username = input("Enter E-Modal username (or press Enter for 'jfernandez'): ").strip() or "jfernandez"
+        password = input("Enter E-Modal password (or press Enter for 'taffie'): ").strip() or "taffie"
+        api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "5a0a4a97f8b4c9505d0b719cd92a9dcb"
+        keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
+        keep_alive = keep_alive_input in ['y', 'yes']
+    
+    payload = {
+        "username": username,
+        "password": password,
+        "captcha_api_key": api_key,
+        "keep_browser_alive": keep_alive,
+        "capture_screens": True,
+        "screens_label": username,
+        "return_url": True
+    }
+    
+    print(f"🚀 Navigating to Make Appointment for user: {username}")
+    try:
+        start_time = time.time()
+        response = requests.post(
+            "http://localhost:5000/make_appointment",
+            json=payload,
+            timeout=300
+        )
+        duration = time.time() - start_time
+        print(f"⏱️ Request completed in {duration:.1f} seconds")
+        print(f"📊 HTTP Status: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            bundle_url = data.get('bundle_url')
+            if bundle_url:
+                print("🎉 MAKE APPOINTMENT READY!")
+                print(f"  📦 Bundle URL: {bundle_url}")
+                if not keep_alive:
+                    try:
+                        sessions = requests.get("http://localhost:5000/sessions").json().get('sessions', [])
+                        for s in sessions:
+                            if s.get('username') == username:
+                                sid = s.get('session_id')
+                                if sid:
+                                    requests.delete(f"http://localhost:5000/sessions/{sid}")
+                                    print(f"  🔒 Closed session: {sid}")
+                    except Exception as ce:
+                        print(f"  ⚠️ Could not auto-close session(s): {ce}")
+                return True
+        else:
+            try:
+                data = response.json()
+                print("❌ MAKE APPOINTMENT FAILED")
+                print(f"  📝 Error: {data.get('error', 'Unknown error')}")
+            except Exception:
+                print("❌ Unexpected response format")
+                print(f"  📝 Content: {response.text[:200]}...")
+        return False
+    except Exception as e:
+        print(f"❌ Make appointment test error: {e}")
         return False
 
 
@@ -192,40 +269,17 @@ def main():
     print("🧪 E-Modal Business API Test Suite")
     print("=" * 50)
     
-    # Test 1: Health check
+    # Test get_containers with infinite scroll
     if not test_health():
         print("❌ Health check failed. Cannot proceed.")
         return
-    
-    # Test 2: Session management
     test_sessions()
-    
-    # Test 3: Container extraction (optional)
     print("\n" + "=" * 50)
-    choice = input("🤔 Do you want to test container extraction? (y/N): ").strip().lower()
-    
-    if choice in ['y', 'yes']:
-        print("\n⚠️  CONTAINER EXTRACTION WARNING:")
-        print("  - This will open a Chrome browser")
-        print("  - Requires Urban VPN connected to US")
-        print("  - Uses your 2captcha account balance")
-        print("  - May take 1-2 minutes to complete")
-        print("  - Will download Excel file with container data")
-        
-        confirm = input("\n💰 Continue? (y/N): ").strip().lower()
-        if confirm in ['y', 'yes']:
-            test_get_containers()
-            
-            # Test session management after
-            print("\n📊 Checking sessions after container extraction...")
-            test_sessions()
-        else:
-            print("⏭️  Skipping container extraction test")
-    else:
-        print("⏭️  Skipping container extraction test")
-    
-    print("\n🎉 Test suite completed!")
-    print("📝 Check the API logs for detailed information")
+    print("🚀 Running get_containers test...")
+    ok = test_get_containers()
+    if not ok:
+        print("❌ get_containers test failed")
+    return
 
 
 if __name__ == "__main__":

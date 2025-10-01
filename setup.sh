@@ -332,3 +332,5 @@ echo "- http://localhost:5000/sessions"
 echo ""
 print_warning "For VPN functionality, install Urban VPN extension in your Chrome browser manually"
 print_info "Setup completed successfully! 🚀"
+
+
