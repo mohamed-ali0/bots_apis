@@ -685,69 +685,63 @@ class EModalBusinessOperations:
             print("☑️ Looking for 'Select All' checkbox...")
             self._capture_screenshot("before_select_all")
 
-            # Prefer the Angular Material header checkbox container
+            # Target the exact Angular Material inner container in table header
             try:
-                checkbox_container = self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, "//thead//mat-checkbox"))
+                clickable_target = self.wait.until(
+                    EC.presence_of_element_located((
+                        By.XPATH,
+                        "//thead//span[contains(@class,'mat-checkbox-inner-container')]"
+                    ))
                 )
+                print("   - Found mat-checkbox-inner-container in header")
             except TimeoutException:
-                return {"success": False, "error": "Could not find the 'mat-checkbox' container in the table header."}
+                return {"success": False, "error": "Could not find mat-checkbox inner container in header."}
 
-            # Determine best clickable target inside the component
-            clickable_target = None
+            # Also capture the mat-checkbox container for aria-checked verification
             try:
-                clickable_target = checkbox_container.find_element(By.TAG_NAME, "label")
-                print("   - Using <label> as the primary click target")
+                checkbox_container = clickable_target.find_element(By.XPATH, "ancestor::mat-checkbox")
             except NoSuchElementException:
+                # Fallback: closest role=checkbox element
                 try:
-                    clickable_target = checkbox_container.find_element(By.CLASS_NAME, "mat-checkbox-inner-container")
-                    print("   - Using inner <span> as the fallback click target")
-                except NoSuchElementException:
-                    try:
-                        clickable_target = checkbox_container.find_element(By.CLASS_NAME, "mat-checkbox-input")
-                        print("   - Using <input> as the last-resort click target")
-                    except NoSuchElementException:
-                        return {"success": False, "error": "Could not find a clickable element for the header checkbox"}
+                    checkbox_container = clickable_target.find_element(By.XPATH, "ancestor::*[@role='checkbox'][1]")
+                except Exception:
+                    checkbox_container = None
 
-            # Scroll into view and click via JS for reliability
+            # Perform the click using JavaScript for reliability
             try:
                 self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", clickable_target)
-                time.sleep(0.5)
+                time.sleep(0.4)
                 self.driver.execute_script("arguments[0].click();", clickable_target)
-                print("   ✅ Click command sent to the checkbox component.")
+                print("   ✅ Click command sent to mat-checkbox inner container")
                 time.sleep(1.5)
             except Exception as click_e:
-                return {"success": False, "error": f"Failed to execute click on checkbox component: {click_e}"}
+                return {"success": False, "error": f"Failed to click inner-container: {click_e}"}
 
-            # Verify aria-checked state on the mat-checkbox container
-            try:
-                final_state = (checkbox_container.get_attribute("aria-checked") or "").strip().lower()
-                is_checked = final_state == 'true'
-                print(f"   - Checkbox 'aria-checked' after click: '{final_state}'")
-                if not is_checked:
-                    return {"success": False, "error": "Click was sent, but checkbox did not become selected (aria-checked!=true)."}
-            except Exception as st_e:
-                return {"success": False, "error": f"Could not read aria-checked after click: {st_e}"}
+            # Verify aria-checked on the container if available
+            is_checked = None
+            if checkbox_container is not None:
+                try:
+                    final_state = (checkbox_container.get_attribute("aria-checked") or "").strip().lower()
+                    is_checked = (final_state == 'true')
+                    print(f"   - aria-checked after click: '{final_state}'")
+                except Exception:
+                    pass
 
-            # Verify at least some rows are marked selected
+            # Fallback: consider it checked if subsequent rows show selection
             try:
-                # Primary: Angular Material often toggles 'mat-selected' or aria-selected
                 selected_rows = self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class,'mat-selected') or @aria-selected='true'] | //tbody//tr[contains(@class,'mat-selected') or @aria-selected='true']")
                 selected_count = len(selected_rows)
-                if selected_count == 0:
-                    # Fallback: selected checkboxes in body
-                    selected_cells = self.driver.find_elements(By.XPATH, "//tbody//input[@type='checkbox' and (@checked or @aria-checked='true')] | //tbody//*[@role='checkbox' and @aria-checked='true']")
-                    selected_count = len(selected_cells)
-                print(f"✅ Verification: {selected_count} rows selected")
-            except Exception as v_e:
-                print(f"⚠️ Selection verification fallback due to: {v_e}")
+            except Exception:
                 selected_count = 0
 
             self._capture_screenshot("after_select_all")
+            if is_checked is False and selected_count == 0:
+                return {"success": False, "error": "Checkbox did not toggle and no rows selected."}
+
             return {
                 "success": True,
                 "checkboxes_selected": selected_count,
-                "checkbox_state": "checked"
+                "checkbox_state": "checked" if (is_checked or selected_count > 0) else "unknown"
             }
 
         except Exception as e:

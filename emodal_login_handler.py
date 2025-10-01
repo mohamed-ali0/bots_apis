@@ -108,13 +108,11 @@ class EModalLoginHandler:
         # Desired runtime modes via env
         headless = os.environ.get('HEADLESS', '0').lower() in ['1', 'true', 'yes', 'y']
         use_xvfb = os.environ.get('USE_XVFB', '1').lower() in ['1', 'true', 'yes', 'y']
-        stealth_mode = os.environ.get('STEALTH', '0').lower() in ['1', 'true', 'yes', 'y']
         
-        # Start a visible virtual framebuffer (Xvfb) when requested (Linux only)
+        # Start a virtual framebuffer (Xvfb) when requested (Linux only)
         if os.name != 'nt' and use_xvfb:
             try:
                 from pyvirtualdisplay import Display  # type: ignore
-                # visible=1 keeps a framebuffer window for debugging if a display is present; 0 creates an offscreen X server.
                 self._virtual_display = Display(visible=0, size=(1920, 1080))
                 self._virtual_display.start()
                 print("🖥️ Virtual framebuffer (Xvfb) active at 1920x1080")
@@ -122,7 +120,7 @@ class EModalLoginHandler:
                 print(f"⚠️ Could not start Xvfb virtual display: {xvfb_e}")
         
         # Log the selected browser mode
-        print(f"🌐 Browser mode → headless={headless}, xvfb={use_xvfb}, stealth={stealth_mode}")
+        print(f"🌐 Browser mode → headless={headless}, xvfb={use_xvfb}")
         
         # Unique user-data-dir strategy (prevents 'already in use' conflicts on servers)
         unique_profiles = os.environ.get('UNIQUE_CHROME_PROFILE', '1').lower() in ['1', 'true', 'yes', 'y']
@@ -169,27 +167,19 @@ class EModalLoginHandler:
             except Exception as mk_e:
                 print(f"⚠️ Could not create unique profile dir: {mk_e}")
         
-        # Optimize for automation - Linux-compatible options
+        # Core automation-safe options
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
         
-        # Optional stealth mitigations (off by default unless STEALTH=1)
-        if stealth_mode:
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
-        
         # Headless sizing and stability
         if headless:
-            # Use new headless for Chrome >=109
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--hide-scrollbars")
             chrome_options.add_argument("--force-device-scale-factor=1")
         else:
-            # Ensure a large window even if running under Xvfb
             chrome_options.add_argument("--window-size=1920,1080")
         
         # Linux-specific optimizations
@@ -202,14 +192,7 @@ class EModalLoginHandler:
         # Initialize driver
         self.driver = webdriver.Chrome(options=chrome_options)
         
-        # Optional navigator.webdriver masking
-        if stealth_mode:
-            try:
-                self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            except Exception:
-                pass
-        
-        # Maximize or set size explicitly to ensure scroll containers render fully
+        # Window sizing
         try:
             if not headless:
                 self.driver.maximize_window()
