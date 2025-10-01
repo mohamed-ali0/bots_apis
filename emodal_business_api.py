@@ -14,6 +14,7 @@ import os
 import time
 import tempfile
 import threading
+import zipfile
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 from dataclasses import dataclass
@@ -739,6 +740,15 @@ class EModalBusinessOperations:
                 excel_button = self.driver.find_element(By.XPATH, "//mat-icon[@svgicon='xls']/ancestor::button[1]")
                 self.driver.execute_script("arguments[0].click();", excel_button)
                 print("📥 Clicked Excel download button")
+                
+                # Take 5 screenshots after clicking download button
+                print("📸 Taking 5 screenshots after download click...")
+                for i in range(5):
+                    screenshot_name = f"after_download_click_{i+1}"
+                    self._capture_screenshot(screenshot_name)
+                    print(f"   📸 Screenshot {i+1}/5: {screenshot_name}")
+                    time.sleep(2)  # Wait 2 seconds between screenshots
+                    
             except Exception as click_e:
                 print(f"⚠️ Could not click export button: {click_e}")
             
@@ -746,16 +756,29 @@ class EModalBusinessOperations:
             print("⏳ Waiting 10 seconds for download...")
             time.sleep(10)
             
-            # Return session folder info regardless of what's in it
-            print(f"✅ Returning session folder: {download_dir}")
+            # Create zip file of session folder
+            print(f"📦 Creating zip of session folder: {download_dir}")
+            zip_path = self._create_session_zip(download_dir)
             self._capture_screenshot("after_download")
             
-            return {
-                "success": True,
-                "download_dir": download_dir,
-                "file_path": None,
-                "file_name": "session_folder_returned"
-            }
+            if zip_path and os.path.exists(zip_path):
+                file_size = os.path.getsize(zip_path)
+                return {
+                    "success": True,
+                    "download_dir": download_dir,
+                    "file_path": zip_path,
+                    "file_name": os.path.basename(zip_path),
+                    "file_size": file_size,
+                    "zip_created": True
+                }
+            else:
+                return {
+                    "success": True,
+                    "download_dir": download_dir,
+                    "file_path": None,
+                    "file_name": "zip_creation_failed",
+                    "zip_created": False
+                }
                 
         except Exception as e:
             print(f"⚠️ Error in download_excel_file: {e}")
@@ -765,6 +788,30 @@ class EModalBusinessOperations:
                 "file_path": None,
                 "file_name": "error_occurred"
             }
+
+    def _create_session_zip(self, session_dir: str) -> str:
+        """Create a zip file of the session directory and return the zip path"""
+        try:
+            # Create zip in the public downloads directory
+            zip_filename = f"{os.path.basename(session_dir)}.zip"
+            zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                if os.path.exists(session_dir):
+                    for root, dirs, files in os.walk(session_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, session_dir)
+                            zipf.write(file_path, arcname)
+                else:
+                    # Create empty zip if directory doesn't exist
+                    zipf.writestr("empty_folder.txt", "Session folder was empty or not found")
+            
+            print(f"📦 Created zip file: {zip_path}")
+            return zip_path
+        except Exception as e:
+            print(f"⚠️ Failed to create zip: {e}")
+            return None
 
     def _try_fallback_download_links(self, download_dir: str) -> Dict[str, Any]:
         """Try fallback download links when main export button fails"""
@@ -1939,6 +1986,33 @@ def get_containers():
             except Exception as be:
                 print(f"⚠️ Bundle creation failed: {be}")
 
+            # Check if we have a zip file from download_result
+            if download_result.get("success") and download_result.get("file_path"):
+                zip_path = download_result["file_path"]
+                if os.path.exists(zip_path):
+                    # Move zip file to downloads directory for public access
+                    zip_filename = os.path.basename(zip_path)
+                    public_zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
+                    try:
+                        import shutil
+                        shutil.move(zip_path, public_zip_path)
+                        print(f"📦 Moved zip file to public directory: {public_zip_path}")
+                    except Exception as move_e:
+                        print(f"⚠️ Could not move zip file: {move_e}")
+                        public_zip_path = zip_path
+                    
+                    # Return public download URL
+                    public_url = f"http://89.117.63.196:5010/files/{zip_filename}"
+                    print(f"🌐 Public download URL: {public_url}")
+                    return jsonify({
+                        "success": True,
+                        "download_url": public_url,
+                        "file_name": zip_filename,
+                        "file_size": download_result.get("file_size", 0),
+                        "message": "Zip file ready for download"
+                    })
+            
+            # Fallback to original logic
             if return_url:
                 response_data = {
                     "success": True,
