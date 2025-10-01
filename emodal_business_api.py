@@ -820,25 +820,54 @@ class EModalBusinessOperations:
             if not excel_button:
                 return {"success": False, "error": "Could not find Excel download button"}
             
-            # Ensure button is enabled (Angular Material often uses aria-disabled or class flags)
+            # --- CRUCIAL STEP: WAIT FOR THE BUTTON TO BECOME CLICKABLE ---
             try:
+                print("   ... Waiting for Export button to become enabled...")
                 self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", excel_button)
                 time.sleep(0.5)
-                # Wait up to 10s for enablement after selection
-                t0 = time.time()
-                while time.time() - t0 < 10:
-                    aria_disabled = (excel_button.get_attribute('aria-disabled') or '').lower()
-                    disabled_attr = excel_button.get_attribute('disabled')
-                    class_attr = (excel_button.get_attribute('class') or '').lower()
-                    is_enabled = (aria_disabled in ['', 'false']) and (disabled_attr is None) and ('disabled' not in class_attr and 'mat-button-disabled' not in class_attr)
-                    if is_enabled:
-                        break
-                    time.sleep(0.5)
-                print(f"   - Export button enabled: {is_enabled}")
-                if not is_enabled:
-                    return {"success": False, "error": "Export button remains disabled (no rows selected)."}
+                # Wait up to 15 seconds. It checks if the element is visible AND enabled.
+                WebDriverWait(self.driver, 15).until(
+                    EC.element_to_be_clickable(excel_button)
+                )
+                print("   ✅ Export button is now enabled and clickable.")
+            except TimeoutException:
+                print("   ⚠️ Export button did not become enabled. Trying fallback download link...")
+                self._capture_screenshot("export_button_disabled")
+                
+                # FALLBACK: Look for direct download links
+                try:
+                    download_link_selectors = [
+                        "//a[contains(@href, '.xlsx') or contains(@href, '.xls') or contains(@href, 'download')]",
+                        "//a[contains(@href, 'export') or contains(@href, 'excel')]",
+                        "//a[contains(text(), 'Download') or contains(text(), 'Export')]",
+                        "//a[@download]",
+                        "//a[contains(@class, 'download') or contains(@class, 'export')]"
+                    ]
+                    
+                    download_link = None
+                    for selector in download_link_selectors:
+                        try:
+                            link = self.driver.find_element(By.XPATH, selector)
+                            if link.is_displayed():
+                                download_link = link
+                                print(f"   ✅ Found fallback download link: {selector}")
+                                break
+                        except Exception:
+                            continue
+                    
+                    if download_link:
+                        # Click the direct download link
+                        self.driver.execute_script("arguments[0].click();", download_link)
+                        print("   📥 Clicked fallback download link")
+                        time.sleep(3)  # Wait for download to start
+                    else:
+                        return {"success": False, "error": "Export button disabled and no fallback download link found. The 'Select All' click likely failed."}
+                        
+                except Exception as fallback_e:
+                    return {"success": False, "error": f"Export button disabled and fallback failed: {fallback_e}"}
             except Exception as en_e:
                 print(f"⚠️ Enablement check failed: {en_e}")
+                return {"success": False, "error": f"Failed to verify button enablement: {en_e}"}
             
             # Set up session-specific download directory under project downloads/
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
