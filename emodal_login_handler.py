@@ -118,11 +118,24 @@ class EModalLoginHandler:
         except Exception:
             pass
         
-        # Optional user profiles
-        if self.custom_user_data_dir:
+        # Decide headless early for profile strategy
+        headless = os.environ.get('HEADLESS', '1').lower() in ['1', 'true', 'yes', 'y']
+        
+        # Unique user-data-dir strategy (prevents 'already in use' conflicts on servers)
+        unique_profiles = os.environ.get('UNIQUE_CHROME_PROFILE', '1').lower() in ['1', 'true', 'yes', 'y']
+        explicit_user_data_env = os.environ.get('CHROME_USER_DATA_DIR')
+        temp_profile_dir = None
+        
+        # Optional user profiles (priority order): explicit env -> custom -> vpn profile -> unique temp
+        if explicit_user_data_env:
+            chrome_options.add_argument(f"--user-data-dir={explicit_user_data_env}")
+            chrome_options.add_argument("--profile-directory=Default")
+            print(f"👤 Using explicit CHROME_USER_DATA_DIR: {explicit_user_data_env}")
+        elif self.custom_user_data_dir:
             chrome_options.add_argument(f"--user-data-dir={self.custom_user_data_dir}")
             chrome_options.add_argument("--profile-directory=Default")
-        elif self.use_vpn_profile:
+            print(f"👤 Using custom user data dir: {self.custom_user_data_dir}")
+        elif self.use_vpn_profile and not (headless and unique_profiles):
             # Use existing Chrome profile with VPN - cross-platform paths
             if os.name == 'nt':  # Windows
                 user_data_dir = os.path.join(
@@ -137,6 +150,21 @@ class EModalLoginHandler:
             if os.path.exists(user_data_dir):
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
+                print(f"👤 Using VPN profile at: {user_data_dir}")
+        else:
+            # Default: create a unique user data dir to avoid locking conflicts (server/headless)
+            try:
+                base_tmp = os.environ.get('TMPDIR') or '/tmp' if os.name != 'nt' else os.environ.get('TEMP', None)
+                if not base_tmp:
+                    base_tmp = os.getcwd()
+                import uuid, time
+                temp_profile_dir = os.path.join(base_tmp, f"emodal_chrome_{int(time.time())}_{uuid.uuid4().hex[:8]}")
+                os.makedirs(temp_profile_dir, exist_ok=True)
+                chrome_options.add_argument(f"--user-data-dir={temp_profile_dir}")
+                chrome_options.add_argument("--profile-directory=Default")
+                print(f"🗂️ Using unique Chrome profile dir: {temp_profile_dir}")
+            except Exception as mk_e:
+                print(f"⚠️ Could not create unique profile dir: {mk_e}")
         
         # Optimize for automation - Linux-compatible options
         chrome_options.add_argument("--no-sandbox")
@@ -148,7 +176,6 @@ class EModalLoginHandler:
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
         # Headless sizing and stability
-        headless = os.environ.get('HEADLESS', '1').lower() in ['1', 'true', 'yes', 'y']
         if headless:
             # Use new headless for Chrome >=109
             chrome_options.add_argument("--headless=new")
