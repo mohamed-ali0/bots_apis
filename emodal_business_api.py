@@ -15,6 +15,7 @@ import time
 import tempfile
 import threading
 import zipfile
+import pandas as pd
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 from dataclasses import dataclass
@@ -714,10 +715,10 @@ class EModalBusinessOperations:
             return {"success": True, "checkboxes_selected": 0}
     
     def download_excel_file(self) -> Dict[str, Any]:
-        """Click export button, wait 10 seconds, return session folder."""
+        """Extract container data, create Excel file, and prepare for zip download."""
         try:
-            print("📥 Looking for Excel download button...")
-            self._capture_screenshot("before_export")
+            print("📊 Starting data extraction and Excel creation...")
+            self._capture_screenshot("before_data_extraction")
             
             # Set up session-specific download directory
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
@@ -726,40 +727,32 @@ class EModalBusinessOperations:
             except Exception:
                 pass
             
-            # Configure download behavior
-            try:
-                self.driver.execute_cdp_cmd("Page.setDownloadBehavior", {
-                    "behavior": "allow",
-                    "downloadPath": download_dir
-                })
-            except Exception as cdp_e:
-                print(f"⚠️ Could not set download behavior: {cdp_e}")
+            # Extract container data from the page
+            extraction_result = self._extract_container_data()
+            containers_data = extraction_result.get("containers", [])
             
-            # Find and click export button
-            try:
-                excel_button = self.driver.find_element(By.XPATH, "//mat-icon[@svgicon='xls']/ancestor::button[1]")
-                self.driver.execute_script("arguments[0].click();", excel_button)
-                print("📥 Clicked Excel download button")
-                
-                # Take 5 screenshots after clicking download button
-                print("📸 Taking 5 screenshots after download click...")
-                for i in range(5):
-                    screenshot_name = f"after_download_click_{i+1}"
-                    self._capture_screenshot(screenshot_name)
-                    print(f"   📸 Screenshot {i+1}/5: {screenshot_name}")
-                    time.sleep(2)  # Wait 2 seconds between screenshots
-                    
-            except Exception as click_e:
-                print(f"⚠️ Could not click export button: {click_e}")
+            # Create our own Excel file with the extracted data
+            excel_filename = f"containers_data_{self.session.session_id}.xlsx"
+            excel_path = os.path.join(download_dir, excel_filename)
+            excel_created = self._create_excel_file(containers_data, excel_path)
             
-            # Wait 10 seconds
-            print("⏳ Waiting 10 seconds for download...")
-            time.sleep(10)
+            if excel_created:
+                print(f"✅ Excel file created successfully: {excel_path}")
+            else:
+                print("⚠️ Excel file creation failed, but continuing...")
             
-            # Create zip file of session folder
+            # Take 5 screenshots for documentation
+            print("📸 Taking 5 screenshots for documentation...")
+            for i in range(5):
+                screenshot_name = f"data_extraction_{i+1}"
+                self._capture_screenshot(screenshot_name)
+                print(f"   📸 Screenshot {i+1}/5: {screenshot_name}")
+                time.sleep(2)  # Wait 2 seconds between screenshots
+            
+            # Create zip file of session folder (includes Excel + screenshots)
             print(f"📦 Creating zip of session folder: {download_dir}")
             zip_path = self._create_session_zip(download_dir)
-            self._capture_screenshot("after_download")
+            self._capture_screenshot("after_zip_creation")
             
             if zip_path and os.path.exists(zip_path):
                 file_size = os.path.getsize(zip_path)
@@ -769,7 +762,10 @@ class EModalBusinessOperations:
                     "file_path": zip_path,
                     "file_name": os.path.basename(zip_path),
                     "file_size": file_size,
-                    "zip_created": True
+                    "zip_created": True,
+                    "excel_created": excel_created is not None,
+                    "containers_extracted": len(containers_data),
+                    "extraction_result": extraction_result
                 }
             else:
                 return {
@@ -777,7 +773,9 @@ class EModalBusinessOperations:
                     "download_dir": download_dir,
                     "file_path": None,
                     "file_name": "zip_creation_failed",
-                    "zip_created": False
+                    "zip_created": False,
+                    "excel_created": excel_created is not None,
+                    "containers_extracted": len(containers_data)
                 }
                 
         except Exception as e:
@@ -786,8 +784,118 @@ class EModalBusinessOperations:
                 "success": True,
                 "download_dir": os.path.join(DOWNLOADS_DIR, self.session.session_id),
                 "file_path": None,
-                "file_name": "error_occurred"
+                "file_name": "error_occurred",
+                "excel_created": False,
+                "containers_extracted": 0
             }
+
+    def _extract_container_data(self) -> Dict[str, Any]:
+        """Extract container data from the page and return as structured data"""
+        try:
+            print("📊 Extracting container data from page...")
+            
+            # Find all container rows
+            container_rows = self.driver.find_elements(By.XPATH, "//tbody//tr[contains(@class, 'container') or contains(@class, 'row')]")
+            print(f"   Found {len(container_rows)} container rows")
+            
+            containers_data = []
+            
+            for i, row in enumerate(container_rows):
+                try:
+                    # Extract text from all cells in the row
+                    cells = row.find_elements(By.TAG_NAME, "td")
+                    if not cells:
+                        # Try mat-cell for Angular Material tables
+                        cells = row.find_elements(By.TAG_NAME, "mat-cell")
+                    
+                    row_data = {}
+                    for j, cell in enumerate(cells):
+                        cell_text = cell.text.strip()
+                        if cell_text:
+                            row_data[f"column_{j+1}"] = cell_text
+                    
+                    # Try to identify specific columns by common patterns
+                    row_text = row.text
+                    if "container" in row_text.lower() or "booking" in row_text.lower():
+                        # This looks like a container row
+                        containers_data.append({
+                            "row_number": i + 1,
+                            "raw_text": row_text,
+                            "columns": row_data,
+                            "extracted_at": datetime.now().isoformat()
+                        })
+                        
+                except Exception as cell_e:
+                    print(f"   ⚠️ Error extracting row {i+1}: {cell_e}")
+                    continue
+            
+            print(f"✅ Extracted {len(containers_data)} containers")
+            return {
+                "success": True,
+                "containers": containers_data,
+                "total_count": len(containers_data),
+                "extraction_time": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            print(f"❌ Error extracting container data: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "containers": [],
+                "total_count": 0
+            }
+
+    def _create_excel_file(self, containers_data: list, output_path: str) -> str:
+        """Create Excel file with container data"""
+        try:
+            print(f"📊 Creating Excel file: {output_path}")
+            
+            # Convert to DataFrame
+            df_data = []
+            for container in containers_data:
+                row_data = {
+                    "Row Number": container.get("row_number", ""),
+                    "Raw Text": container.get("raw_text", ""),
+                    "Extracted At": container.get("extracted_at", "")
+                }
+                
+                # Add individual columns
+                columns = container.get("columns", {})
+                for col_name, col_value in columns.items():
+                    row_data[col_name] = col_value
+                
+                df_data.append(row_data)
+            
+            if not df_data:
+                # Create empty Excel with headers
+                df_data = [{
+                    "Row Number": "No data found",
+                    "Raw Text": "No containers were extracted",
+                    "Extracted At": datetime.now().isoformat()
+                }]
+            
+            df = pd.DataFrame(df_data)
+            
+            # Create Excel file
+            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Containers', index=False)
+                
+                # Add summary sheet
+                summary_data = {
+                    "Metric": ["Total Containers", "Extraction Time", "API Version"],
+                    "Value": [len(containers_data), datetime.now().isoformat(), "1.0"]
+                }
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            
+            file_size = os.path.getsize(output_path)
+            print(f"✅ Excel file created: {output_path} ({file_size} bytes)")
+            return output_path
+            
+        except Exception as e:
+            print(f"❌ Error creating Excel file: {e}")
+            return None
 
     def _create_session_zip(self, session_dir: str) -> str:
         """Create a zip file of the session directory and return the zip path"""
