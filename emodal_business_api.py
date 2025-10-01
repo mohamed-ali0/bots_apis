@@ -709,7 +709,9 @@ class EModalBusinessOperations:
                 time.sleep(0.5)
                 self.driver.execute_script("arguments[0].click();", clickable_target)
                 print("   ✅ Click command sent to the checkbox inner container.")
-                time.sleep(2)
+                print("   ⏳ Waiting 15 seconds for website to process selection of all rows...")
+                time.sleep(15)  # Wait for website to process selection of all 894 rows
+                print("   ✅ 15-second wait completed, checking results...")
             except Exception as click_e:
                 return {"success": False, "error": f"Failed to execute click on the inner container: {click_e}"}
 
@@ -745,6 +747,7 @@ class EModalBusinessOperations:
                         "aria_checked": final_state
                     }
                 else:
+                    print(f"❌ Select All failed: aria-checked='{final_state}', selected_rows={selected_count}")
                     return {"success": False, "error": f"Click failed. aria-checked='{final_state}', selected_rows={selected_count}"}
                     
             except Exception as verify_e:
@@ -1968,8 +1971,11 @@ def get_containers():
                 print(f"✅ Infinite scroll completed: {scroll_result.get('total_containers', 'unknown')} containers loaded")
             
             # Step 2: Select all containers
+            print("🔘 Calling select_all_containers...")
             select_result = operations.select_all_containers()
+            print(f"🔘 select_all_containers returned: {select_result}")
             if not select_result["success"]:
+                print(f"❌ Select all failed: {select_result['error']}")
                 if not keep_alive:
                     session.driver.quit()
                 return jsonify({
@@ -1978,8 +1984,11 @@ def get_containers():
                 }), 500
             
             # Step 3: Download Excel file
+            print("📥 Calling download_excel_file...")
             download_result = operations.download_excel_file()
+            print(f"📥 download_excel_file returned: {download_result}")
             if not download_result["success"]:
+                print(f"❌ Download failed: {download_result['error']}")
                 if not keep_alive:
                     session.driver.quit()
                 return jsonify({
