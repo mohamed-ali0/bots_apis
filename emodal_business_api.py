@@ -212,7 +212,7 @@ class EModalBusinessOperations:
             except Exception:
                 pass
 
-            # If we’re on Identity page, first load the app root to refresh session
+            # If we're on Identity page, first load the app root to refresh session
             try:
                 url0 = (self.driver.current_url or "").lower()
                 title0 = (self.driver.title or "").lower()
@@ -1874,7 +1874,7 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
         except Exception:
             pass
 
-        # Prime the app root to establish app context if we’re still on Identity
+        # Prime the app root to establish app context if we're still on Identity
         try:
             url_check = (login_handler.driver.current_url or "").lower()
             title_check = (login_handler.driver.title or "").lower()
@@ -2520,11 +2520,11 @@ if __name__ == '__main__':
     print("  DELETE /sessions/<id> - Close specific session")
     print("  GET /health - Health check")
     print("=" * 50)
-    print("🔗 Starting server on http://localhost:5000")
+    print("🔗 Starting server on http://0.0.0.0:5010")
     
     app.run(
         host='0.0.0.0',
-        port=5000,
+        port=5010,
         debug=False,
         threaded=True
     )

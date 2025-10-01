@@ -17,7 +17,7 @@ def test_health():
     print("🔍 Testing business API health...")
     
     try:
-        response = requests.get("http://localhost:5000/health")
+        response = requests.get("http://89.117.63.196:5010/health")
         
         if response.status_code == 200:
             data = response.json()
@@ -73,7 +73,7 @@ def test_get_containers():
     try:
         start_time = time.time()
         response = requests.post(
-            "http://localhost:5000/get_containers",
+            "http://89.117.63.196:5010/get_containers",
             json={**payload, "return_url": True},
             timeout=300
         )
@@ -97,13 +97,13 @@ def test_get_containers():
                 else:
                     # Close sessions for this user after test completes
                     try:
-                        sessions = requests.get("http://localhost:5000/sessions").json().get('sessions', [])
+                        sessions = requests.get("http://89.117.63.196:5010/sessions").json().get('sessions', [])
                         closed_any = False
                         for s in sessions:
                             if s.get('username') == username:
                                 sid = s.get('session_id')
                                 if sid:
-                                    requests.delete(f"http://localhost:5000/sessions/{sid}")
+                                    requests.delete(f"http://89.117.63.196:5010/sessions/{sid}")
                                     print(f"  🔒 Closed session: {sid}")
                                     closed_any = True
                         if not closed_any:
@@ -190,7 +190,7 @@ def test_make_appointment():
     try:
         start_time = time.time()
         response = requests.post(
-            "http://localhost:5000/make_appointment",
+            "http://89.117.63.196:5010/make_appointment",
             json=payload,
             timeout=300
         )
@@ -205,12 +205,12 @@ def test_make_appointment():
                 print(f"  📦 Bundle URL: {bundle_url}")
                 if not keep_alive:
                     try:
-                        sessions = requests.get("http://localhost:5000/sessions").json().get('sessions', [])
+                        sessions = requests.get("http://89.117.63.196:5010/sessions").json().get('sessions', [])
                         for s in sessions:
                             if s.get('username') == username:
                                 sid = s.get('session_id')
                                 if sid:
-                                    requests.delete(f"http://localhost:5000/sessions/{sid}")
+                                    requests.delete(f"http://89.117.63.196:5010/sessions/{sid}")
                                     print(f"  🔒 Closed session: {sid}")
                     except Exception as ce:
                         print(f"  ⚠️ Could not auto-close session(s): {ce}")
@@ -234,7 +234,7 @@ def test_sessions():
     print("\n🔗 Testing session management...")
     
     try:
-        response = requests.get("http://localhost:5000/sessions")
+        response = requests.get("http://89.117.63.196:5010/sessions")
         
         if response.status_code == 200:
             data = response.json()
