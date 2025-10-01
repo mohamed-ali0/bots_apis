@@ -715,21 +715,40 @@ class EModalBusinessOperations:
 
             # 4. Verify the click was successful using 'aria-checked'
             try:
+                print("   - Checking checkbox state after click...")
                 final_state = checkbox_container.get_attribute("aria-checked")
-                if final_state != 'true':
-                    return {"success": False, "error": f"Click failed. The 'aria-checked' state is '{final_state}', not 'true'."}
-
-                selected_count = len(self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class, 'mat-selected')]"))
-                print(f"✅ Verification successful: {selected_count} rows are now selected.")
+                print(f"   - aria-checked after click: '{final_state}'")
                 
-                self._capture_screenshot("after_select_all")
+                # Also check for selected rows as alternative verification
+                selected_rows = self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class, 'mat-selected')]")
+                selected_count = len(selected_rows)
+                print(f"   - Selected rows count: {selected_count}")
                 
-                return {
-                    "success": True,
-                    "checkboxes_selected": selected_count,
-                    "checkbox_state": "checked"
-                }
+                # Check if Export button is enabled as another verification
+                try:
+                    export_btn = self.driver.find_element(By.XPATH, "//mat-icon[@svgicon='xls']/ancestor::button[1]")
+                    aria_disabled = (export_btn.get_attribute('aria-disabled') or '').lower()
+                    disabled_attr = export_btn.get_attribute('disabled')
+                    is_export_enabled = (aria_disabled in ['', 'false']) and (disabled_attr is None)
+                    print(f"   - Export button enabled: {is_export_enabled}")
+                except Exception as exp_e:
+                    print(f"   - Could not check export button: {exp_e}")
+                
+                # Accept success if either aria-checked is true OR we have selected rows
+                if final_state == 'true' or selected_count > 0:
+                    print(f"✅ Verification successful: {selected_count} rows are now selected.")
+                    self._capture_screenshot("after_select_all")
+                    return {
+                        "success": True,
+                        "checkboxes_selected": selected_count,
+                        "checkbox_state": final_state,
+                        "aria_checked": final_state
+                    }
+                else:
+                    return {"success": False, "error": f"Click failed. aria-checked='{final_state}', selected_rows={selected_count}"}
+                    
             except Exception as verify_e:
+                print(f"   ❌ Verification failed: {verify_e}")
                 return {"success": False, "error": f"Could not verify the checkbox state after the click: {verify_e}"}
 
         except Exception as e:
@@ -2188,7 +2207,12 @@ def make_appointment():
                 return ('', 204)
 
         except Exception as operation_error:
+            import traceback
+            error_details = traceback.format_exc()
             logger.error(f"[{request_id}] Operation failed: {str(operation_error)}")
+            logger.error(f"[{request_id}] Full traceback: {error_details}")
+            print(f"❌ Operation failed: {str(operation_error)}")
+            print(f"❌ Full traceback: {error_details}")
             if not keep_alive:
                 try:
                     session.driver.quit()
@@ -2200,7 +2224,12 @@ def make_appointment():
             }), 500
 
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         logger.error(f"[{request_id}] Unexpected error: {str(e)}")
+        logger.error(f"[{request_id}] Full traceback: {error_details}")
+        print(f"❌ Unexpected error: {str(e)}")
+        print(f"❌ Full traceback: {error_details}")
         return jsonify({
             "success": False,
             "error": f"Unexpected error: {str(e)}"
