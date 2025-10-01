@@ -680,195 +680,76 @@ class EModalBusinessOperations:
     def select_all_containers(self) -> Dict[str, Any]:
         """Select all containers using the master checkbox"""
         try:
+            from selenium.common.exceptions import TimeoutException, NoSuchElementException
+            from selenium.webdriver.support import expected_conditions as EC
             print("☑️ Looking for 'Select All' checkbox...")
             self._capture_screenshot("before_select_all")
-            
-            # Common selectors for "select all" checkbox (header-first with fallbacks)
-            select_all_selectors = [
-                # Native inputs in header
-                "//thead//input[@type='checkbox']",
-                "//th//input[@type='checkbox']",
-                "//table//thead//input[@type='checkbox']",
-                # Angular Material (mat-checkbox) input/label/inner container
-                "//mat-checkbox//input[contains(@id,'-input')]",
-                "//mat-checkbox//label",
-                "//mat-checkbox//span[contains(@class,'mat-checkbox-inner-container')]",
-                # ARIA role=checkbox in header
-                "//thead//*[@role='checkbox']",
-                "//th//*[@role='checkbox']",
-                # Text-based
-                "//*[normalize-space(text())='Select all' or normalize-space(text())='Select All']",
-                # Common IDs/classes/data-attrs
-                "//input[@type='checkbox' and (@id='selectAll' or contains(@class,'select-all') or contains(@class,'selectAll'))]",
-                "//*[@data-select-all='true' or @data-select-all='1']",
-                # Fallbacks
-                "(//table//th//input[@type='checkbox'])[1]",
-                ".select-all-checkbox",
-                "input[data-select-all]",
-                "//input[@type='checkbox'][1]"
-            ]
-            
-            # Also look for containers to count them first
+
+            # Prefer the Angular Material header checkbox container
             try:
-                container_rows = self.driver.find_elements(By.XPATH, "//tr[contains(@class, 'container-row') or td[contains(@class, 'container')]]")
-                if not container_rows:
-                    # Alternative: look for any table rows with data
-                    container_rows = self.driver.find_elements(By.XPATH, "//tbody//tr[td]")
-                
-                container_count = len(container_rows)
-                print(f"📊 Found {container_count} container rows on page")
-            except Exception as e:
-                print(f"⚠️ Could not count containers: {e}")
-                container_count = 0
-            
-            select_all_checkbox = None
-            used_selector = None
-            
-            # Try each selector
-            for selector in select_all_selectors:
-                try:
-                    if selector.startswith("//"):
-                        # XPath selector
-                        element = self.driver.find_element(By.XPATH, selector)
-                    else:
-                        # CSS selector
-                        element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    
-                    if element.is_displayed():
-                        # If we matched a mat-checkbox label or inner span or role element,
-                        # we still need the actual input for state checks.
-                        select_all_checkbox = None
-                        if element.tag_name.lower() == 'input' and element.get_attribute('type') == 'checkbox':
-                            select_all_checkbox = element
-                        else:
-                            # Try to find the related input within the same mat-checkbox or by label[for]
-                            try:
-                                # Climb to mat-checkbox ancestor then find input
-                                mat = element.find_element(By.XPATH, "ancestor::mat-checkbox")
-                                select_all_checkbox = mat.find_element(By.XPATH, ".//input[contains(@id,'-input') and @type='checkbox']")
-                            except Exception:
-                                # If current is a label, resolve its 'for'
-                                try:
-                                    control_id = element.get_attribute('for')
-                                    if control_id:
-                                        select_all_checkbox = self.driver.find_element(By.ID, control_id)
-                                except Exception:
-                                    pass
-                        if select_all_checkbox:
-                            used_selector = selector
-                            print(f"✅ Found select-all via: {selector}")
-                            break
-                        
-                except Exception as e:
-                    print(f"❌ Selector '{selector}' failed: {e}")
-                    continue
-            
-            if not select_all_checkbox:
-                # Fallback: look for any checkbox that might be the master
-                try:
-                    all_checkboxes = self.driver.find_elements(By.XPATH, "//input[@type='checkbox']")
-                    print(f"🔍 Found {len(all_checkboxes)} total checkboxes on page")
-                    
-                    for i, checkbox in enumerate(all_checkboxes):
-                        try:
-                            checkbox_id = checkbox.get_attribute("id")
-                            checkbox_class = checkbox.get_attribute("class")
-                            checkbox_name = checkbox.get_attribute("name")
-                            parent_element = checkbox.find_element(By.XPATH, "./..")
-                            parent_tag = parent_element.tag_name
-                            
-                            print(f"  Checkbox {i+1}: id='{checkbox_id}', class='{checkbox_class}', name='{checkbox_name}', parent='{parent_tag}'")
-                            
-                            # Check if it's in table header (likely master checkbox)
-                            if parent_tag in ['th', 'thead'] or 'select' in (checkbox_class or '').lower():
-                                select_all_checkbox = checkbox
-                                used_selector = f"checkbox_{i+1}_in_{parent_tag}"
-                                print(f"✅ Using checkbox {i+1} as select-all (in {parent_tag})")
-                                break
-                                
-                        except Exception as debug_e:
-                            print(f"  Debug error for checkbox {i+1}: {debug_e}")
-                            continue
-                    
-                except Exception as fallback_e:
-                    print(f"❌ Fallback checkbox search failed: {fallback_e}")
-            
-            if not select_all_checkbox:
-                return {"success": False, "error": "Could not find select-all checkbox"}
-            
-            # Click the select-all checkbox
+                checkbox_container = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, "//thead//mat-checkbox"))
+                )
+            except TimeoutException:
+                return {"success": False, "error": "Could not find the 'mat-checkbox' container in the table header."}
+
+            # Determine best clickable target inside the component
+            clickable_target = None
             try:
-                # Scroll to element
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", select_all_checkbox)
-                time.sleep(1)
-                
-                # Check current state
-                is_checked = select_all_checkbox.is_selected()
-                print(f"📋 Select-all checkbox current state: {'checked' if is_checked else 'unchecked'}")
-                
-                # Click to select all with robust fallback: input, label[for], inner-container, JS
-                clicked = False
+                clickable_target = checkbox_container.find_element(By.TAG_NAME, "label")
+                print("   - Using <label> as the primary click target")
+            except NoSuchElementException:
                 try:
-                    select_all_checkbox.click()
-                    clicked = True
-                except Exception as e1:
-                    print(f"⚠️ Direct input click failed: {e1}")
-                if not clicked:
+                    clickable_target = checkbox_container.find_element(By.CLASS_NAME, "mat-checkbox-inner-container")
+                    print("   - Using inner <span> as the fallback click target")
+                except NoSuchElementException:
                     try:
-                        cb_id = select_all_checkbox.get_attribute('id')
-                        if cb_id:
-                            label = self.driver.find_element(By.XPATH, f"//label[@for='{cb_id}']")
-                            self.driver.execute_script("arguments[0].scrollIntoView(true);", label)
-                            time.sleep(0.2)
-                            label.click()
-                            clicked = True
-                    except Exception as e2:
-                        print(f"⚠️ Label[for] click failed: {e2}")
-                if not clicked:
-                    try:
-                        inner = select_all_checkbox.find_element(By.XPATH, "ancestor::mat-checkbox//span[contains(@class,'mat-checkbox-inner-container')]")
-                        self.driver.execute_script("arguments[0].scrollIntoView(true);", inner)
-                        time.sleep(0.2)
-                        inner.click()
-                        clicked = True
-                    except Exception as e3:
-                        print(f"⚠️ Inner-container click failed: {e3}")
-                if not clicked:
-                    self.driver.execute_script("arguments[0].click();", select_all_checkbox)
-                time.sleep(2)  # Wait for selection to process
-                
-                # Verify the click worked
-                new_state = select_all_checkbox.is_selected()
-                if not new_state:
-                    # Check aria-checked on mat-checkbox
-                    try:
-                        mat = select_all_checkbox.find_element(By.XPATH, "ancestor::mat-checkbox")
-                        aria = (mat.get_attribute('aria-checked') or '').lower()
-                        new_state = aria == 'true'
-                    except Exception:
-                        pass
-                print(f"📋 Select-all checkbox new state: {'checked' if new_state else 'unchecked'}")
-                self._capture_screenshot("after_select_all")
-                
-                # Count selected checkboxes to verify
-                try:
-                    selected_checkboxes = self.driver.find_elements(By.XPATH, "//input[@type='checkbox' and @checked] | //*[@role='checkbox' and @aria-checked='true']")
-                    selected_count = len(selected_checkboxes)
-                except:
-                    selected_count = "unknown"
-                print(f"✅ {selected_count} checkboxes now selected")
-                
-                return {
-                    "success": True,
-                    "selector_used": used_selector,
-                    "containers_found": container_count,
-                    "checkboxes_selected": selected_count,
-                    "checkbox_state": "checked" if new_state else "unchecked"
-                }
-                
+                        clickable_target = checkbox_container.find_element(By.CLASS_NAME, "mat-checkbox-input")
+                        print("   - Using <input> as the last-resort click target")
+                    except NoSuchElementException:
+                        return {"success": False, "error": "Could not find a clickable element for the header checkbox"}
+
+            # Scroll into view and click via JS for reliability
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", clickable_target)
+                time.sleep(0.5)
+                self.driver.execute_script("arguments[0].click();", clickable_target)
+                print("   ✅ Click command sent to the checkbox component.")
+                time.sleep(1.5)
             except Exception as click_e:
-                return {"success": False, "error": f"Failed to click select-all checkbox: {str(click_e)}"}
-                
+                return {"success": False, "error": f"Failed to execute click on checkbox component: {click_e}"}
+
+            # Verify aria-checked state on the mat-checkbox container
+            try:
+                final_state = (checkbox_container.get_attribute("aria-checked") or "").strip().lower()
+                is_checked = final_state == 'true'
+                print(f"   - Checkbox 'aria-checked' after click: '{final_state}'")
+                if not is_checked:
+                    return {"success": False, "error": "Click was sent, but checkbox did not become selected (aria-checked!=true)."}
+            except Exception as st_e:
+                return {"success": False, "error": f"Could not read aria-checked after click: {st_e}"}
+
+            # Verify at least some rows are marked selected
+            try:
+                # Primary: Angular Material often toggles 'mat-selected' or aria-selected
+                selected_rows = self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class,'mat-selected') or @aria-selected='true'] | //tbody//tr[contains(@class,'mat-selected') or @aria-selected='true']")
+                selected_count = len(selected_rows)
+                if selected_count == 0:
+                    # Fallback: selected checkboxes in body
+                    selected_cells = self.driver.find_elements(By.XPATH, "//tbody//input[@type='checkbox' and (@checked or @aria-checked='true')] | //tbody//*[@role='checkbox' and @aria-checked='true']")
+                    selected_count = len(selected_cells)
+                print(f"✅ Verification: {selected_count} rows selected")
+            except Exception as v_e:
+                print(f"⚠️ Selection verification fallback due to: {v_e}")
+                selected_count = 0
+
+            self._capture_screenshot("after_select_all")
+            return {
+                "success": True,
+                "checkboxes_selected": selected_count,
+                "checkbox_state": "checked"
+            }
+
         except Exception as e:
             return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
