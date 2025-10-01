@@ -104,22 +104,25 @@ class EModalLoginHandler:
         
         # Headless/Xvfb configuration for non-GUI servers
         self._virtual_display = None
-        try:
-            # Enable virtual framebuffer (Xvfb) when requested (Linux only)
-            use_xvfb = os.environ.get('USE_XVFB', '1').lower() in ['1', 'true', 'yes', 'y']
-            if os.name != 'nt' and use_xvfb:
-                try:
-                    from pyvirtualdisplay import Display  # type: ignore
-                    self._virtual_display = Display(visible=0, size=(1920, 1080))
-                    self._virtual_display.start()
-                    print("🖥️ Started virtual X framebuffer (Xvfb) 1920x1080")
-                except Exception as xvfb_e:
-                    print(f"⚠️ Could not start Xvfb virtual display: {xvfb_e}")
-        except Exception:
-            pass
         
-        # Decide headless early for profile strategy
-        headless = os.environ.get('HEADLESS', '1').lower() in ['1', 'true', 'yes', 'y']
+        # Desired runtime modes via env
+        headless = os.environ.get('HEADLESS', '0').lower() in ['1', 'true', 'yes', 'y']
+        use_xvfb = os.environ.get('USE_XVFB', '1').lower() in ['1', 'true', 'yes', 'y']
+        stealth_mode = os.environ.get('STEALTH', '0').lower() in ['1', 'true', 'yes', 'y']
+        
+        # Start a visible virtual framebuffer (Xvfb) when requested (Linux only)
+        if os.name != 'nt' and use_xvfb:
+            try:
+                from pyvirtualdisplay import Display  # type: ignore
+                # visible=1 keeps a framebuffer window for debugging if a display is present; 0 creates an offscreen X server.
+                self._virtual_display = Display(visible=0, size=(1920, 1080))
+                self._virtual_display.start()
+                print("🖥️ Virtual framebuffer (Xvfb) active at 1920x1080")
+            except Exception as xvfb_e:
+                print(f"⚠️ Could not start Xvfb virtual display: {xvfb_e}")
+        
+        # Log the selected browser mode
+        print(f"🌐 Browser mode → headless={headless}, xvfb={use_xvfb}, stealth={stealth_mode}")
         
         # Unique user-data-dir strategy (prevents 'already in use' conflicts on servers)
         unique_profiles = os.environ.get('UNIQUE_CHROME_PROFILE', '1').lower() in ['1', 'true', 'yes', 'y']
@@ -154,7 +157,7 @@ class EModalLoginHandler:
         else:
             # Default: create a unique user data dir to avoid locking conflicts (server/headless)
             try:
-                base_tmp = os.environ.get('TMPDIR') or '/tmp' if os.name != 'nt' else os.environ.get('TEMP', None)
+                base_tmp = os.environ.get('TMPDIR') or ('/tmp' if os.name != 'nt' else os.environ.get('TEMP', None))
                 if not base_tmp:
                     base_tmp = os.getcwd()
                 import uuid, time
@@ -169,11 +172,14 @@ class EModalLoginHandler:
         # Optimize for automation - Linux-compatible options
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # Optional stealth mitigations (off by default unless STEALTH=1)
+        if stealth_mode:
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            chrome_options.add_experimental_option('useAutomationExtension', False)
         
         # Headless sizing and stability
         if headless:
@@ -195,7 +201,13 @@ class EModalLoginHandler:
         
         # Initialize driver
         self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        # Optional navigator.webdriver masking
+        if stealth_mode:
+            try:
+                self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            except Exception:
+                pass
         
         # Maximize or set size explicitly to ensure scroll containers render fully
         try:
