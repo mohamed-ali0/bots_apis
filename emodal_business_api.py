@@ -119,7 +119,7 @@ class EModalBusinessOperations:
 
     def _capture_screenshot(self, tag: str):
         if not self.screens_enabled:
-            return
+            return None
         try:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
@@ -156,8 +156,10 @@ class EModalBusinessOperations:
             except Exception:
                 pass
             self.screens.append(raw_path)
+            return raw_path
         except Exception as e:
             print(f"⚠️ Screenshot failed: {e}")
+            return None
 
     def ensure_app_context(self, max_wait_seconds: int = 45) -> Dict[str, Any]:
         """Ensure we are in authenticated app context (not Identity/forbidden) and app is fully loaded."""
@@ -678,84 +680,59 @@ class EModalBusinessOperations:
             return {"success": False, "error": f"Navigation failed: {str(e)}"}
     
     def select_all_containers(self) -> Dict[str, Any]:
-        """Select all containers using a precise click on the mat-checkbox inner container."""
+        """Selects all containers with a precise click and an explicit wait for the result."""
         try:
             from selenium.common.exceptions import TimeoutException, NoSuchElementException
             from selenium.webdriver.support import expected_conditions as EC
             print("☑️ Looking for 'Select All' checkbox...")
             self._capture_screenshot("before_select_all")
 
-            # 1. Target the specific, clickable inner container of the header checkbox
+            # 1. Target the parent mat-checkbox component in the header
+            checkbox_container_selector = (By.XPATH, "//thead//mat-checkbox")
             try:
-                clickable_target = self.wait.until(
-                    EC.presence_of_element_located((
-                        By.XPATH,
-                        "//thead//span[contains(@class,'mat-checkbox-inner-container')]"
-                    ))
+                checkbox_container = self.wait.until(
+                    EC.presence_of_element_located(checkbox_container_selector)
                 )
-                print("   - Found mat-checkbox-inner-container in header.")
             except TimeoutException:
-                return {"success": False, "error": "Could not find 'mat-checkbox-inner-container' in the table header."}
+                return {"success": False, "error": "Could not find 'mat-checkbox' in the table header."}
 
-            # 2. Get the parent <mat-checkbox> for state verification later
+            # 2. Find the <label> element, which is the most reliable click target
             try:
-                checkbox_container = clickable_target.find_element(By.XPATH, "ancestor::mat-checkbox")
+                clickable_target = checkbox_container.find_element(By.TAG_NAME, "label")
             except NoSuchElementException:
-                return {"success": False, "error": "Could not find parent 'mat-checkbox' for verification."}
+                return {"success": False, "error": "Could not find <label> within the mat-checkbox component."}
 
             # 3. Perform a reliable JavaScript click
             try:
-                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", clickable_target)
-                time.sleep(0.5)
                 self.driver.execute_script("arguments[0].click();", clickable_target)
-                print("   ✅ Click command sent to the checkbox inner container.")
-                print("   ⏳ Waiting 15 seconds for website to process selection of all rows...")
-                time.sleep(15)  # Wait for website to process selection of all 894 rows
-                print("   ✅ 15-second wait completed, checking results...")
+                print("   ✅ Click command sent to the checkbox component.")
             except Exception as click_e:
-                return {"success": False, "error": f"Failed to execute click on the inner container: {click_e}"}
+                return {"success": False, "error": f"Failed to execute click: {click_e}"}
 
-            # 4. Verify the click was successful using 'aria-checked'
+            # 4. CRUCIAL: Explicitly wait for the 'aria-checked' attribute to become 'true'
             try:
-                print("   - Checking checkbox state after click...")
-                final_state = checkbox_container.get_attribute("aria-checked")
-                print(f"   - aria-checked after click: '{final_state}'")
-                
-                # Also check for selected rows as alternative verification
-                selected_rows = self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class, 'mat-selected')]")
-                selected_count = len(selected_rows)
-                print(f"   - Selected rows count: {selected_count}")
-                
-                # Check if Export button is enabled as another verification
-                try:
-                    export_btn = self.driver.find_element(By.XPATH, "//mat-icon[@svgicon='xls']/ancestor::button[1]")
-                    aria_disabled = (export_btn.get_attribute('aria-disabled') or '').lower()
-                    disabled_attr = export_btn.get_attribute('disabled')
-                    is_export_enabled = (aria_disabled in ['', 'false']) and (disabled_attr is None)
-                    print(f"   - Export button enabled: {is_export_enabled}")
-                except Exception as exp_e:
-                    print(f"   - Could not check export button: {exp_e}")
-                
-                # Accept success if either aria-checked is true OR we have selected rows
-                if final_state == 'true' or selected_count > 0:
-                    print(f"✅ Verification successful: {selected_count} rows are now selected.")
-                    self._capture_screenshot("after_select_all")
-                    return {
-                        "success": True,
-                        "checkboxes_selected": selected_count,
-                        "checkbox_state": final_state,
-                        "aria_checked": final_state
-                    }
-                else:
-                    print(f"❌ Select All failed: aria-checked='{final_state}', selected_rows={selected_count}")
-                    return {"success": False, "error": f"Click failed. aria-checked='{final_state}', selected_rows={selected_count}"}
-                    
-            except Exception as verify_e:
-                print(f"   ❌ Verification failed: {verify_e}")
-                return {"success": False, "error": f"Could not verify the checkbox state after the click: {verify_e}"}
+                print("   ... Waiting up to 10 seconds for selection to be processed...")
+                WebDriverWait(self.driver, 10).until(
+                    lambda driver: checkbox_container.get_attribute("aria-checked") == 'true'
+                )
+            except TimeoutException:
+                screenshot_path = self._capture_screenshot("select_all_failed")
+                print(f"📸 Screenshot captured: {screenshot_path}")
+                # Double-check the row count as a final fallback
+                selected_count = len(self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class, 'mat-selected')]"))
+                return {"success": False, "error": f"Checkbox did not become selected after 10 seconds. Final selected row count: {selected_count}. Screenshot: {screenshot_path}"}
+
+            # 5. Final verification of the result
+            selected_count = len(self.driver.find_elements(By.XPATH, "//tbody//mat-row[contains(@class, 'mat-selected')]"))
+            print(f"✅ Verification successful: {selected_count} rows are now selected.")
+            self._capture_screenshot("after_select_all")
+            
+            return {"success": True, "checkboxes_selected": selected_count}
 
         except Exception as e:
-            return {"success": False, "error": f"A critical error occurred in select_all_containers: {str(e)}"}
+            screenshot_path = self._capture_screenshot("select_all_critical_error")
+            print(f"📸 Critical error screenshot captured: {screenshot_path}")
+            return {"success": False, "error": f"A critical error occurred in select_all_containers: {str(e)}. Screenshot: {screenshot_path}"}
     
     def download_excel_file(self) -> Dict[str, Any]:
         """Download Excel file with container data"""
@@ -854,7 +831,8 @@ class EModalBusinessOperations:
                 print("   ✅ Export button is now enabled and clickable.")
             except TimeoutException:
                 print("   ⚠️ Export button did not become enabled. Trying fallback download link...")
-                self._capture_screenshot("export_button_disabled")
+                screenshot_path = self._capture_screenshot("export_button_disabled")
+                print(f"📸 Export button disabled screenshot: {screenshot_path}")
                 
                 # FALLBACK: Look for direct download links
                 try:
