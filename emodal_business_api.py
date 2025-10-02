@@ -871,9 +871,19 @@ class EModalBusinessOperations:
             
             dropdown = dropdowns[0]
             
+            # Check if dropdown is disabled
+            is_disabled = dropdown.get_attribute("aria-disabled")
+            tabindex = dropdown.get_attribute("tabindex")
+            classes = dropdown.get_attribute("class")
+            print(f"  📊 Dropdown state: aria-disabled={is_disabled}, tabindex={tabindex}")
+            print(f"  📊 Dropdown classes: {classes}")
+            
+            if is_disabled == "true":
+                return {"success": False, "error": f"{dropdown_label} dropdown is disabled"}
+            
             # Click to open dropdown
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown)
-            time.sleep(1)
+            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", dropdown)
+            time.sleep(2)
             
             # Get the trigger element (the clickable part)
             trigger = None
@@ -889,40 +899,70 @@ class EModalBusinessOperations:
             # Try multiple click methods
             click_success = False
             
-            # Method 1: Regular click on trigger
+            # Method 1: Focus + Enter key (most reliable for Material dropdowns)
             try:
-                trigger.click()
-                print(f"  ✅ Clicked {dropdown_label} dropdown (regular click on trigger)")
+                from selenium.webdriver.common.action_chains import ActionChains
+                
+                # Focus on the dropdown
+                self.driver.execute_script("arguments[0].focus();", dropdown)
+                time.sleep(0.5)
+                
+                # Press Space or Enter to open (Material Design standard)
+                ActionChains(self.driver).move_to_element(dropdown).click().perform()
+                print(f"  ✅ Clicked {dropdown_label} dropdown (ActionChains)")
                 click_success = True
             except Exception as e1:
-                print(f"  ⚠️ Regular click failed: {e1}")
+                print(f"  ⚠️ ActionChains click failed: {e1}")
                 
-                # Method 2: JavaScript click on trigger
+                # Method 2: Regular click on trigger
                 try:
-                    self.driver.execute_script("arguments[0].click();", trigger)
-                    print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click on trigger)")
+                    trigger.click()
+                    print(f"  ✅ Clicked {dropdown_label} dropdown (regular click on trigger)")
                     click_success = True
                 except Exception as e2:
-                    print(f"  ⚠️ JavaScript click on trigger failed: {e2}")
+                    print(f"  ⚠️ Regular click failed: {e2}")
                     
-                    # Method 3: Dispatch click event
+                    # Method 3: JavaScript click on trigger
                     try:
-                        self.driver.execute_script("""
-                            var element = arguments[0];
-                            var event = new MouseEvent('click', {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window
-                            });
-                            element.dispatchEvent(event);
-                        """, trigger)
-                        print(f"  ✅ Clicked {dropdown_label} dropdown (MouseEvent dispatch)")
+                        self.driver.execute_script("arguments[0].click();", trigger)
+                        print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click on trigger)")
                         click_success = True
                     except Exception as e3:
-                        print(f"  ❌ All click methods failed: {e3}")
+                        print(f"  ⚠️ JavaScript click on trigger failed: {e3}")
+                        
+                        # Method 4: Dispatch both mousedown and click events
+                        try:
+                            self.driver.execute_script("""
+                                var element = arguments[0];
+                                
+                                // Dispatch mousedown
+                                var mousedown = new MouseEvent('mousedown', {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window
+                                });
+                                element.dispatchEvent(mousedown);
+                                
+                                // Small delay
+                                setTimeout(function() {
+                                    // Dispatch click
+                                    var click = new MouseEvent('click', {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window
+                                    });
+                                    element.dispatchEvent(click);
+                                }, 100);
+                            """, trigger)
+                            time.sleep(0.5)
+                            print(f"  ✅ Clicked {dropdown_label} dropdown (MouseEvent sequence)")
+                            click_success = True
+                        except Exception as e4:
+                            print(f"  ❌ All click methods failed: {e4}")
             
             if not click_success:
-                return {"success": False, "error": f"Could not click {dropdown_label} dropdown"}
+                self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_click_failed")
+                return {"success": False, "error": f"Could not click {dropdown_label} dropdown - all methods failed"}
             
             # Wait longer for overlay panel to appear and render (especially on Linux/Xvfb)
             print(f"  ⏳ Waiting 10 seconds for dropdown options to load (Linux/Xvfb needs extra time)...")
