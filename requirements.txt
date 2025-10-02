@@ -21,6 +21,9 @@ pyvirtualdisplay==3.0
 pandas==2.1.3
 openpyxl==3.1.2
 
+# Clipboard operations for Ctrl+C/Ctrl+V
+pyperclip==1.8.2
+
 # Additional system dependencies for Linux:
 # sudo apt-get update
 # sudo apt-get install -y wget unzip xvfb

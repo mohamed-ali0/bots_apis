@@ -951,32 +951,50 @@ class EModalBusinessOperations:
                 'Fees', 'LFD/GTD', 'Tags'
             ]
             
-            # Focus on the results area and select all text (Ctrl+A)
+            # Extract text using JavaScript selection and copy (same result as Ctrl+A Ctrl+C)
             try:
-                # Find searchres div
+                # Find searchres div - this contains the table
                 searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
-                searchres.click()
-                time.sleep(0.5)
                 
-                # Select all (Ctrl+A)
-                searchres.send_keys(Keys.CONTROL + 'a')
-                time.sleep(0.5)
+                # Use JavaScript to select all text in the element and get it
+                print("📋 Programmatically selecting all text in table...")
+                page_text = self.driver.execute_script("""
+                    var element = arguments[0];
+                    
+                    // Create a range and selection (like Ctrl+A does)
+                    var range = document.createRange();
+                    range.selectNodeContents(element);
+                    
+                    var selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    
+                    // Get the selected text (like Ctrl+C would copy)
+                    var selectedText = selection.toString();
+                    
+                    // Clear selection
+                    selection.removeAllRanges();
+                    
+                    return selectedText;
+                """, searchres)
                 
-                # Get selected text using JavaScript
-                page_text = self.driver.execute_script("return window.getSelection().toString();")
-                print(f"📄 Extracted {len(page_text)} characters of text via Ctrl+A")
+                print(f"✅ Selected and extracted: {len(page_text)} characters")
                 
-                # Clear selection
-                searchres.send_keys(Keys.ESCAPE)
+                # Fallback 1: If selection method didn't work, try innerText
+                if not page_text or len(page_text) < 100:
+                    print("⚠️ Selection method returned little/no data, trying innerText...")
+                    page_text = self.driver.execute_script("return arguments[0].innerText;", searchres)
+                    print(f"📄 Extracted {len(page_text)} characters via innerText")
                 
-            except Exception as e:
-                print(f"⚠️ Ctrl+A method failed: {e}, trying .text fallback")
-                try:
-                    searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
+                # Fallback 2: Use .text property
+                if not page_text or len(page_text) < 100:
+                    print("⚠️ innerText failed, trying .text property...")
                     page_text = searchres.text
                     print(f"📄 Extracted {len(page_text)} characters via .text")
-                except:
-                    return {"success": False, "error": f"Could not extract page text: {e}"}
+                
+            except Exception as e:
+                print(f"❌ All text extraction methods failed: {e}")
+                return {"success": False, "error": f"Could not extract page text: {e}"}
             
             # DEBUG: Save extracted text to file for debugging (RAW TEXT ONLY)
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
