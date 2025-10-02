@@ -10,11 +10,68 @@ import requests
 import json
 import time
 import os
+import sys
 
-# API Configuration
-API_HOST = os.environ.get('API_HOST', '89.117.63.196')
-API_PORT = os.environ.get('API_PORT', '5010')
-API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+# API Configuration - will be set after user chooses server
+API_HOST = None
+API_PORT = None
+API_BASE_URL = None
+
+
+def choose_server():
+    """Prompt user to choose between local or remote server"""
+    global API_HOST, API_PORT, API_BASE_URL
+    
+    # Check if running in non-interactive mode
+    auto_test = os.environ.get('AUTO_TEST', '0') == '1'
+    
+    if auto_test or os.environ.get('API_HOST'):
+        # Use environment variables in non-interactive mode
+        API_HOST = os.environ.get('API_HOST', '89.117.63.196')
+        API_PORT = os.environ.get('API_PORT', '5010')
+        API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+        print(f"🌐 Using API server from environment: {API_BASE_URL}")
+        return
+    
+    # Interactive mode - ask user
+    print("\n" + "=" * 60)
+    print("🌐 API Server Selection")
+    print("=" * 60)
+    print("Choose which server to connect to:")
+    print("")
+    print("  1. Local server    (http://localhost:5010)")
+    print("  2. Remote server   (http://89.117.63.196:5010)")
+    print("  3. Custom server   (enter IP/hostname)")
+    print("")
+    
+    while True:
+        choice = input("Enter your choice (1/2/3) [default: 2]: ").strip()
+        
+        # Default to remote server
+        if not choice:
+            choice = "2"
+        
+        if choice == "1":
+            API_HOST = "localhost"
+            API_PORT = "5010"
+            print(f"✅ Selected: Local server")
+            break
+        elif choice == "2":
+            API_HOST = "89.117.63.196"
+            API_PORT = "5010"
+            print(f"✅ Selected: Remote server (89.117.63.196)")
+            break
+        elif choice == "3":
+            API_HOST = input("Enter server IP/hostname: ").strip()
+            API_PORT = input("Enter port [5010]: ").strip() or "5010"
+            print(f"✅ Selected: Custom server ({API_HOST}:{API_PORT})")
+            break
+        else:
+            print("❌ Invalid choice. Please enter 1, 2, or 3.")
+    
+    API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+    print(f"🔗 API URL: {API_BASE_URL}")
+    print("=" * 60 + "\n")
 
 
 def test_health():
@@ -284,6 +341,9 @@ def main():
     """Main test function"""
     print("🧪 E-Modal Business API Test Suite")
     print("=" * 50)
+    
+    # First, choose the server
+    choose_server()
     
     # Test get_containers with infinite scroll
     if not test_health():
