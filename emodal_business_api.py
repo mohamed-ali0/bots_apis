@@ -1966,6 +1966,109 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Expand failed: {str(e)}"}
 
+    def capture_pregate_screenshot(self) -> Dict[str, Any]:
+        """
+        Locate the Pregate milestone and capture a cropped screenshot around it.
+        
+        Returns:
+            Dict with success, screenshot_path, and element location info
+        """
+        try:
+            print("📸 Locating Pregate milestone for screenshot...")
+            
+            # Find Pregate element with multiple possible selectors
+            pregate_selectors = [
+                "//span[normalize-space(.)='Pregate']",
+                "//span[contains(text(),'Pregate')]",
+                "//span[normalize-space(.)='pregate']",
+                "//span[contains(text(),'pregate')]",
+                "//*[normalize-space(.)='Pregate']",
+                "//*[contains(text(),'Pregate')]"
+            ]
+            
+            pregate_element = None
+            for selector in pregate_selectors:
+                try:
+                    pregate_element = self.driver.find_element(By.XPATH, selector)
+                    print(f"  ✅ Found Pregate using: {selector}")
+                    break
+                except Exception:
+                    continue
+            
+            if not pregate_element:
+                # Fallback: search all milestone labels
+                all_milestones = self.driver.find_elements(By.XPATH, "//span[contains(@class,'location-details-label')]")
+                for milestone in all_milestones:
+                    try:
+                        if 'pregate' in milestone.text.strip().lower():
+                            pregate_element = milestone
+                            print(f"  ✅ Found Pregate in milestone: '{milestone.text.strip()}'")
+                            break
+                    except Exception:
+                        continue
+            
+            if not pregate_element:
+                return {"success": False, "error": "Pregate milestone not found"}
+            
+            # Get element location and size
+            location = pregate_element.location
+            size = pregate_element.size
+            
+            # Expand the crop area to include context (padding around element)
+            padding = 100  # pixels around the element
+            
+            # Get full page screenshot
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            full_screenshot_path = os.path.join(self.screens_dir, f"{timestamp}_full_page.png")
+            self.driver.save_screenshot(full_screenshot_path)
+            print(f"  📸 Full screenshot saved")
+            
+            # Crop the image around Pregate element
+            from PIL import Image
+            img = Image.open(full_screenshot_path)
+            
+            # Calculate crop box with padding
+            left = max(0, location['x'] - padding)
+            top = max(0, location['y'] - padding)
+            right = min(img.width, location['x'] + size['width'] + padding)
+            bottom = min(img.height, location['y'] + size['height'] + padding)
+            
+            # Crop the image
+            cropped_img = img.crop((left, top, right, bottom))
+            
+            # Save cropped image
+            cropped_path = os.path.join(self.screens_dir, f"{timestamp}_pregate_cropped.png")
+            cropped_img.save(cropped_path)
+            print(f"  ✅ Cropped screenshot saved: {os.path.basename(cropped_path)}")
+            
+            # Remove full screenshot to save space
+            try:
+                os.remove(full_screenshot_path)
+            except:
+                pass
+            
+            return {
+                "success": True,
+                "screenshot_path": cropped_path,
+                "screenshot_name": os.path.basename(cropped_path),
+                "element_location": {
+                    "x": location['x'],
+                    "y": location['y'],
+                    "width": size['width'],
+                    "height": size['height']
+                },
+                "crop_area": {
+                    "left": left,
+                    "top": top,
+                    "right": right,
+                    "bottom": bottom
+                }
+            }
+            
+        except Exception as e:
+            print(f"  ❌ Error capturing Pregate screenshot: {e}")
+            return {"success": False, "error": str(e)}
+
     def analyze_timeline(self) -> Dict[str, Any]:
         """Determine if status is before or after Pregate based on timeline DOM structure and progress indicators"""
         try:
@@ -2366,6 +2469,88 @@ def cleanup_expired_sessions():
         except:
             pass
         del active_sessions[session_id]
+
+
+def cleanup_old_files():
+    """
+    Clean up files older than 24 hours from downloads and screenshots directories.
+    This runs periodically to save storage space.
+    """
+    try:
+        now = time.time()
+        cutoff_time = now - (24 * 60 * 60)  # 24 hours ago
+        
+        total_deleted = 0
+        total_size_freed = 0
+        
+        # Clean downloads directory
+        if os.path.exists(DOWNLOADS_DIR):
+            for root, dirs, files in os.walk(DOWNLOADS_DIR, topdown=False):
+                for name in files:
+                    filepath = os.path.join(root, name)
+                    try:
+                        file_mtime = os.path.getmtime(filepath)
+                        if file_mtime < cutoff_time:
+                            file_size = os.path.getsize(filepath)
+                            os.remove(filepath)
+                            total_deleted += 1
+                            total_size_freed += file_size
+                    except Exception as e:
+                        logger.warning(f"Failed to delete {filepath}: {e}")
+                
+                # Remove empty directories
+                for name in dirs:
+                    dirpath = os.path.join(root, name)
+                    try:
+                        if not os.listdir(dirpath):  # if empty
+                            os.rmdir(dirpath)
+                    except Exception:
+                        pass
+        
+        # Clean screenshots directory
+        if os.path.exists(SCREENSHOTS_DIR):
+            for root, dirs, files in os.walk(SCREENSHOTS_DIR, topdown=False):
+                for name in files:
+                    filepath = os.path.join(root, name)
+                    try:
+                        file_mtime = os.path.getmtime(filepath)
+                        if file_mtime < cutoff_time:
+                            file_size = os.path.getsize(filepath)
+                            os.remove(filepath)
+                            total_deleted += 1
+                            total_size_freed += file_size
+                    except Exception as e:
+                        logger.warning(f"Failed to delete {filepath}: {e}")
+                
+                # Remove empty directories
+                for name in dirs:
+                    dirpath = os.path.join(root, name)
+                    try:
+                        if not os.listdir(dirpath):  # if empty
+                            os.rmdir(dirpath)
+                    except Exception:
+                        pass
+        
+        if total_deleted > 0:
+            size_mb = total_size_freed / (1024 * 1024)
+            logger.info(f"🗑️ Cleanup: Deleted {total_deleted} files older than 24h, freed {size_mb:.2f} MB")
+        else:
+            logger.debug("🗑️ Cleanup: No old files to delete")
+            
+    except Exception as e:
+        logger.error(f"⚠️ Cleanup error: {e}")
+
+
+def periodic_cleanup_task():
+    """Background task that runs cleanup every hour"""
+    while True:
+        try:
+            time.sleep(3600)  # Sleep for 1 hour
+            cleanup_old_files()
+            cleanup_expired_sessions()
+        except Exception as e:
+            logger.error(f"⚠️ Periodic cleanup task error: {e}")
+            time.sleep(60)  # Wait 1 minute before retrying
 
 
 # API Routes
@@ -2924,9 +3109,15 @@ def make_appointment():
 @app.route('/get_container_timeline', methods=['POST'])
 def get_container_timeline():
     """
-    Navigate to containers page, search for a container, expand its timeline, and report if status is before/after Pregate.
-    Inputs: username, password, captcha_api_key, container_id (string). Optional: keep_browser_alive, return_url, capture_screens, screens_label
-    Returns: JSON with status and optional bundle_url (when return_url=true)
+    Navigate to containers page, search for a container, expand its timeline, and capture Pregate milestone screenshot.
+    
+    Inputs:
+        - username, password, captcha_api_key (required)
+        - container_id (required): Container ID to search for
+        - keep_browser_alive (optional): Keep session alive
+        - debug (optional, default: false): If true, captures cropped screenshot of Pregate milestone
+    
+    Returns: JSON with container_id and optional pregate_screenshot_url (when debug=true)
     """
     request_id = f"timeline_{int(time.time())}"
     try:
@@ -2939,8 +3130,10 @@ def get_container_timeline():
         captcha_api_key = data.get('captcha_api_key')
         container_id = data.get('container_id') or data.get('container')
         keep_alive = data.get('keep_browser_alive', False)
-        return_url = data.get('return_url', True)
-        capture_screens = data.get('capture_screens', True)
+        debug_mode = data.get('debug', False)
+        
+        # Only capture screenshots in debug mode
+        capture_screens = debug_mode
         screens_label = data.get('screens_label', username)
 
         if not all([username, password, captcha_api_key, container_id]):
@@ -2992,56 +3185,98 @@ def get_container_timeline():
                     session.driver.quit()
                 return jsonify({"success": False, "error": f"Expand failed: {ex['error']}"}), 500
 
-            # Analyze timeline
-            an = operations.analyze_timeline()
-            if not an["success"]:
-                if not keep_alive:
-                    session.driver.quit()
-                return jsonify({"success": False, "error": f"Timeline analysis failed: {an['error']}"}), 500
-
-            # Bundle artifacts
-            bundle_name = None
-            bundle_path = None
-            try:
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                bundle_name = f"{session.session_id}_{ts}.zip"
-                bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                session_root = session.session_id
-                with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    # downloads
-                    session_dl_dir = os.path.join(DOWNLOADS_DIR, session.session_id)
-                    if os.path.isdir(session_dl_dir):
-                        for root, _, files in os.walk(session_dl_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                rel = os.path.relpath(fp, session_dl_dir)
-                                arc = os.path.join(session_root, 'downloads', rel)
-                                zf.write(fp, arc)
-                    # screenshots
-                    session_sc_dir = operations.screens_dir
-                    if os.path.isdir(session_sc_dir):
-                        for root, _, files in os.walk(session_sc_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                rel = os.path.relpath(fp, session_sc_dir)
-                                arc = os.path.join(session_root, 'screenshots', rel)
-                                zf.write(fp, arc)
-            except Exception as be:
-                print(f"⚠️ Bundle creation failed: {be}")
-
-            if not keep_alive:
+            # Capture Pregate screenshot if debug mode enabled
+            pregate_screenshot_result = None
+            if debug_mode:
+                print("🐛 Debug mode enabled - capturing Pregate screenshot...")
+                pregate_screenshot_result = operations.capture_pregate_screenshot()
+                if pregate_screenshot_result.get("success"):
+                    print(f"  ✅ Pregate screenshot captured: {pregate_screenshot_result.get('screenshot_name')}")
+                else:
+                    print(f"  ⚠️ Failed to capture Pregate screenshot: {pregate_screenshot_result.get('error')}")
+            
+            # Build response based on debug mode
+            if debug_mode and pregate_screenshot_result and pregate_screenshot_result.get("success"):
+                # Debug mode: Create ZIP with screenshot
+                bundle_name = None
+                bundle_path = None
                 try:
-                    session.driver.quit()
-                except Exception:
-                    pass
-
-            return jsonify({
-                "success": True,
-                "container_id": container_id,
-                "status": an.get('status'),
-                "signals": an.get('signals'),
-                "bundle_url": (f"/files/{os.path.basename(bundle_path)}" if bundle_path and os.path.exists(bundle_path) else None)
-            })
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bundle_name = f"{session.session_id}_{ts}_PREGATE.zip"
+                    bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+                    session_root = session.session_id
+                    
+                    with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        # Add Pregate screenshot
+                        screenshot_path = pregate_screenshot_result['screenshot_path']
+                        arc_name = os.path.join(session_root, 'pregate', pregate_screenshot_result['screenshot_name'])
+                        zf.write(screenshot_path, arc_name)
+                        
+                        # Add any other screenshots from session
+                        session_sc_dir = operations.screens_dir
+                        if os.path.isdir(session_sc_dir):
+                            for root, _, files in os.walk(session_sc_dir):
+                                for f in files:
+                                    fp = os.path.join(root, f)
+                                    rel = os.path.relpath(fp, session_sc_dir)
+                                    arc = os.path.join(session_root, 'screenshots', rel)
+                                    zf.write(fp, arc)
+                    
+                    # Print public download URL
+                    if bundle_path and os.path.exists(bundle_path):
+                        public_url = f"http://{request.host}/files/{bundle_name}"
+                        print(f"\n{'='*70}")
+                        print(f"🐛 DEBUG BUNDLE READY")
+                        print(f"{'='*70}")
+                        print(f"🌐 Bundle URL: {public_url}")
+                        print(f"📂 File: {bundle_name}")
+                        print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
+                        print(f"{'='*70}\n")
+                    
+                except Exception as be:
+                    print(f"⚠️ Bundle creation failed: {be}")
+                
+                # Close or keep session
+                if not keep_alive:
+                    try:
+                        session.driver.quit()
+                    except Exception:
+                        pass
+                    logger.info(f"[{request_id}] Browser session closed")
+                else:
+                    session.update_last_used()
+                    logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
+                
+                # Return response with screenshot
+                response_data = {
+                    "success": True,
+                    "container_id": container_id,
+                    "pregate_screenshot_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None,
+                    "screenshot_details": {
+                        "width": pregate_screenshot_result['crop_area']['right'] - pregate_screenshot_result['crop_area']['left'],
+                        "height": pregate_screenshot_result['crop_area']['bottom'] - pregate_screenshot_result['crop_area']['top']
+                    }
+                }
+                return jsonify(response_data)
+            
+            else:
+                # Normal mode: No debug, will build response later
+                # For now, just return basic info
+                if not keep_alive:
+                    try:
+                        session.driver.quit()
+                    except Exception:
+                        pass
+                    logger.info(f"[{request_id}] Browser session closed")
+                else:
+                    session.update_last_used()
+                    logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
+                
+                return jsonify({
+                    "success": True,
+                    "container_id": container_id,
+                    "message": "Timeline accessed successfully (response format pending)"
+                })
 
         except Exception as op_e:
             if not keep_alive:
@@ -3092,6 +3327,48 @@ def close_session(session_id):
         return jsonify({"success": False, "error": "Session not found"}), 404
 
 
+@app.route('/cleanup', methods=['POST'])
+def manual_cleanup():
+    """Manually trigger cleanup of old files (24h+)"""
+    try:
+        logger.info("🗑️ Manual cleanup triggered")
+        cleanup_old_files()
+        
+        # Get current disk usage
+        downloads_size = 0
+        screenshots_size = 0
+        
+        if os.path.exists(DOWNLOADS_DIR):
+            for root, dirs, files in os.walk(DOWNLOADS_DIR):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        downloads_size += os.path.getsize(fp)
+                    except:
+                        pass
+        
+        if os.path.exists(SCREENSHOTS_DIR):
+            for root, dirs, files in os.walk(SCREENSHOTS_DIR):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        screenshots_size += os.path.getsize(fp)
+                    except:
+                        pass
+        
+        total_size_mb = (downloads_size + screenshots_size) / (1024 * 1024)
+        
+        return jsonify({
+            "success": True,
+            "message": "Cleanup completed",
+            "current_storage_mb": round(total_size_mb, 2),
+            "downloads_mb": round(downloads_size / (1024 * 1024), 2),
+            "screenshots_mb": round(screenshots_size / (1024 * 1024), 2)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/files/<path:filename>', methods=['GET'])
 def serve_download(filename):
     """Serve downloaded Excel files from the downloads directory"""
@@ -3110,14 +3387,27 @@ if __name__ == '__main__':
     print("✅ Excel file downloads")
     print("✅ Browser session management")
     print("✅ Persistent authentication")
+    print("✅ Automatic cleanup (24h retention)")
     print("=" * 50)
     print("📍 Endpoints:")
     print("  POST /get_containers - Extract and download container data")
     print("  GET /sessions - List active browser sessions")
     print("  DELETE /sessions/<id> - Close specific session")
+    print("  POST /cleanup - Manually trigger file cleanup (24h+)")
     print("  GET /health - Health check")
     print("=" * 50)
     print("🔗 Starting server on http://0.0.0.0:5010")
+    print("🗑️ Starting background cleanup task (runs every hour)")
+    
+    # Start background cleanup thread
+    cleanup_thread = threading.Thread(target=periodic_cleanup_task, daemon=True)
+    cleanup_thread.start()
+    
+    # Run initial cleanup on startup
+    print("🗑️ Running initial cleanup...")
+    cleanup_old_files()
+    
+    print("=" * 50)
     
     app.run(
         host='0.0.0.0',

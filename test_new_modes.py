@@ -9,7 +9,7 @@ import time
 import sys
 
 # API Configuration
-API_BASE_URL = "http://localhost:5010"  # Change to remote: http://89.117.63.196:5010
+API_BASE_URL = "http://89.117.63.196:5010"  # Remote server
 
 # Credentials
 USERNAME = "jfernandez"
