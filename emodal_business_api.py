@@ -157,6 +157,9 @@ def create_appointment_debug_bundle(session_id: str, username: str, request_type
             print("="*70)
             print(f" 🔗 Public URL: {bundle_url}")
             print(f" 📁 Bundle contains {len(screenshots)} screenshots")
+            print(f" 📂 Bundle name: {bundle_name}")
+            print(f" 📍 Bundle path: {bundle_path}")
+            print(f" ✅ File exists: {os.path.exists(bundle_path)}")
             print("="*70 + "\n")
             
             return bundle_name, bundle_url
@@ -872,18 +875,58 @@ class EModalBusinessOperations:
             self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown)
             time.sleep(1)
             
-            # Try regular click first
+            # Get the trigger element (the clickable part)
+            trigger = None
             try:
-                dropdown.click()
-                print(f"  ✅ Clicked {dropdown_label} dropdown (regular click)")
-            except Exception as click_error:
-                print(f"  ⚠️ Regular click failed, using JavaScript click...")
-                self.driver.execute_script("arguments[0].click();", dropdown)
-                print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click)")
+                # Material dropdowns have a trigger div inside
+                trigger = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-trigger')]")
+                print(f"  ✅ Found mat-select-trigger")
+            except:
+                # If no trigger, use the dropdown itself
+                trigger = dropdown
+                print(f"  ℹ️  No mat-select-trigger found, using dropdown element directly")
+            
+            # Try multiple click methods
+            click_success = False
+            
+            # Method 1: Regular click on trigger
+            try:
+                trigger.click()
+                print(f"  ✅ Clicked {dropdown_label} dropdown (regular click on trigger)")
+                click_success = True
+            except Exception as e1:
+                print(f"  ⚠️ Regular click failed: {e1}")
+                
+                # Method 2: JavaScript click on trigger
+                try:
+                    self.driver.execute_script("arguments[0].click();", trigger)
+                    print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click on trigger)")
+                    click_success = True
+                except Exception as e2:
+                    print(f"  ⚠️ JavaScript click on trigger failed: {e2}")
+                    
+                    # Method 3: Dispatch click event
+                    try:
+                        self.driver.execute_script("""
+                            var element = arguments[0];
+                            var event = new MouseEvent('click', {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window
+                            });
+                            element.dispatchEvent(event);
+                        """, trigger)
+                        print(f"  ✅ Clicked {dropdown_label} dropdown (MouseEvent dispatch)")
+                        click_success = True
+                    except Exception as e3:
+                        print(f"  ❌ All click methods failed: {e3}")
+            
+            if not click_success:
+                return {"success": False, "error": f"Could not click {dropdown_label} dropdown"}
             
             # Wait longer for overlay panel to appear and render (especially on Linux/Xvfb)
-            print(f"  ⏳ Waiting 8 seconds for dropdown options to load (Linux/Xvfb needs extra time)...")
-            time.sleep(8)
+            print(f"  ⏳ Waiting 10 seconds for dropdown options to load (Linux/Xvfb needs extra time)...")
+            time.sleep(10)
             
             print(f"  ✅ Opened {dropdown_label} dropdown")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
