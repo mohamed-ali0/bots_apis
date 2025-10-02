@@ -7,13 +7,15 @@ Werkzeug==2.3.7
 # Linux-compatible packages
 python-dotenv==1.0.0
 urllib3==2.0.7
-pyvirtualdisplay==3.0
 
 # Audio processing for reCAPTCHA
 pydub==0.25.1
 
 # Screenshots and image annotations
 Pillow==10.4.0
+
+# Linux virtual display (Xvfb) for non-GUI servers
+pyvirtualdisplay==3.0
 
 # Additional system dependencies for Linux:
 # sudo apt-get update

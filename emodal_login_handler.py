@@ -10,10 +10,13 @@ Professional login automation for E-Modal platform with:
 - Robust credential validation
 - Detailed error reporting
 - API-ready design
+- Linux Xvfb support for non-GUI servers
 """
 
 import time
 import os
+import sys
+import platform
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
@@ -27,6 +30,14 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 from recaptcha_handler import RecaptchaHandler, RecaptchaError
+
+# Linux Xvfb support for non-GUI servers
+try:
+    from pyvirtualdisplay import Display
+    XVFB_AVAILABLE = True
+except ImportError:
+    XVFB_AVAILABLE = False
+    Display = None
 
 
 class LoginError(Exception):
@@ -81,6 +92,7 @@ class EModalLoginHandler:
         self.driver = None
         self.wait = None
         self.recaptcha_handler = None
+        self.display = None  # Xvfb display for Linux
         
         # URLs and selectors
         self.login_url = "https://ecp2.emodal.com/login"
@@ -99,44 +111,32 @@ class EModalLoginHandler:
         ]
     
     def _setup_driver(self) -> None:
-        """Setup Chrome WebDriver with optimal configuration"""
+        """Setup Chrome WebDriver with optimal configuration and Xvfb support for Linux"""
+        
+        # Start Xvfb virtual display on Linux non-GUI servers
+        if platform.system() == 'Linux' and XVFB_AVAILABLE:
+            try:
+                # Check if DISPLAY is set (GUI available)
+                if not os.environ.get('DISPLAY'):
+                    print("🖥️  Starting Xvfb virtual display for Linux non-GUI server...")
+                    self.display = Display(visible=0, size=(1920, 1080))
+                    self.display.start()
+                    print(f"✅ Xvfb started on display: {os.environ.get('DISPLAY')}")
+                else:
+                    print(f"🖥️  Using existing display: {os.environ.get('DISPLAY')}")
+            except Exception as e:
+                print(f"⚠️  Xvfb setup failed (will try without): {e}")
+                self.display = None
+        elif platform.system() == 'Linux' and not XVFB_AVAILABLE:
+            print("⚠️  pyvirtualdisplay not installed. Install with: pip install pyvirtualdisplay")
+            print("⚠️  Continuing without Xvfb - may fail on non-GUI servers")
+        
         chrome_options = Options()
         
-        # Headless/Xvfb configuration for non-GUI servers
-        self._virtual_display = None
-        
-        # Desired runtime modes via env
-        headless = os.environ.get('HEADLESS', '0').lower() in ['1', 'true', 'yes', 'y']
-        use_xvfb = os.environ.get('USE_XVFB', '1').lower() in ['1', 'true', 'yes', 'y']
-        
-        # Start a virtual framebuffer (Xvfb) when requested (Linux only)
-        if os.name != 'nt' and use_xvfb:
-            try:
-                from pyvirtualdisplay import Display  # type: ignore
-                self._virtual_display = Display(visible=0, size=(1920, 1080))
-                self._virtual_display.start()
-                print("🖥️ Virtual framebuffer (Xvfb) active at 1920x1080")
-            except Exception as xvfb_e:
-                print(f"⚠️ Could not start Xvfb virtual display: {xvfb_e}")
-        
-        # Log the selected browser mode
-        print(f"🌐 Browser mode → headless={headless}, xvfb={use_xvfb}")
-        
-        # Unique user-data-dir strategy (prevents 'already in use' conflicts on servers)
-        unique_profiles = os.environ.get('UNIQUE_CHROME_PROFILE', '1').lower() in ['1', 'true', 'yes', 'y']
-        explicit_user_data_env = os.environ.get('CHROME_USER_DATA_DIR')
-        temp_profile_dir = None
-        
-        # Optional user profiles (priority order): explicit env -> custom -> vpn profile -> unique temp
-        if explicit_user_data_env:
-            chrome_options.add_argument(f"--user-data-dir={explicit_user_data_env}")
-            chrome_options.add_argument("--profile-directory=Default")
-            print(f"👤 Using explicit CHROME_USER_DATA_DIR: {explicit_user_data_env}")
-        elif self.custom_user_data_dir:
+        if self.custom_user_data_dir:
             chrome_options.add_argument(f"--user-data-dir={self.custom_user_data_dir}")
             chrome_options.add_argument("--profile-directory=Default")
-            print(f"👤 Using custom user data dir: {self.custom_user_data_dir}")
-        elif self.use_vpn_profile and not (headless and unique_profiles):
+        elif self.use_vpn_profile:
             # Use existing Chrome profile with VPN - cross-platform paths
             if os.name == 'nt':  # Windows
                 user_data_dir = os.path.join(
@@ -151,56 +151,40 @@ class EModalLoginHandler:
             if os.path.exists(user_data_dir):
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
-                print(f"👤 Using VPN profile at: {user_data_dir}")
-        else:
-            # Default: create a unique user data dir to avoid locking conflicts (server/headless)
-            try:
-                base_tmp = os.environ.get('TMPDIR') or ('/tmp' if os.name != 'nt' else os.environ.get('TEMP', None))
-                if not base_tmp:
-                    base_tmp = os.getcwd()
-                import uuid, time
-                temp_profile_dir = os.path.join(base_tmp, f"emodal_chrome_{int(time.time())}_{uuid.uuid4().hex[:8]}")
-                os.makedirs(temp_profile_dir, exist_ok=True)
-                chrome_options.add_argument(f"--user-data-dir={temp_profile_dir}")
-                chrome_options.add_argument("--profile-directory=Default")
-                print(f"🗂️ Using unique Chrome profile dir: {temp_profile_dir}")
-            except Exception as mk_e:
-                print(f"⚠️ Could not create unique profile dir: {mk_e}")
         
-        # Core automation-safe options
+        # Critical options for Linux servers
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        # Headless sizing and stability
-        if headless:
-            chrome_options.add_argument("--headless=new")
-            chrome_options.add_argument("--window-size=1920,1080")
-            chrome_options.add_argument("--hide-scrollbars")
-            chrome_options.add_argument("--force-device-scale-factor=1")
-        else:
-            chrome_options.add_argument("--window-size=1920,1080")
-        
-        # Linux-specific optimizations
-        if os.name != 'nt':  # Non-Windows systems
-            chrome_options.add_argument("--remote-debugging-port=9222")
+        # Linux-specific optimizations for server environments
+        if platform.system() == 'Linux':
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-software-rasterizer")
+            chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-background-timer-throttling")
             chrome_options.add_argument("--disable-renderer-backgrounding")
             chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
+            chrome_options.add_argument("--disable-hang-monitor")
+            chrome_options.add_argument("--disable-prompt-on-repost")
+            chrome_options.add_argument("--disable-sync")
+            chrome_options.add_argument("--force-color-profile=srgb")
+            chrome_options.add_argument("--metrics-recording-only")
+            chrome_options.add_argument("--no-first-run")
+            chrome_options.add_argument("--enable-automation")
+            chrome_options.add_argument("--password-store=basic")
+            chrome_options.add_argument("--use-mock-keychain")
+            # Set window size for consistent rendering
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--start-maximized")
         
         # Initialize driver
+        print("🚀 Initializing Chrome WebDriver...")
         self.driver = webdriver.Chrome(options=chrome_options)
-        
-        # Window sizing
-        try:
-            if not headless:
-                self.driver.maximize_window()
-        except Exception:
-            try:
-                self.driver.set_window_size(1920, 1080)
-            except Exception:
-                pass
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
@@ -572,6 +556,14 @@ class EModalLoginHandler:
                 try:
                     self.driver.quit()
                     print("🔒 Browser closed")
+                except:
+                    pass
+            
+            # Stop Xvfb display if we started it
+            if self.display:
+                try:
+                    self.display.stop()
+                    print("🖥️  Xvfb display stopped")
                 except:
                     pass
 

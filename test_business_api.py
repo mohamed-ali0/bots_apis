@@ -11,13 +11,19 @@ import json
 import time
 import os
 
+# API Configuration
+API_HOST = os.environ.get('API_HOST', '89.117.63.196')
+API_PORT = os.environ.get('API_PORT', '5010')
+API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+
 
 def test_health():
     """Test health endpoint"""
     print("🔍 Testing business API health...")
+    print(f"  🌐 API URL: {API_BASE_URL}")
     
     try:
-        response = requests.get("http://89.117.63.196:5010/health")
+        response = requests.get(f"{API_BASE_URL}/health")
         
         if response.status_code == 200:
             data = response.json()
@@ -31,7 +37,8 @@ def test_health():
             return False
             
     except requests.exceptions.ConnectionError:
-        print("❌ API server not running. Please start with: python emodal_business_api.py")
+        print(f"❌ API server not running at {API_BASE_URL}")
+        print("   Please start with: python emodal_business_api.py")
         return False
     except Exception as e:
         print(f"❌ Health check error: {e}")
@@ -57,23 +64,28 @@ def test_get_containers():
         keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
         keep_alive = keep_alive_input in ['y', 'yes']
     
+    # Get infinite_scrolling parameter (default: false)
+    infinite_scrolling = os.environ.get('INFINITE_SCROLLING', 'false').lower() in ['1', 'true', 'yes', 'y']
+    
     payload = {
         "username": username,
         "password": password,
         "captcha_api_key": api_key,
         "keep_browser_alive": keep_alive,
         "capture_screens": True,
-        "screens_label": username
+        "screens_label": username,
+        "infinite_scrolling": infinite_scrolling
     }
     
     print(f"🚀 Testing container extraction for user: {username}")
     print(f"🔄 Keep browser alive: {keep_alive}")
+    print(f"📜 Infinite scrolling: {infinite_scrolling}")
     print("⏳ This may take 60-120 seconds (login + reCAPTCHA + data extraction)...")
     
     try:
         start_time = time.time()
         response = requests.post(
-            "http://89.117.63.196:5010/get_containers",
+            f"{API_BASE_URL}/get_containers",
             json={**payload, "return_url": True},
             timeout=300
         )
@@ -86,9 +98,13 @@ def test_get_containers():
             # Expect JSON with download_url
             data = response.json()
             bundle_url = data.get('bundle_url')
+            total_containers = data.get('total_containers', 'unknown')
+            scroll_cycles = data.get('scroll_cycles', 0)
             if bundle_url:
                 print("🎉 CONTAINER EXTRACTION SUCCESSFUL!")
                 print(f"  📦 Bundle URL: {bundle_url}")
+                print(f"  📊 Total containers: {total_containers}")
+                print(f"  🔄 Scroll cycles: {scroll_cycles}")
                 
                 # Always close any sessions for this user after the test finishes
                 if keep_alive:
@@ -97,13 +113,13 @@ def test_get_containers():
                 else:
                     # Close sessions for this user after test completes
                     try:
-                        sessions = requests.get("http://89.117.63.196:5010/sessions").json().get('sessions', [])
+                        sessions = requests.get(f"{API_BASE_URL}/sessions").json().get('sessions', [])
                         closed_any = False
                         for s in sessions:
                             if s.get('username') == username:
                                 sid = s.get('session_id')
                                 if sid:
-                                    requests.delete(f"http://89.117.63.196:5010/sessions/{sid}")
+                                    requests.delete(f"{API_BASE_URL}/sessions/{sid}")
                                     print(f"  🔒 Closed session: {sid}")
                                     closed_any = True
                         if not closed_any:
@@ -190,7 +206,7 @@ def test_make_appointment():
     try:
         start_time = time.time()
         response = requests.post(
-            "http://89.117.63.196:5010/make_appointment",
+            f"{API_BASE_URL}/make_appointment",
             json=payload,
             timeout=300
         )
@@ -205,12 +221,12 @@ def test_make_appointment():
                 print(f"  📦 Bundle URL: {bundle_url}")
                 if not keep_alive:
                     try:
-                        sessions = requests.get("http://89.117.63.196:5010/sessions").json().get('sessions', [])
+                        sessions = requests.get(f"{API_BASE_URL}/sessions").json().get('sessions', [])
                         for s in sessions:
                             if s.get('username') == username:
                                 sid = s.get('session_id')
                                 if sid:
-                                    requests.delete(f"http://89.117.63.196:5010/sessions/{sid}")
+                                    requests.delete(f"{API_BASE_URL}/sessions/{sid}")
                                     print(f"  🔒 Closed session: {sid}")
                     except Exception as ce:
                         print(f"  ⚠️ Could not auto-close session(s): {ce}")
@@ -234,7 +250,7 @@ def test_sessions():
     print("\n🔗 Testing session management...")
     
     try:
-        response = requests.get("http://89.117.63.196:5010/sessions")
+        response = requests.get(f"{API_BASE_URL}/sessions")
         
         if response.status_code == 200:
             data = response.json()

@@ -14,7 +14,6 @@ import os
 import time
 import tempfile
 import threading
-import zipfile
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 from dataclasses import dataclass
@@ -120,7 +119,7 @@ class EModalBusinessOperations:
 
     def _capture_screenshot(self, tag: str):
         if not self.screens_enabled:
-            return None
+            return
         try:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
@@ -157,10 +156,8 @@ class EModalBusinessOperations:
             except Exception:
                 pass
             self.screens.append(raw_path)
-            return raw_path
         except Exception as e:
             print(f"⚠️ Screenshot failed: {e}")
-            return None
 
     def ensure_app_context(self, max_wait_seconds: int = 45) -> Dict[str, Any]:
         """Ensure we are in authenticated app context (not Identity/forbidden) and app is fully loaded."""
@@ -215,7 +212,7 @@ class EModalBusinessOperations:
             except Exception:
                 pass
 
-            # If we're on Identity page, first load the app root to refresh session
+            # If we’re on Identity page, first load the app root to refresh session
             try:
                 url0 = (self.driver.current_url or "").lower()
                 title0 = (self.driver.title or "").lower()
@@ -681,227 +678,380 @@ class EModalBusinessOperations:
             return {"success": False, "error": f"Navigation failed: {str(e)}"}
     
     def select_all_containers(self) -> Dict[str, Any]:
-        """Click checkbox, wait 10 seconds, then proceed regardless of state."""
+        """Select all containers using the master checkbox"""
         try:
-            from selenium.common.exceptions import TimeoutException, NoSuchElementException
-            from selenium.webdriver.support import expected_conditions as EC
             print("☑️ Looking for 'Select All' checkbox...")
             self._capture_screenshot("before_select_all")
-
-            # 1. Find and click the checkbox
+            
+            # Common selectors for "select all" checkbox (header-first with fallbacks)
+            select_all_selectors = [
+                # Native inputs in header
+                "//thead//input[@type='checkbox']",
+                "//th//input[@type='checkbox']",
+                "//table//thead//input[@type='checkbox']",
+                # Angular Material (mat-checkbox) input/label/inner container
+                "//mat-checkbox//input[contains(@id,'-input')]",
+                "//mat-checkbox//label",
+                "//mat-checkbox//span[contains(@class,'mat-checkbox-inner-container')]",
+                # ARIA role=checkbox in header
+                "//thead//*[@role='checkbox']",
+                "//th//*[@role='checkbox']",
+                # Text-based
+                "//*[normalize-space(text())='Select all' or normalize-space(text())='Select All']",
+                # Common IDs/classes/data-attrs
+                "//input[@type='checkbox' and (@id='selectAll' or contains(@class,'select-all') or contains(@class,'selectAll'))]",
+                "//*[@data-select-all='true' or @data-select-all='1']",
+                # Fallbacks
+                "(//table//th//input[@type='checkbox'])[1]",
+                ".select-all-checkbox",
+                "input[data-select-all]",
+                "//input[@type='checkbox'][1]"
+            ]
+            
+            # Also look for containers to count them first
             try:
-                checkbox_container = self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, "//thead//mat-checkbox"))
-                )
-                clickable_target = checkbox_container.find_element(By.TAG_NAME, "label")
-                self.driver.execute_script("arguments[0].click();", clickable_target)
-                print("   ✅ Clicked checkbox")
+                container_rows = self.driver.find_elements(By.XPATH, "//tr[contains(@class, 'container-row') or td[contains(@class, 'container')]]")
+                if not container_rows:
+                    # Alternative: look for any table rows with data
+                    container_rows = self.driver.find_elements(By.XPATH, "//tbody//tr[td]")
+                
+                container_count = len(container_rows)
+                print(f"📊 Found {container_count} container rows on page")
+            except Exception as e:
+                print(f"⚠️ Could not count containers: {e}")
+                container_count = 0
+            
+            select_all_checkbox = None
+            used_selector = None
+            
+            # Try each selector
+            for selector in select_all_selectors:
+                try:
+                    if selector.startswith("//"):
+                        # XPath selector
+                        element = self.driver.find_element(By.XPATH, selector)
+                    else:
+                        # CSS selector
+                        element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    
+                    if element.is_displayed():
+                        # If we matched a mat-checkbox label or inner span or role element,
+                        # we still need the actual input for state checks.
+                        select_all_checkbox = None
+                        if element.tag_name.lower() == 'input' and element.get_attribute('type') == 'checkbox':
+                            select_all_checkbox = element
+                        else:
+                            # Try to find the related input within the same mat-checkbox or by label[for]
+                            try:
+                                # Climb to mat-checkbox ancestor then find input
+                                mat = element.find_element(By.XPATH, "ancestor::mat-checkbox")
+                                select_all_checkbox = mat.find_element(By.XPATH, ".//input[contains(@id,'-input') and @type='checkbox']")
+                            except Exception:
+                                # If current is a label, resolve its 'for'
+                                try:
+                                    control_id = element.get_attribute('for')
+                                    if control_id:
+                                        select_all_checkbox = self.driver.find_element(By.ID, control_id)
+                                except Exception:
+                                    pass
+                        if select_all_checkbox:
+                            used_selector = selector
+                            print(f"✅ Found select-all via: {selector}")
+                            break
+                        
+                except Exception as e:
+                    print(f"❌ Selector '{selector}' failed: {e}")
+                    continue
+            
+            if not select_all_checkbox:
+                # Fallback: look for any checkbox that might be the master
+                try:
+                    all_checkboxes = self.driver.find_elements(By.XPATH, "//input[@type='checkbox']")
+                    print(f"🔍 Found {len(all_checkboxes)} total checkboxes on page")
+                    
+                    for i, checkbox in enumerate(all_checkboxes):
+                        try:
+                            checkbox_id = checkbox.get_attribute("id")
+                            checkbox_class = checkbox.get_attribute("class")
+                            checkbox_name = checkbox.get_attribute("name")
+                            parent_element = checkbox.find_element(By.XPATH, "./..")
+                            parent_tag = parent_element.tag_name
+                            
+                            print(f"  Checkbox {i+1}: id='{checkbox_id}', class='{checkbox_class}', name='{checkbox_name}', parent='{parent_tag}'")
+                            
+                            # Check if it's in table header (likely master checkbox)
+                            if parent_tag in ['th', 'thead'] or 'select' in (checkbox_class or '').lower():
+                                select_all_checkbox = checkbox
+                                used_selector = f"checkbox_{i+1}_in_{parent_tag}"
+                                print(f"✅ Using checkbox {i+1} as select-all (in {parent_tag})")
+                                break
+                                
+                        except Exception as debug_e:
+                            print(f"  Debug error for checkbox {i+1}: {debug_e}")
+                            continue
+                    
+                except Exception as fallback_e:
+                    print(f"❌ Fallback checkbox search failed: {fallback_e}")
+            
+            if not select_all_checkbox:
+                return {"success": False, "error": "Could not find select-all checkbox"}
+            
+            # Click the select-all checkbox
+            try:
+                # Scroll to element
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", select_all_checkbox)
+                time.sleep(1)
+                
+                # Check current state
+                is_checked = select_all_checkbox.is_selected()
+                print(f"📋 Select-all checkbox current state: {'checked' if is_checked else 'unchecked'}")
+                
+                # Click to select all with robust fallback: input, label[for], inner-container, JS
+                clicked = False
+                try:
+                    select_all_checkbox.click()
+                    clicked = True
+                except Exception as e1:
+                    print(f"⚠️ Direct input click failed: {e1}")
+                if not clicked:
+                    try:
+                        cb_id = select_all_checkbox.get_attribute('id')
+                        if cb_id:
+                            label = self.driver.find_element(By.XPATH, f"//label[@for='{cb_id}']")
+                            self.driver.execute_script("arguments[0].scrollIntoView(true);", label)
+                            time.sleep(0.2)
+                            label.click()
+                            clicked = True
+                    except Exception as e2:
+                        print(f"⚠️ Label[for] click failed: {e2}")
+                if not clicked:
+                    try:
+                        inner = select_all_checkbox.find_element(By.XPATH, "ancestor::mat-checkbox//span[contains(@class,'mat-checkbox-inner-container')]")
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", inner)
+                        time.sleep(0.2)
+                        inner.click()
+                        clicked = True
+                    except Exception as e3:
+                        print(f"⚠️ Inner-container click failed: {e3}")
+                if not clicked:
+                    self.driver.execute_script("arguments[0].click();", select_all_checkbox)
+                time.sleep(2)  # Wait for selection to process
+                
+                # Verify the click worked
+                new_state = select_all_checkbox.is_selected()
+                if not new_state:
+                    # Check aria-checked on mat-checkbox
+                    try:
+                        mat = select_all_checkbox.find_element(By.XPATH, "ancestor::mat-checkbox")
+                        aria = (mat.get_attribute('aria-checked') or '').lower()
+                        new_state = aria == 'true'
+                    except Exception:
+                        pass
+                print(f"📋 Select-all checkbox new state: {'checked' if new_state else 'unchecked'}")
+                self._capture_screenshot("after_select_all")
+                
+                # Count selected checkboxes to verify
+                try:
+                    selected_checkboxes = self.driver.find_elements(By.XPATH, "//input[@type='checkbox' and @checked] | //*[@role='checkbox' and @aria-checked='true']")
+                    selected_count = len(selected_checkboxes)
+                except:
+                    selected_count = "unknown"
+                print(f"✅ {selected_count} checkboxes now selected")
+                
+                return {
+                    "success": True,
+                    "selector_used": used_selector,
+                    "containers_found": container_count,
+                    "checkboxes_selected": selected_count,
+                    "checkbox_state": "checked" if new_state else "unchecked"
+                }
+                
             except Exception as click_e:
-                print(f"   ⚠️ Could not click checkbox: {click_e}")
-
-            # 2. Wait 10 seconds regardless of checkbox state
-            print("   ⏳ Waiting 10 seconds...")
-            time.sleep(10)
-            
-            # 3. Always return success
-            print("✅ Proceeding with export after 10-second wait")
-            self._capture_screenshot("after_select_all")
-            
-            return {"success": True, "checkboxes_selected": 0}
-
+                return {"success": False, "error": f"Failed to click select-all checkbox: {str(click_e)}"}
+                
         except Exception as e:
-            print(f"⚠️ Error in select_all_containers: {e}")
-            return {"success": True, "checkboxes_selected": 0}
+            return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
     def download_excel_file(self) -> Dict[str, Any]:
-        """Click export button, wait 10 seconds, return session folder."""
+        """Download Excel file with container data"""
         try:
             print("📥 Looking for Excel download button...")
             self._capture_screenshot("before_export")
             
-            # Set up session-specific download directory
+            # Common selectors for Excel download (expanded)
+            excel_selectors = [
+                "//a[contains(@href, 'excel') or contains(@href, 'xlsx')]",
+                "//button[contains(@class, 'excel') or contains(@title, 'excel') or contains(., 'Excel') or contains(@aria-label,'Excel')]",
+                "//*[@aria-label='Export to Excel' or @title='Export to Excel' or contains(., 'Export to Excel')]",
+                "//i[contains(@class, 'fa-file-excel')]/..",
+                "//i[contains(@class, 'excel-icon')]/..",
+                # Angular Material mat-icon with svgicon="xls"
+                "//mat-icon[@svgicon='xls']/ancestor::*[self::button or self::a][1]",
+                "//mat-icon[contains(@class,'excel-icon')]/ancestor::*[self::button or self::a][1]",
+                # SVG group/id for excel icon
+                "//g[@id='excel_icon']/ancestor::*[self::button or self::a][1]",
+                "//a[contains(@title, 'Export') and contains(@title, 'Excel')]",
+                "//button[contains(@title, 'Export') and contains(@title, 'Excel')]",
+                "//span[contains(text(), 'Excel') or contains(text(), 'Export')]",
+                "(//i[contains(@class,'excel') or contains(@class,'xls') or contains(@class,'download')]/ancestor::button)[1]",
+                "(//svg[contains(@class,'excel') or contains(@class,'download')]/ancestor::button)[1]",
+                # SVG path provided by user
+                "//path[@id='Path_346']/ancestor::*[self::button or self::a][1]",
+                "//path[@data-name='Path 346']/ancestor::*[self::button or self::a][1]",
+                "//path[contains(@d,'Path 346')]/ancestor::*[self::button or self::a][1]",
+                # Generic: green export icon path
+                "//path[@fill='#1a8e07']/ancestor::*[self::button or self::a][1]",
+                ".btn-excel",
+                ".export-excel",
+                "[data-export='excel']",
+                "[data-format='xlsx']"
+            ]
+            
+            excel_button = None
+            used_selector = None
+            
+            # Try each selector
+            for selector in excel_selectors:
+                try:
+                    if selector.startswith("//"):
+                        # XPath selector
+                        element = self.driver.find_element(By.XPATH, selector)
+                    else:
+                        # CSS selector
+                        element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    
+                    if element.is_displayed() and element.is_enabled():
+                        excel_button = element
+                        used_selector = selector
+                        print(f"✅ Found Excel download button with: {selector}")
+                        break
+                        
+                except Exception:
+                    continue
+            
+            if not excel_button:
+                # Fallback: look for buttons/links that might be export-related
+                try:
+                    export_candidates = self.driver.find_elements(
+                        By.XPATH,
+                        "//button[contains(text(), 'Export') or contains(text(), 'Download') or contains(text(), 'Excel')] | "
+                        "//a[contains(text(), 'Export') or contains(text(), 'Download') or contains(text(), 'Excel')] | "
+                        "//path[@id='Path_346' or @data-name='Path 346' or @fill='#1a8e07']/ancestor::*[self::button or self::a] | "
+                        "//mat-icon[@svgicon='xls']/ancestor::*[self::button or self::a] | //g[@id='excel_icon']/ancestor::*[self::button or self::a]"
+                    )
+                    
+                    print(f"🔍 Found {len(export_candidates)} potential export buttons")
+                    
+                    for i, candidate in enumerate(export_candidates):
+                        try:
+                            button_text = candidate.text.strip()
+                            button_title = candidate.get_attribute("title") or ""
+                            button_class = candidate.get_attribute("class") or ""
+                            
+                            print(f"  Button {i+1}: text='{button_text}', title='{button_title}', class='{button_class}'")
+                            
+                            if any(keyword in (button_text + button_title + button_class).lower() 
+                                   for keyword in ['excel', 'xlsx', 'export', 'download']):
+                                excel_button = candidate
+                                used_selector = f"export_candidate_{i+1}"
+                                print(f"✅ Using button {i+1} as Excel download")
+                                break
+                                
+                        except Exception:
+                            continue
+                            
+                except Exception as fallback_e:
+                    print(f"❌ Fallback button search failed: {fallback_e}")
+            
+            if not excel_button:
+                return {"success": False, "error": "Could not find Excel download button"}
+            
+            # Set up session-specific download directory under project downloads/
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
             try:
                 os.makedirs(download_dir, exist_ok=True)
             except Exception:
                 pass
             
-            # Configure download behavior
+            # Configure active Chrome session to allow downloads into our temp dir via DevTools
             try:
                 self.driver.execute_cdp_cmd("Page.setDownloadBehavior", {
                     "behavior": "allow",
                     "downloadPath": download_dir
                 })
             except Exception as cdp_e:
-                print(f"⚠️ Could not set download behavior: {cdp_e}")
+                print(f"⚠️ Could not set download behavior via CDP: {cdp_e}")
             
-            # Find and click export button 3 times with 5-second intervals
+            # Click the Excel download button
             try:
-                excel_button = self.driver.find_element(By.XPATH, "//mat-icon[@svgicon='xls']/ancestor::button[1]")
+                # Scroll to element
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", excel_button)
+                time.sleep(1)
                 
-                # Click the button 3 times with 5-second intervals
-                for click_attempt in range(3):
-                    print(f"📥 Clicking Excel download button (attempt {click_attempt + 1}/3)...")
-                    self.driver.execute_script("arguments[0].click();", excel_button)
+                button_text = (excel_button.text or '').strip()
+                print(f"📥 Clicking Excel download button: '{button_text}'")
+                
+                try:
+                    excel_button.click()
+                except Exception as e_click:
+                    print(f"⚠️ Direct click failed: {e_click}. Trying JS click...")
+                    try:
+                        self.driver.execute_script("arguments[0].click();", excel_button)
+                    except Exception:
+                        # If excel_button is the path itself, click its clickable ancestor
+                        try:
+                            ancestor = excel_button.find_element(By.XPATH, "ancestor::*[self::button or self::a][1]")
+                            self.driver.execute_script("arguments[0].click();", ancestor)
+                        except Exception:
+                            raise
+                self._capture_screenshot("after_export_click")
+                
+                # Wait for download to complete
+                print("⏳ Waiting for file download...")
+                download_timeout = 60  # allow longer for large files
+                start_time = time.time()
+                downloaded_file = None
+                
+                while (time.time() - start_time) < download_timeout:
+                    try:
+                        entries = os.listdir(download_dir)
+                    except Exception:
+                        entries = []
+                    # Any crdownload indicates in-progress
+                    in_progress = [f for f in entries if f.endswith('.crdownload')]
+                    # Completed known extensions
+                    complete_files = [f for f in entries if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+                    if complete_files and not in_progress:
+                        # Pick the newest completed file
+                        complete_files.sort(key=lambda f: os.path.getmtime(os.path.join(download_dir, f)), reverse=True)
+                        downloaded_file = os.path.join(download_dir, complete_files[0])
+                        # Additional small grace period to ensure file handlers closed
+                        time.sleep(0.5)
+                        break
                     
-                    # Take screenshot after each click
-                    screenshot_name = f"download_click_{click_attempt + 1}"
-                    self._capture_screenshot(screenshot_name)
-                    print(f"   📸 Screenshot: {screenshot_name}")
+                    time.sleep(1)
+
+                if downloaded_file:
+                    file_size = os.path.getsize(downloaded_file)
+                    print(f"✅ File downloaded: {os.path.basename(downloaded_file)} ({file_size} bytes)")
+                    self._capture_screenshot("after_download")
                     
-                    # Wait 5 seconds before next click (except for the last one)
-                    if click_attempt < 2:  # Don't wait after the last click
-                        print(f"   ⏳ Waiting 5 seconds before next click...")
-                        time.sleep(5)
+                    return {
+                        "success": True,
+                        "file_path": downloaded_file,
+                        "file_name": os.path.basename(downloaded_file),
+                        "file_size": file_size,
+                        "download_dir": download_dir,
+                        "selector_used": used_selector
+                    }
+                else:
+                    return {"success": False, "error": "Download timeout - file not found"}
                     
             except Exception as click_e:
-                print(f"⚠️ Could not click export button: {click_e}")
-            
-            # Wait 10 seconds after all clicks
-            print("⏳ Waiting 10 seconds for download...")
-            time.sleep(10)
-            
-            # Create zip file of session folder
-            print(f"📦 Creating zip of session folder: {download_dir}")
-            zip_path = self._create_session_zip(download_dir)
-            self._capture_screenshot("after_download")
-            
-            if zip_path and os.path.exists(zip_path):
-                file_size = os.path.getsize(zip_path)
-                return {
-                    "success": True,
-                    "download_dir": download_dir,
-                    "file_path": zip_path,
-                    "file_name": os.path.basename(zip_path),
-                    "file_size": file_size,
-                    "zip_created": True
-                }
-            else:
-                return {
-                    "success": True,
-                    "download_dir": download_dir,
-                    "file_path": None,
-                    "file_name": "zip_creation_failed",
-                    "zip_created": False
-                }
+                return {"success": False, "error": f"Failed to click download button: {str(click_e)}"}
                 
         except Exception as e:
-            print(f"⚠️ Error in download_excel_file: {e}")
-            return {
-                "success": True,
-                "download_dir": os.path.join(DOWNLOADS_DIR, self.session.session_id),
-                "file_path": None,
-                "file_name": "error_occurred"
-            }
-
-    def _create_session_zip(self, session_dir: str) -> str:
-        """Create a zip file of the session directory and screenshots, return the zip path"""
-        try:
-            # Create zip in the public downloads directory
-            zip_filename = f"{os.path.basename(session_dir)}.zip"
-            zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
-            
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                # Add session directory contents
-                if os.path.exists(session_dir):
-                    for root, dirs, files in os.walk(session_dir):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, session_dir)
-                            zipf.write(file_path, f"session_data/{arcname}")
-                else:
-                    # Create empty folder if directory doesn't exist
-                    zipf.writestr("session_data/empty_folder.txt", "Session folder was empty or not found")
-                
-                # Add screenshots directory
-                if hasattr(self, 'screens_dir') and os.path.exists(self.screens_dir):
-                    for root, dirs, files in os.walk(self.screens_dir):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, self.screens_dir)
-                            zipf.write(file_path, f"screenshots/{arcname}")
-                    print(f"📸 Added screenshots from: {self.screens_dir}")
-                else:
-                    zipf.writestr("screenshots/no_screenshots.txt", "No screenshots directory found")
-            
-            print(f"📦 Created zip file with session data and screenshots: {zip_path}")
-            return zip_path
-        except Exception as e:
-            print(f"⚠️ Failed to create zip: {e}")
-            return None
-
-    def _try_fallback_download_links(self, download_dir: str) -> Dict[str, Any]:
-        """Try fallback download links when main export button fails"""
-        try:
-            print("🔍 Searching for fallback download links...")
-            
-            # Look for any download links on the page
-            download_link_selectors = [
-                "//a[contains(@href, '.xlsx') or contains(@href, '.xls') or contains(@href, 'download')]",
-                "//a[contains(@href, 'export') or contains(@href, 'excel')]",
-                "//a[contains(text(), 'Download') or contains(text(), 'Export')]",
-                "//a[@download]",
-                "//a[contains(@class, 'download') or contains(@class, 'export')]",
-                "//button[contains(text(), 'Download') or contains(text(), 'Export')]"
-            ]
-            
-            for selector in download_link_selectors:
-                try:
-                    links = self.driver.find_elements(By.XPATH, selector)
-                    for i, link in enumerate(links):
-                        if link.is_displayed():
-                            print(f"   📎 Found fallback link {i+1}: {selector}")
-                            try:
-                                self.driver.execute_script("arguments[0].click();", link)
-                                print(f"   ✅ Clicked fallback link {i+1}")
-                                time.sleep(5)  # Wait for download
-                                
-                                # Check if file appeared
-                                try:
-                                    entries = os.listdir(download_dir)
-                                    complete_files = [f for f in entries if f.lower().endswith((".xlsx", ".xls", ".csv"))]
-                                    if complete_files:
-                                        complete_files.sort(key=lambda f: os.path.getmtime(os.path.join(download_dir, f)), reverse=True)
-                                        downloaded_file = os.path.join(download_dir, complete_files[0])
-                                        file_size = os.path.getsize(downloaded_file)
-                                        print(f"✅ Fallback download successful: {os.path.basename(downloaded_file)} ({file_size} bytes)")
-                                        return {
-                                            "success": True,
-                                            "file_path": downloaded_file,
-                                            "file_name": os.path.basename(downloaded_file),
-                                            "file_size": file_size,
-                                            "download_dir": download_dir,
-                                            "method": "fallback_link"
-                                        }
-                                except Exception:
-                                    pass
-                            except Exception as click_e:
-                                print(f"   ❌ Failed to click fallback link {i+1}: {click_e}")
-                                continue
-                except Exception:
-                    continue
-            
-            # If no fallback links worked, return success with empty file info
-            print("⚠️ No fallback links worked, but continuing without error")
-            return {
-                "success": True,
-                "file_path": None,
-                "file_name": "no_file_downloaded",
-                "file_size": 0,
-                "download_dir": download_dir,
-                "method": "no_download_available"
-            }
-            
-        except Exception as e:
-            print(f"⚠️ Fallback download failed: {e}")
-            return {
-                "success": True,
-                "file_path": None,
-                "file_name": "fallback_failed",
-                "file_size": 0,
-                "download_dir": download_dir,
-                "method": "fallback_failed"
-            }
+            return {"success": False, "error": f"Excel download failed: {str(e)}"}
 
     def search_container(self, container_id: str) -> Dict[str, Any]:
         """Search for a specific container on the containers page"""
@@ -1724,7 +1874,7 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
         except Exception:
             pass
 
-        # Prime the app root to establish app context if we're still on Identity
+        # Prime the app root to establish app context if we’re still on Identity
         try:
             url_check = (login_handler.driver.current_url or "").lower()
             title_check = (login_handler.driver.title or "").lower()
@@ -1831,7 +1981,8 @@ def get_containers():
         "username": "your_username",
         "password": "your_password", 
         "captcha_api_key": "your_2captcha_key",
-        "keep_browser_alive": true/false
+        "keep_browser_alive": true/false,
+        "infinite_scrolling": true/false  (default: true)
     }
     
     Returns Excel file with container data
@@ -1851,6 +2002,7 @@ def get_containers():
         return_url = data.get('return_url', False)
         capture_screens = data.get('capture_screens', False)
         screens_label = data.get('screens_label', username)
+        infinite_scrolling = data.get('infinite_scrolling', True)  # Default: enabled
         
         if not all([username, password, captcha_api_key]):
             return jsonify({
@@ -1860,6 +2012,7 @@ def get_containers():
         
         logger.info(f"[{request_id}] Container request for user: {username}")
         logger.info(f"[{request_id}] Keep alive: {keep_alive}")
+        logger.info(f"[{request_id}] Infinite scrolling: {infinite_scrolling}")
         
         # Create authenticated session
         try:
@@ -1906,29 +2059,27 @@ def get_containers():
                     "error": f"Navigation failed: {nav_result['error']}"
                 }), 500
             
-            # Step 1.5: Load all containers with infinite scroll (TEMPORARILY DISABLED FOR SPEED)
-            print("📜 Infinite scrolling DISABLED - using first page only for speed...")
-            # scroll_result = operations.load_all_containers_with_infinite_scroll()
-            # if not scroll_result["success"]:
-            #     print(f"⚠️ Infinite scroll failed: {scroll_result['error']}")
-            #     # Continue anyway - maybe all containers are already loaded
-            # else:
-            #     print(f"✅ Infinite scroll completed: {scroll_result.get('total_containers', 'unknown')} containers loaded")
-            
-            # Mock scroll result for compatibility
-            scroll_result = {
-                "success": True,
-                "total_containers": "first_page_only",
-                "scroll_cycles": 0,
-                "message": "Infinite scroll disabled - first page only"
-            }
+            # Step 1.5: Load all containers with infinite scroll (if enabled)
+            if infinite_scrolling:
+                print("📜 Loading all containers with infinite scroll...")
+                scroll_result = operations.load_all_containers_with_infinite_scroll()
+                if not scroll_result["success"]:
+                    print(f"⚠️ Infinite scroll failed: {scroll_result['error']}")
+                    # Continue anyway - maybe all containers are already loaded
+                else:
+                    print(f"✅ Infinite scroll completed: {scroll_result.get('total_containers', 'unknown')} containers loaded")
+            else:
+                print("⏭️  Infinite scrolling disabled - using first page only")
+                scroll_result = {
+                    "success": True,
+                    "total_containers": "first_page_only",
+                    "scroll_cycles": 0,
+                    "message": "Infinite scrolling disabled by request"
+                }
             
             # Step 2: Select all containers
-            print("🔘 Calling select_all_containers...")
             select_result = operations.select_all_containers()
-            print(f"🔘 select_all_containers returned: {select_result}")
             if not select_result["success"]:
-                print(f"❌ Select all failed: {select_result['error']}")
                 if not keep_alive:
                     session.driver.quit()
                 return jsonify({
@@ -1937,11 +2088,8 @@ def get_containers():
                 }), 500
             
             # Step 3: Download Excel file
-            print("📥 Calling download_excel_file...")
             download_result = operations.download_excel_file()
-            print(f"📥 download_excel_file returned: {download_result}")
             if not download_result["success"]:
-                print(f"❌ Download failed: {download_result['error']}")
                 if not keep_alive:
                     session.driver.quit()
                 return jsonify({
@@ -2011,33 +2159,6 @@ def get_containers():
             except Exception as be:
                 print(f"⚠️ Bundle creation failed: {be}")
 
-            # Check if we have a zip file from download_result
-            if download_result.get("success") and download_result.get("file_path"):
-                zip_path = download_result["file_path"]
-                if os.path.exists(zip_path):
-                    # Move zip file to downloads directory for public access
-                    zip_filename = os.path.basename(zip_path)
-                    public_zip_path = os.path.join(DOWNLOADS_DIR, zip_filename)
-                    try:
-                        import shutil
-                        shutil.move(zip_path, public_zip_path)
-                        print(f"📦 Moved zip file to public directory: {public_zip_path}")
-                    except Exception as move_e:
-                        print(f"⚠️ Could not move zip file: {move_e}")
-                        public_zip_path = zip_path
-                    
-                    # Return public download URL
-                    public_url = f"http://89.117.63.196:5010/files/{zip_filename}"
-                    print(f"🌐 Public download URL: {public_url}")
-                    return jsonify({
-                        "success": True,
-                        "download_url": public_url,
-                        "file_name": zip_filename,
-                        "file_size": download_result.get("file_size", 0),
-                        "message": "Zip file ready for download"
-                    })
-            
-            # Fallback to original logic
             if return_url:
                 response_data = {
                     "success": True,
@@ -2196,12 +2317,7 @@ def make_appointment():
                 return ('', 204)
 
         except Exception as operation_error:
-            import traceback
-            error_details = traceback.format_exc()
             logger.error(f"[{request_id}] Operation failed: {str(operation_error)}")
-            logger.error(f"[{request_id}] Full traceback: {error_details}")
-            print(f"❌ Operation failed: {str(operation_error)}")
-            print(f"❌ Full traceback: {error_details}")
             if not keep_alive:
                 try:
                     session.driver.quit()
@@ -2213,12 +2329,7 @@ def make_appointment():
             }), 500
 
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
         logger.error(f"[{request_id}] Unexpected error: {str(e)}")
-        logger.error(f"[{request_id}] Full traceback: {error_details}")
-        print(f"❌ Unexpected error: {str(e)}")
-        print(f"❌ Full traceback: {error_details}")
         return jsonify({
             "success": False,
             "error": f"Unexpected error: {str(e)}"

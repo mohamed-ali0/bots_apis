@@ -1,45 +1,80 @@
-# Linux Setup Guide for E-Modal Business Operations API
+# Linux Server Setup Guide for E-Modal Automation
 
-## 🐧 Quick Start (Linux)
+This guide helps you set up the E-Modal automation system on a Linux server (including non-GUI servers).
 
-### 1. Automated Setup (Recommended)
+## System Requirements
+
+- **Linux Distribution**: Ubuntu 20.04+ / Debian 11+ / CentOS 8+ / RHEL 8+
+- **RAM**: Minimum 2GB (4GB recommended)
+- **Disk**: Minimum 2GB free space
+- **Network**: Outbound internet access
+
+## Installation Steps
+
+### 1. Update System Packages
+
 ```bash
-# Clone/download the project
-cd emodal
-
-# Make setup script executable
-chmod +x setup.sh
-
-# Run automated setup
-./setup.sh
+sudo apt-get update
+sudo apt-get upgrade -y
 ```
 
-### 2. Manual Setup
+### 2. Install System Dependencies
 
-#### System Dependencies
 ```bash
-# Update system
-sudo apt-get update
+# Install Python 3.8+
+sudo apt-get install -y python3 python3-pip python3-venv
 
-# Install required packages
-sudo apt-get install -y wget unzip curl xvfb python3-pip python3-venv ffmpeg
+# Install Xvfb (Virtual Framebuffer for non-GUI servers)
+sudo apt-get install -y xvfb
 
-# Install Google Chrome
+# Install Chrome/Chromium
+sudo apt-get install -y wget unzip
+
+# Option A: Install Google Chrome (recommended)
 wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
 echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
 sudo apt-get update
 sudo apt-get install -y google-chrome-stable
 
-# Alternative: Install Chromium
+# Option B: Install Chromium (alternative)
 # sudo apt-get install -y chromium-browser
+
+# Install FFmpeg (for audio processing in reCAPTCHA)
+sudo apt-get install -y ffmpeg
+
+# Install additional dependencies
+sudo apt-get install -y libglib2.0-0 libnss3 libgconf-2-4 libfontconfig1
 ```
 
-#### Python Environment
+### 3. Install ChromeDriver
+
 ```bash
+# Download ChromeDriver (check Chrome version first)
+CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+')
+CHROMEDRIVER_VERSION=$(curl -s "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION%%.*}")
+
+wget -N "https://chromedriver.storage.googleapis.com/${CHROMEDRIVER_VERSION}/chromedriver_linux64.zip"
+unzip chromedriver_linux64.zip
+sudo mv chromedriver /usr/local/bin/
+sudo chmod +x /usr/local/bin/chromedriver
+rm chromedriver_linux64.zip
+
+# Verify installation
+chromedriver --version
+```
+
+### 4. Clone and Setup Project
+
+```bash
+# Clone or upload your project
+cd /home/your_user/
+# git clone <your-repo> emodal
+# OR upload files manually
+
+cd emodal
+
 # Create virtual environment
 python3 -m venv venv
-
-# Activate virtual environment
 source venv/bin/activate
 
 # Install Python dependencies
@@ -47,307 +82,264 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-#### Configuration
+### 5. Configure Environment Variables
+
 ```bash
-# Copy environment template
-cp .env.example .env
-
-# Edit configuration
-nano .env
-```
-
-Add your credentials:
-```env
-CAPTCHA_API_KEY=your_2captcha_api_key
+# Create .env file
+cat > .env << 'EOF'
 EMODAL_USERNAME=your_username
 EMODAL_PASSWORD=your_password
+CAPTCHA_API_KEY=your_2captcha_api_key
+KEEP_BROWSER_ALIVE=true
+INFINITE_SCROLLING=true
+EOF
+
+# Or export directly
+export EMODAL_USERNAME="jfernandez"
+export EMODAL_PASSWORD="taffie"
+export CAPTCHA_API_KEY="5a0a4a97f8b4c9505d0b719cd92a9dcb"
+export KEEP_BROWSER_ALIVE="true"
+export INFINITE_SCROLLING="true"
 ```
 
-### 3. Running the API
+## Running the Application
 
-#### Standard Mode
+### Option 1: Direct Execution (Xvfb Auto-Start)
+
+The application automatically detects Linux and starts Xvfb if no display is available:
+
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Start API
+# Start the API server
 python emodal_business_api.py
+
+# In another terminal, run tests
+python test_business_api.py
 ```
 
-#### With Startup Script
-```bash
-# Make executable
-chmod +x start_api.sh
+### Option 2: Manual Xvfb Control
 
-# Run
-./start_api.sh
-```
-
-#### Headless Server Mode
 ```bash
-# For servers without display
+# Start Xvfb manually
+Xvfb :99 -screen 0 1920x1080x24 &
 export DISPLAY=:99
-Xvfb :99 -screen 0 1024x768x24 &
+
+# Start the API server
 python emodal_business_api.py
 ```
 
-## 🔧 Linux-Specific Features
+### Option 3: Using xvfb-run Wrapper
 
-### Browser Profile Detection
-The API automatically detects Linux Chrome profiles:
-- **Primary**: `~/.config/google-chrome`
-- **Fallback**: `~/.config/chromium`
-
-### Chrome Options (Linux-Optimized)
-```python
-# Automatically applied on Linux
---disable-gpu
---no-sandbox
---disable-dev-shm-usage
---remote-debugging-port=9222
---disable-background-timer-throttling
-```
-
-### Download Handling
-- Uses `tempfile.mkdtemp()` for cross-platform compatibility
-- Automatically configures Chrome download preferences for Linux
-- Handles file permissions correctly
-
-## 🐳 Docker Support
-
-### Dockerfile
-```dockerfile
-FROM ubuntu:22.04
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    wget unzip curl xvfb python3 python3-pip python3-venv \
-    google-chrome-stable ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy application
-COPY . /app
-WORKDIR /app
-
-# Setup Python environment
-RUN python3 -m venv venv && \
-    . venv/bin/activate && \
-    pip install -r requirements.txt
-
-# Expose port
-EXPOSE 5000
-
-# Start with display
-CMD ["bash", "-c", "Xvfb :99 -screen 0 1024x768x24 & source venv/bin/activate && python emodal_business_api.py"]
-```
-
-### Docker Compose
-```yaml
-version: '3.8'
-services:
-  emodal-api:
-    build: .
-    ports:
-      - "5000:5000"
-    environment:
-      - DISPLAY=:99
-      - CAPTCHA_API_KEY=${CAPTCHA_API_KEY}
-      - EMODAL_USERNAME=${EMODAL_USERNAME}
-      - EMODAL_PASSWORD=${EMODAL_PASSWORD}
-    volumes:
-      - ./downloads:/app/downloads
-```
-
-## 🚀 Testing
-
-### Verify Setup
 ```bash
-# Run verification script
-python test_linux_setup.py
+# Run with xvfb-run
+xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python emodal_business_api.py
+```
 
-# Test API
+## Testing the Setup
+
+### 1. Test Health Endpoint
+
+```bash
 curl http://localhost:5000/health
 ```
 
-### Test Container Extraction
+### 2. Test Container Extraction
+
 ```bash
+# With infinite scrolling (default)
 curl -X POST http://localhost:5000/get_containers \
   -H "Content-Type: application/json" \
   -d '{
-    "username": "your_username",
-    "password": "your_password", 
-    "captcha_api_key": "your_key"
-  }' \
-  --output containers.xlsx
+    "username": "jfernandez",
+    "password": "taffie",
+    "captcha_api_key": "your_api_key",
+    "keep_browser_alive": false,
+    "infinite_scrolling": true
+  }'
+
+# Without infinite scrolling (first page only)
+curl -X POST http://localhost:5000/get_containers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "jfernandez",
+    "password": "taffie",
+    "captcha_api_key": "your_api_key",
+    "keep_browser_alive": false,
+    "infinite_scrolling": false
+  }'
 ```
 
-## 🔍 Troubleshooting
+### 3. Test Container Timeline
 
-### Chrome Issues
 ```bash
-# Check Chrome installation
-google-chrome --version
-chromium-browser --version
-
-# Test Chrome headless
-google-chrome --headless --no-sandbox --disable-gpu --dump-dom https://google.com
+curl -X POST http://localhost:5000/get_container_timeline \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "jfernandez",
+    "password": "taffie",
+    "captcha_api_key": "your_api_key",
+    "container_id": "MEDU7894898"
+  }'
 ```
 
-### Display Issues
+## Running as a Service (systemd)
+
+### 1. Create Service File
+
 ```bash
-# Check display
-echo $DISPLAY
-
-# Start Xvfb manually
-Xvfb :99 -screen 0 1024x768x24 &
-export DISPLAY=:99
+sudo nano /etc/systemd/system/emodal-api.service
 ```
 
-### Permission Issues
-```bash
-# Fix Chrome sandbox
-sudo chown root:root /opt/google/chrome/chrome-sandbox
-sudo chmod 4755 /opt/google/chrome/chrome-sandbox
-
-# Alternative: Run with --no-sandbox (less secure)
-```
-
-### Virtual Environment Issues
-```bash
-# Recreate virtual environment
-rm -rf venv
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-## 📊 Performance Optimization (Linux)
-
-### System Tuning
-```bash
-# Increase shared memory (for Chrome)
-sudo mount -o remount,size=2G /dev/shm
-
-# Adjust file limits
-ulimit -n 4096
-```
-
-### Chrome Performance
-```python
-# Additional Linux-specific options
-chrome_options.add_argument("--memory-pressure-off")
-chrome_options.add_argument("--max_old_space_size=4096")
-chrome_options.add_argument("--disable-background-timer-throttling")
-```
-
-## 🔐 Security (Production)
-
-### Firewall
-```bash
-# Allow API port
-sudo ufw allow 5000
-
-# Restrict to specific IPs
-sudo ufw allow from 192.168.1.0/24 to any port 5000
-```
-
-### Service User
-```bash
-# Create dedicated user
-sudo useradd -m -s /bin/bash emodal-api
-sudo su - emodal-api
-
-# Install in user directory
-cd /home/emodal-api
-# ... setup process ...
-```
-
-### Systemd Service
 ```ini
 [Unit]
-Description=E-Modal Business Operations API
+Description=E-Modal Business API
 After=network.target
 
 [Service]
 Type=simple
-User=emodal-api
-WorkingDirectory=/home/emodal-api/emodal
-Environment=DISPLAY=:99
-ExecStartPre=/usr/bin/Xvfb :99 -screen 0 1024x768x24
-ExecStart=/home/emodal-api/emodal/start_api.sh
+User=your_user
+WorkingDirectory=/home/your_user/emodal
+Environment="PATH=/home/your_user/emodal/venv/bin"
+Environment="EMODAL_USERNAME=your_username"
+Environment="EMODAL_PASSWORD=your_password"
+Environment="CAPTCHA_API_KEY=your_api_key"
+ExecStart=/home/your_user/emodal/venv/bin/python emodal_business_api.py
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-## 📈 Monitoring
+### 2. Enable and Start Service
 
-### Health Check
 ```bash
-# Monitor API health
-watch -n 30 'curl -s http://localhost:5000/health | jq'
-
-# Check browser sessions
-curl http://localhost:5000/sessions
+sudo systemctl daemon-reload
+sudo systemctl enable emodal-api
+sudo systemctl start emodal-api
+sudo systemctl status emodal-api
 ```
 
-### Logs
-```bash
-# API logs
-tail -f emodal_api.log
+### 3. View Logs
 
-# System logs
+```bash
 sudo journalctl -u emodal-api -f
 ```
 
-## 🎯 Production Deployment
+## Troubleshooting
 
-### Load Balancer (nginx)
-```nginx
-upstream emodal_api {
-    server 127.0.0.1:5000;
-    server 127.0.0.1:5001;  # Multiple instances
-}
+### Issue: Chrome crashes on startup
 
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-    
-    location / {
-        proxy_pass http://emodal_api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+**Solution**: Add more shared memory
+
+```bash
+# Increase /dev/shm size
+sudo mount -o remount,size=2G /dev/shm
+```
+
+### Issue: "Display not available" error
+
+**Solution**: Ensure Xvfb is installed and DISPLAY is set
+
+```bash
+sudo apt-get install -y xvfb
+export DISPLAY=:99
+Xvfb :99 -screen 0 1920x1080x24 &
+```
+
+### Issue: ChromeDriver version mismatch
+
+**Solution**: Update ChromeDriver to match Chrome version
+
+```bash
+google-chrome --version
+# Download matching ChromeDriver version from:
+# https://chromedriver.chromium.org/downloads
+```
+
+### Issue: Permission denied errors
+
+**Solution**: Fix file permissions
+
+```bash
+chmod +x /usr/local/bin/chromedriver
+sudo chown -R $USER:$USER /home/$USER/emodal
+```
+
+### Issue: Network errors / 403 Forbidden
+
+**Solution**: Check VPN/proxy settings if E-Modal requires US access
+
+```bash
+# Test connectivity
+curl -I https://ecp2.emodal.com/login
+```
+
+## Performance Tuning
+
+### Optimize for High Load
+
+```bash
+# Increase file descriptor limits
+echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
+echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
+
+# Increase kernel parameters
+sudo sysctl -w net.core.somaxconn=1024
+sudo sysctl -w net.ipv4.tcp_max_syn_backlog=2048
+```
+
+### Memory Management
+
+```bash
+# Monitor memory usage
+free -h
+htop
+
+# Set swap if needed
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+```
+
+## Security Recommendations
+
+1. **Use environment variables** instead of hardcoding credentials
+2. **Firewall**: Only expose port 5000 to trusted networks
+3. **HTTPS**: Use nginx/apache as reverse proxy with SSL
+4. **Rate limiting**: Implement rate limiting on API endpoints
+5. **Monitoring**: Set up logging and monitoring
+
+## API Parameters
+
+### `/get_containers`
+
+```json
+{
+  "username": "string (required)",
+  "password": "string (required)",
+  "captcha_api_key": "string (required)",
+  "keep_browser_alive": "boolean (default: false)",
+  "infinite_scrolling": "boolean (default: true)",
+  "capture_screens": "boolean (default: false)",
+  "screens_label": "string (default: username)",
+  "return_url": "boolean (default: false)"
 }
 ```
 
-### Process Manager (supervisord)
-```ini
-[program:emodal-api]
-command=/home/emodal-api/emodal/start_api.sh
-directory=/home/emodal-api/emodal
-user=emodal-api
-autostart=true
-autorestart=true
-environment=DISPLAY=":99"
-```
+- **`infinite_scrolling`**: Set to `false` to only extract first page of containers (faster but incomplete)
+- **`keep_browser_alive`**: Set to `true` to reuse browser session for multiple requests
 
----
+## Support
 
-## ✅ Linux Compatibility Summary
+For issues specific to Linux deployment, check:
+- Chrome/ChromeDriver compatibility
+- Xvfb display configuration
+- System resource limits
+- Firewall and network settings
 
-- ✅ **Cross-platform file paths** using `os.path.join`
-- ✅ **Linux Chrome profile detection** (`~/.config/google-chrome`, `~/.config/chromium`)  
-- ✅ **Linux-optimized Chrome options** (`--disable-gpu`, `--no-sandbox`, etc.)
-- ✅ **Headless server support** with Xvfb
-- ✅ **System dependency management** (apt packages)
-- ✅ **Virtual environment setup** with proper activation
-- ✅ **Cross-platform download handling** using `tempfile`
-- ✅ **Service deployment** with systemd
-- ✅ **Docker containerization** support
-- ✅ **Automated setup script** with verification
+## Additional Resources
 
-**The E-Modal Business Operations API is fully Linux-compatible and production-ready!** 🚀🐧
-
-
+- [Selenium on Linux](https://www.selenium.dev/documentation/)
+- [Xvfb Documentation](https://www.x.org/releases/X11R7.6/doc/man/man1/Xvfb.1.xhtml)
+- [Chrome Headless Options](https://peter.sh/experiments/chromium-command-line-switches/)
