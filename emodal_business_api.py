@@ -896,69 +896,126 @@ class EModalBusinessOperations:
                 trigger = dropdown
                 print(f"  ℹ️  No mat-select-trigger found, using dropdown element directly")
             
-            # Try multiple click methods
+            # Try multiple methods to open the dropdown
             click_success = False
             
-            # Method 1: Focus + Enter key (most reliable for Material dropdowns)
+            # Method 1: Call Angular Material's open() method directly (BEST for Angular apps)
             try:
-                from selenium.webdriver.common.action_chains import ActionChains
+                print(f"  🔧 Attempting to call Angular Material open() method...")
+                open_result = self.driver.execute_script("""
+                    var matSelect = arguments[0];
+                    
+                    // Try to get the Angular component instance
+                    if (matSelect.__ngContext__) {
+                        // Angular 9+ way
+                        try {
+                            var componentRef = matSelect.__ngContext__.find(c => c && c.open);
+                            if (componentRef && typeof componentRef.open === 'function') {
+                                componentRef.open();
+                                return 'opened via __ngContext__';
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    // Try jQuery/Angular element way
+                    if (window.angular && window.angular.element) {
+                        try {
+                            var scope = angular.element(matSelect).scope();
+                            if (scope && scope.$ctrl && typeof scope.$ctrl.open === 'function') {
+                                scope.$ctrl.open();
+                                return 'opened via angular.element';
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    // Try direct property access
+                    if (matSelect._elementRef && matSelect._elementRef.nativeElement) {
+                        try {
+                            var component = matSelect._elementRef.nativeElement;
+                            if (typeof component.open === 'function') {
+                                component.open();
+                                return 'opened via _elementRef';
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    // Fallback: Try to find any 'open' method
+                    for (var key in matSelect) {
+                        if (key.includes('open') && typeof matSelect[key] === 'function') {
+                            try {
+                                matSelect[key]();
+                                return 'opened via ' + key;
+                            } catch (e) {}
+                        }
+                    }
+                    
+                    return null;
+                """, dropdown)
                 
-                # Focus on the dropdown
-                self.driver.execute_script("arguments[0].focus();", dropdown)
-                time.sleep(0.5)
-                
-                # Press Space or Enter to open (Material Design standard)
-                ActionChains(self.driver).move_to_element(dropdown).click().perform()
-                print(f"  ✅ Clicked {dropdown_label} dropdown (ActionChains)")
-                click_success = True
-            except Exception as e1:
-                print(f"  ⚠️ ActionChains click failed: {e1}")
-                
-                # Method 2: Regular click on trigger
+                if open_result:
+                    print(f"  ✅ Opened dropdown using Angular method: {open_result}")
+                    click_success = True
+                    time.sleep(2)  # Wait for animation
+                else:
+                    print(f"  ⚠️ Angular open() method not found, trying click methods...")
+            except Exception as e_angular:
+                print(f"  ⚠️ Angular method failed: {e_angular}")
+            
+            # Method 2: Focus + ActionChains click
+            if not click_success:
+                try:
+                    from selenium.webdriver.common.action_chains import ActionChains
+                    
+                    # Focus on the dropdown
+                    self.driver.execute_script("arguments[0].focus();", dropdown)
+                    time.sleep(0.5)
+                    
+                    # Click using ActionChains
+                    ActionChains(self.driver).move_to_element(dropdown).click().perform()
+                    print(f"  ✅ Clicked {dropdown_label} dropdown (ActionChains)")
+                    click_success = True
+                except Exception as e1:
+                    print(f"  ⚠️ ActionChains click failed: {e1}")
+            
+            # Method 3: Click on trigger element
+            if not click_success:
                 try:
                     trigger.click()
                     print(f"  ✅ Clicked {dropdown_label} dropdown (regular click on trigger)")
                     click_success = True
                 except Exception as e2:
                     print(f"  ⚠️ Regular click failed: {e2}")
-                    
-                    # Method 3: JavaScript click on trigger
-                    try:
-                        self.driver.execute_script("arguments[0].click();", trigger)
-                        print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click on trigger)")
-                        click_success = True
-                    except Exception as e3:
-                        print(f"  ⚠️ JavaScript click on trigger failed: {e3}")
+            
+            # Method 4: JavaScript click
+            if not click_success:
+                try:
+                    self.driver.execute_script("arguments[0].click();", trigger)
+                    print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click)")
+                    click_success = True
+                except Exception as e3:
+                    print(f"  ⚠️ JavaScript click failed: {e3}")
+            
+            # Method 5: Dispatch full mouse event sequence
+            if not click_success:
+                try:
+                    self.driver.execute_script("""
+                        var element = arguments[0];
                         
-                        # Method 4: Dispatch both mousedown and click events
-                        try:
-                            self.driver.execute_script("""
-                                var element = arguments[0];
-                                
-                                // Dispatch mousedown
-                                var mousedown = new MouseEvent('mousedown', {
-                                    bubbles: true,
-                                    cancelable: true,
-                                    view: window
-                                });
-                                element.dispatchEvent(mousedown);
-                                
-                                // Small delay
-                                setTimeout(function() {
-                                    // Dispatch click
-                                    var click = new MouseEvent('click', {
-                                        bubbles: true,
-                                        cancelable: true,
-                                        view: window
-                                    });
-                                    element.dispatchEvent(click);
-                                }, 100);
-                            """, trigger)
-                            time.sleep(0.5)
-                            print(f"  ✅ Clicked {dropdown_label} dropdown (MouseEvent sequence)")
-                            click_success = True
-                        except Exception as e4:
-                            print(f"  ❌ All click methods failed: {e4}")
+                        ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'].forEach(function(eventType) {
+                            var event = new MouseEvent(eventType, {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window,
+                                detail: 1
+                            });
+                            element.dispatchEvent(event);
+                        });
+                    """, trigger)
+                    time.sleep(0.5)
+                    print(f"  ✅ Clicked {dropdown_label} dropdown (full MouseEvent sequence)")
+                    click_success = True
+                except Exception as e4:
+                    print(f"  ❌ All click methods failed: {e4}")
             
             if not click_success:
                 self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_click_failed")
