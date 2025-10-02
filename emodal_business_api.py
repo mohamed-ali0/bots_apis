@@ -950,10 +950,34 @@ class EModalBusinessOperations:
                 'Fees', 'LFD/GTD', 'Tags'
             ]
             
-            # Get all page text
+            # Get ONLY table/results area text (not entire page)
             try:
-                body = self.driver.find_element(By.TAG_NAME, 'body')
-                page_text = body.text
+                # Try to find the specific table/results container
+                table_selectors = [
+                    "//div[@id='searchres']",  # The main search results div
+                    "//mat-table",
+                    "//table[contains(@class,'mat-table')]",
+                    "//div[contains(@class,'search-results')]",
+                    "//div[contains(@class,'table-container')]",
+                    "//tbody",
+                ]
+                
+                table_element = None
+                for selector in table_selectors:
+                    try:
+                        table_element = self.driver.find_element(By.XPATH, selector)
+                        if table_element:
+                            print(f"✅ Found table container: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not table_element:
+                    # Fallback to body but this might get extra text
+                    print("⚠️ Table container not found, using body (may get extra text)")
+                    table_element = self.driver.find_element(By.TAG_NAME, 'body')
+                
+                page_text = table_element.text
                 print(f"📄 Extracted {len(page_text)} characters of text")
             except Exception as e:
                 return {"success": False, "error": f"Could not extract page text: {e}"}
