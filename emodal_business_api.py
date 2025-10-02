@@ -881,20 +881,41 @@ class EModalBusinessOperations:
             if is_disabled == "true":
                 return {"success": False, "error": f"{dropdown_label} dropdown is disabled"}
             
-            # Click to open dropdown
+            # Scroll into view
             self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", dropdown)
             time.sleep(2)
             
-            # Get the trigger element (the clickable part)
-            trigger = None
+            # CRITICAL: Find the actual dropdown ARROW (not the field itself)
+            print(f"  🔍 Looking for dropdown arrow...")
+            arrow = None
+            
+            # Try to find the arrow div inside the mat-select
             try:
-                # Material dropdowns have a trigger div inside
-                trigger = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-trigger')]")
-                print(f"  ✅ Found mat-select-trigger")
+                arrow = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-arrow-wrapper')]")
+                print(f"  ✅ Found mat-select-arrow-wrapper")
             except:
-                # If no trigger, use the dropdown itself
-                trigger = dropdown
-                print(f"  ℹ️  No mat-select-trigger found, using dropdown element directly")
+                pass
+            
+            if not arrow:
+                try:
+                    arrow = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-arrow')]")
+                    print(f"  ✅ Found mat-select-arrow")
+                except:
+                    pass
+            
+            # Set target to arrow if found, otherwise use trigger
+            trigger = None
+            if arrow:
+                trigger = arrow
+                print(f"  🎯 Will click on the arrow element")
+            else:
+                # Fallback to trigger
+                try:
+                    trigger = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-trigger')]")
+                    print(f"  ✅ Found mat-select-trigger (arrow not found)")
+                except:
+                    trigger = dropdown
+                    print(f"  ℹ️  Using dropdown element directly (no arrow or trigger found)")
             
             # Try multiple methods to open the dropdown
             click_success = False
