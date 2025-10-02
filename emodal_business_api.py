@@ -951,26 +951,49 @@ class EModalBusinessOperations:
                 'Fees', 'LFD/GTD', 'Tags'
             ]
             
-            # Extract text using innerText (same clean result as Ctrl+A Ctrl+C)
+            # Extract text using JavaScript selection and copy (same result as Ctrl+A Ctrl+C)
             try:
                 # Find searchres div - this contains the table
                 searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
                 
-                # Use innerText - this gives the same clean text as Ctrl+A Ctrl+C
-                # innerText respects CSS visibility and formatting, excludes hidden elements
-                # and icon fonts like "keyboard_arrow_right"
-                print("📋 Extracting visible text (same as Ctrl+A Ctrl+C)...")
-                page_text = self.driver.execute_script("return arguments[0].innerText;", searchres)
-                print(f"✅ Extracted: {len(page_text)} characters")
+                # Use JavaScript to select all text in the element and get it
+                print("📋 Programmatically selecting all text in table...")
+                page_text = self.driver.execute_script("""
+                    var element = arguments[0];
+                    
+                    // Create a range and selection (like Ctrl+A does)
+                    var range = document.createRange();
+                    range.selectNodeContents(element);
+                    
+                    var selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    
+                    // Get the selected text (like Ctrl+C would copy)
+                    var selectedText = selection.toString();
+                    
+                    // Clear selection
+                    selection.removeAllRanges();
+                    
+                    return selectedText;
+                """, searchres)
                 
-                # Fallback: Use .text property (Selenium's built-in)
+                print(f"✅ Selected and extracted: {len(page_text)} characters")
+                
+                # Fallback 1: If selection method didn't work, try innerText
                 if not page_text or len(page_text) < 100:
-                    print("⚠️ innerText returned little/no data, trying .text property...")
+                    print("⚠️ Selection method returned little/no data, trying innerText...")
+                    page_text = self.driver.execute_script("return arguments[0].innerText;", searchres)
+                    print(f"📄 Extracted {len(page_text)} characters via innerText")
+                
+                # Fallback 2: Use .text property
+                if not page_text or len(page_text) < 100:
+                    print("⚠️ innerText failed, trying .text property...")
                     page_text = searchres.text
                     print(f"📄 Extracted {len(page_text)} characters via .text")
                 
             except Exception as e:
-                print(f"❌ Text extraction failed: {e}")
+                print(f"❌ All text extraction methods failed: {e}")
                 return {"success": False, "error": f"Could not extract page text: {e}"}
             
             # DEBUG: Save extracted text to file for debugging (RAW TEXT ONLY)
@@ -1022,7 +1045,20 @@ class EModalBusinessOperations:
                     fields = line.split('\t')
                     fields = [f.strip() for f in fields if f.strip()]  # Remove empty fields
                     
-                    # First field should be container ID
+                    # Remove icon text from fields (keyboard_arrow_right, info, more_vert, etc.)
+                    icon_texts = ['keyboard_arrow_right', 'info', 'more_vert', 'expand_more', 'expand_less']
+                    # Remove standalone icon fields
+                    fields = [f for f in fields if f not in icon_texts]
+                    # Also remove icon text from within fields (e.g., "info NO" -> "NO")
+                    cleaned_fields = []
+                    for field in fields:
+                        for icon in icon_texts:
+                            field = field.replace(icon, '').strip()
+                        if field:  # Only add non-empty fields
+                            cleaned_fields.append(field)
+                    fields = cleaned_fields
+                    
+                    # First field should be container ID (after removing icons)
                     if fields and re.match(r'^([A-Z]{4}\d{6,7}[A-Z]?)$', fields[0]):
                         container_id_raw = fields[0]
                         container_id_clean = re.sub(r'[A-Z]$', '', container_id_raw)
