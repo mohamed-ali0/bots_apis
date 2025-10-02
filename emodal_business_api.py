@@ -848,6 +848,7 @@ class EModalBusinessOperations:
     def select_dropdown_by_text(self, dropdown_label: str, option_text: str) -> Dict[str, Any]:
         """
         Select an option from a Material dropdown by exact text match.
+        Uses JavaScript to set value directly without opening the dropdown.
         
         Args:
             dropdown_label: Label of the dropdown (e.g., "Terminal", "Move Type")
@@ -858,6 +859,7 @@ class EModalBusinessOperations:
         """
         try:
             print(f"🔽 Selecting '{option_text}' from '{dropdown_label}' dropdown...")
+            print(f"  💡 Using direct value injection (no dropdown opening needed)")
             
             # Find dropdown by label
             dropdowns = self.driver.find_elements(By.XPATH, f"//mat-label[contains(text(),'{dropdown_label}')]/ancestor::mat-form-field//mat-select")
@@ -873,13 +875,100 @@ class EModalBusinessOperations:
             
             # Check if dropdown is disabled
             is_disabled = dropdown.get_attribute("aria-disabled")
-            tabindex = dropdown.get_attribute("tabindex")
-            classes = dropdown.get_attribute("class")
-            print(f"  📊 Dropdown state: aria-disabled={is_disabled}, tabindex={tabindex}")
-            print(f"  📊 Dropdown classes: {classes}")
+            print(f"  📊 Dropdown state: aria-disabled={is_disabled}")
             
             if is_disabled == "true":
                 return {"success": False, "error": f"{dropdown_label} dropdown is disabled"}
+            
+            # METHOD 1: Try to set value directly using JavaScript (FASTEST - no clicking needed!)
+            print(f"  🔧 Attempting to set value directly via JavaScript...")
+            set_result = self.driver.execute_script("""
+                var matSelect = arguments[0];
+                var optionText = arguments[1];
+                
+                // Get all mat-options (they exist in the DOM even if dropdown isn't open)
+                var allOptions = document.querySelectorAll('mat-option');
+                
+                // If no options found, try to get them from the component
+                if (allOptions.length === 0) {
+                    // Trigger open briefly to load options
+                    try {
+                        matSelect.click();
+                        // Wait a bit for options to load
+                        var startTime = Date.now();
+                        while (Date.now() - startTime < 1000) {
+                            allOptions = document.querySelectorAll('mat-option');
+                            if (allOptions.length > 0) break;
+                        }
+                        // Close dropdown
+                        document.body.click();
+                    } catch (e) {}
+                }
+                
+                // Find the option with matching text
+                var matchedOption = null;
+                for (var i = 0; i < allOptions.length; i++) {
+                    var optionTextContent = allOptions[i].textContent.trim();
+                    if (optionTextContent === optionText) {
+                        matchedOption = allOptions[i];
+                        break;
+                    }
+                }
+                
+                if (matchedOption) {
+                    // Get the option value
+                    var optionValue = matchedOption.getAttribute('value') || matchedOption.textContent.trim();
+                    
+                    // Set the value directly on the mat-select element
+                    try {
+                        // Try Angular way first
+                        if (matSelect.__ngContext__) {
+                            var componentRef = matSelect.__ngContext__.find(c => c && c.value !== undefined);
+                            if (componentRef) {
+                                componentRef.value = optionValue;
+                                componentRef._onChange(optionValue);
+                                return 'set via __ngContext__';
+                            }
+                        }
+                        
+                        // Try setting ngModel
+                        if (window.angular && window.angular.element) {
+                            var scope = angular.element(matSelect).scope();
+                            if (scope) {
+                                scope.$apply(function() {
+                                    scope.model = optionValue;
+                                });
+                                return 'set via angular.element';
+                            }
+                        }
+                        
+                        // Fallback: Set value attribute and dispatch change event
+                        matSelect.value = optionValue;
+                        matSelect.setAttribute('value', optionValue);
+                        
+                        // Dispatch events to notify Angular
+                        ['input', 'change', 'blur'].forEach(function(eventType) {
+                            var event = new Event(eventType, { bubbles: true });
+                            matSelect.dispatchEvent(event);
+                        });
+                        
+                        return 'set via value attribute';
+                    } catch (e) {
+                        return 'error: ' + e.message;
+                    }
+                } else {
+                    return 'option not found';
+                }
+            """, dropdown, option_text)
+            
+            if set_result and 'set via' in set_result:
+                print(f"  ✅ Value set directly: {set_result}")
+                time.sleep(1)
+                self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_selected")
+                return {"success": True, "selected": option_text, "method": "direct_value_set"}
+            else:
+                print(f"  ⚠️ Direct value set failed: {set_result}")
+                print(f"  ⚠️ Falling back to click method...")
             
             # Scroll into view
             self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", dropdown)
