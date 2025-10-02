@@ -964,7 +964,7 @@ class EModalBusinessOperations:
                 
                 # Get selected text using JavaScript
                 page_text = self.driver.execute_script("return window.getSelection().toString();")
-                print(f"📄 Extracted {len(page_text)} characters of text")
+                print(f"📄 Extracted {len(page_text)} characters of text via Ctrl+A")
                 
                 # Clear selection
                 searchres.send_keys(Keys.ESCAPE)
@@ -977,6 +977,24 @@ class EModalBusinessOperations:
                     print(f"📄 Extracted {len(page_text)} characters via .text")
                 except:
                     return {"success": False, "error": f"Could not extract page text: {e}"}
+            
+            # DEBUG: Save extracted text to file for debugging
+            download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
+            os.makedirs(download_dir, exist_ok=True)
+            
+            debug_text_file = os.path.join(download_dir, "extracted_text_debug.txt")
+            try:
+                with open(debug_text_file, 'w', encoding='utf-8') as f:
+                    f.write("="*70 + "\n")
+                    f.write("EXTRACTED TEXT DEBUG\n")
+                    f.write("="*70 + "\n")
+                    f.write(f"Total characters: {len(page_text)}\n")
+                    f.write(f"Total lines: {len(page_text.splitlines())}\n")
+                    f.write("="*70 + "\n\n")
+                    f.write(page_text)
+                print(f"💾 Debug text saved to: extracted_text_debug.txt")
+            except Exception as debug_e:
+                print(f"⚠️ Could not save debug text file: {debug_e}")
             
             # Parse container data from text
             lines = page_text.split('\n')
@@ -1071,12 +1089,38 @@ class EModalBusinessOperations:
             
             print(f"✅ Parsed {len(containers_data)} containers total")
             
+            # DEBUG: Save parsing results to debug file
+            try:
+                debug_parse_file = os.path.join(download_dir, "parsing_debug.txt")
+                with open(debug_parse_file, 'w', encoding='utf-8') as f:
+                    f.write("="*70 + "\n")
+                    f.write("PARSING DEBUG RESULTS\n")
+                    f.write("="*70 + "\n")
+                    f.write(f"Total containers parsed: {len(containers_data)}\n")
+                    f.write(f"Header start index: {start_idx}\n")
+                    f.write(f"Total lines: {len(lines)}\n")
+                    f.write("="*70 + "\n\n")
+                    
+                    if containers_data:
+                        f.write("SAMPLE CONTAINERS (first 3):\n\n")
+                        for i, container in enumerate(containers_data[:3], 1):
+                            f.write(f"{i}. {container.get('Container #', 'N/A')}\n")
+                            for key, value in container.items():
+                                f.write(f"   {key}: {value}\n")
+                            f.write("\n")
+                    else:
+                        f.write("NO CONTAINERS PARSED!\n\n")
+                        f.write("First 50 lines of extracted text:\n")
+                        f.write("-"*70 + "\n")
+                        for i, line in enumerate(lines[:50], 1):
+                            f.write(f"{i:3d}: {repr(line)}\n")
+                
+                print(f"💾 Parsing debug saved to: parsing_debug.txt")
+            except Exception as debug_e:
+                print(f"⚠️ Could not save parsing debug file: {debug_e}")
+            
             if not containers_data:
                 return {"success": False, "error": "No container data extracted"}
-            
-            # Create Excel file
-            download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
-            os.makedirs(download_dir, exist_ok=True)
             
             ts = datetime.now().strftime('%Y%m%d_%H%M%S')
             excel_filename = f"containers_scraped_{ts}.xlsx"
