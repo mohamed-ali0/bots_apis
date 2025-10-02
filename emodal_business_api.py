@@ -2015,58 +2015,99 @@ class EModalBusinessOperations:
 
     def capture_pregate_screenshot(self) -> Dict[str, Any]:
         """
-        Locate the Pregate milestone and capture a cropped screenshot around it.
+        Locate the Pregate milestone in the horizontal timeline and capture a screenshot.
+        The timeline is a horizontal flow that may require scrolling right.
         
         Returns:
             Dict with success, screenshot_path, and element location info
         """
         try:
-            print("📸 Locating Pregate milestone for screenshot...")
+            print("📸 Locating Pregate milestone in horizontal timeline...")
+            
+            # Find the timeline container first
+            timeline_container = None
+            try:
+                timeline_container = self.driver.find_element(By.XPATH, "//app-containerflow")
+                print("  ✅ Found app-containerflow timeline container")
+            except Exception:
+                try:
+                    timeline_container = self.driver.find_element(By.XPATH, "//div[contains(@class,'timeline-container')]")
+                    print("  ✅ Found timeline-container")
+                except Exception:
+                    return {"success": False, "error": "Timeline container not found"}
             
             # Find Pregate element with multiple possible selectors
             pregate_selectors = [
-                "//span[normalize-space(.)='Pregate']",
-                "//span[contains(text(),'Pregate')]",
-                "//span[normalize-space(.)='pregate']",
-                "//span[contains(text(),'pregate')]",
-                "//*[normalize-space(.)='Pregate']",
-                "//*[contains(text(),'Pregate')]"
+                ".//span[normalize-space(.)='Pregate']",
+                ".//span[contains(text(),'Pregate')]",
+                ".//span[normalize-space(.)='pregate']",
+                ".//span[contains(text(),'pregate')]",
+                ".//*[normalize-space(.)='Pregate']"
             ]
             
             pregate_element = None
             for selector in pregate_selectors:
                 try:
-                    pregate_element = self.driver.find_element(By.XPATH, selector)
+                    pregate_element = timeline_container.find_element(By.XPATH, selector)
                     print(f"  ✅ Found Pregate using: {selector}")
                     break
                 except Exception:
                     continue
             
             if not pregate_element:
-                # Fallback: search all milestone labels
-                all_milestones = self.driver.find_elements(By.XPATH, "//span[contains(@class,'location-details-label')]")
+                # Fallback: search all milestone labels in timeline
+                all_milestones = timeline_container.find_elements(By.XPATH, ".//span[contains(@class,'location-details-label')]")
+                print(f"  🔍 Searching {len(all_milestones)} milestone labels...")
                 for milestone in all_milestones:
                     try:
-                        if 'pregate' in milestone.text.strip().lower():
+                        text = milestone.text.strip()
+                        if 'pregate' in text.lower():
                             pregate_element = milestone
-                            print(f"  ✅ Found Pregate in milestone: '{milestone.text.strip()}'")
+                            print(f"  ✅ Found Pregate in milestone: '{text}'")
                             break
                     except Exception:
                         continue
             
             if not pregate_element:
-                return {"success": False, "error": "Pregate milestone not found"}
+                return {"success": False, "error": "Pregate milestone not found in timeline"}
+            
+            # Scroll the Pregate element into view (handles horizontal scrolling)
+            print("  🔄 Scrolling Pregate element into view...")
+            try:
+                # Scroll element to center of viewport (works for horizontal scrolling too)
+                self.driver.execute_script("""
+                    arguments[0].scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'center',
+                        inline: 'center'
+                    });
+                """, pregate_element)
+                time.sleep(2)  # Wait for smooth scroll to complete
+                print("  ✅ Pregate element scrolled into view")
+            except Exception as scroll_e:
+                print(f"  ⚠️ Scroll warning: {scroll_e}")
+            
+            # Get the parent milestone container (includes the divider and dates)
+            try:
+                pregate_container = pregate_element.find_element(By.XPATH, "./ancestor::div[contains(@class,'curr-loc-div')]")
+                print("  ✅ Found Pregate milestone container")
+            except Exception:
+                pregate_container = pregate_element
+                print("  ⚠️ Using Pregate text element directly")
             
             # Get element location and size
-            location = pregate_element.location
-            size = pregate_element.size
+            location = pregate_container.location
+            size = pregate_container.size
             
-            # Expand the crop area to include context (padding around element)
-            padding = 100  # pixels around the element
+            print(f"  📐 Pregate location: ({location['x']}, {location['y']}), size: {size['width']}x{size['height']}")
+            
+            # Expand the crop area to include context (more horizontal padding for timeline)
+            vertical_padding = 150  # pixels above/below
+            horizontal_padding = 300  # more padding left/right to show timeline flow
             
             # Get full page screenshot
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-            full_screenshot_path = os.path.join(self.screens_dir, f"{timestamp}_full_page.png")
+            full_screenshot_path = os.path.join(self.screens_dir, f"{timestamp}_full_timeline.png")
             self.driver.save_screenshot(full_screenshot_path)
             print(f"  📸 Full screenshot saved")
             
@@ -2074,19 +2115,25 @@ class EModalBusinessOperations:
             from PIL import Image
             img = Image.open(full_screenshot_path)
             
-            # Calculate crop box with padding
-            left = max(0, location['x'] - padding)
-            top = max(0, location['y'] - padding)
-            right = min(img.width, location['x'] + size['width'] + padding)
-            bottom = min(img.height, location['y'] + size['height'] + padding)
+            # Calculate crop box with padding (wider for horizontal timeline)
+            left = max(0, location['x'] - horizontal_padding)
+            top = max(0, location['y'] - vertical_padding)
+            right = min(img.width, location['x'] + size['width'] + horizontal_padding)
+            bottom = min(img.height, location['y'] + size['height'] + vertical_padding)
+            
+            crop_width = right - left
+            crop_height = bottom - top
+            
+            print(f"  📐 Crop area: ({left}, {top}) to ({right}, {bottom}) = {crop_width}x{crop_height}px")
             
             # Crop the image
             cropped_img = img.crop((left, top, right, bottom))
             
             # Save cropped image
-            cropped_path = os.path.join(self.screens_dir, f"{timestamp}_pregate_cropped.png")
+            cropped_path = os.path.join(self.screens_dir, f"{timestamp}_pregate_timeline.png")
             cropped_img.save(cropped_path)
-            print(f"  ✅ Cropped screenshot saved: {os.path.basename(cropped_path)}")
+            print(f"  ✅ Cropped timeline screenshot saved: {os.path.basename(cropped_path)}")
+            print(f"  📊 Final image size: {crop_width}x{crop_height}px")
             
             # Remove full screenshot to save space
             try:
@@ -2108,12 +2155,16 @@ class EModalBusinessOperations:
                     "left": left,
                     "top": top,
                     "right": right,
-                    "bottom": bottom
+                    "bottom": bottom,
+                    "width": crop_width,
+                    "height": crop_height
                 }
             }
             
         except Exception as e:
             print(f"  ❌ Error capturing Pregate screenshot: {e}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "error": str(e)}
 
     def analyze_timeline(self) -> Dict[str, Any]:
