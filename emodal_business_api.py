@@ -978,23 +978,20 @@ class EModalBusinessOperations:
                 except:
                     return {"success": False, "error": f"Could not extract page text: {e}"}
             
-            # DEBUG: Save extracted text to file for debugging
+            # DEBUG: Save extracted text to file for debugging (RAW TEXT ONLY)
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
             os.makedirs(download_dir, exist_ok=True)
             
-            debug_text_file = os.path.join(download_dir, "extracted_text_debug.txt")
+            debug_text_file = os.path.join(download_dir, "copied_text.txt")
             try:
                 with open(debug_text_file, 'w', encoding='utf-8') as f:
-                    f.write("="*70 + "\n")
-                    f.write("EXTRACTED TEXT DEBUG\n")
-                    f.write("="*70 + "\n")
-                    f.write(f"Total characters: {len(page_text)}\n")
-                    f.write(f"Total lines: {len(page_text.splitlines())}\n")
-                    f.write("="*70 + "\n\n")
+                    # Just the raw text - exactly what was copied
                     f.write(page_text)
-                print(f"💾 Debug text saved to: extracted_text_debug.txt")
+                print(f"💾 Copied text saved to: {debug_text_file}")
+                print(f"   File size: {os.path.getsize(debug_text_file)} bytes")
+                print(f"   Characters: {len(page_text)}")
             except Exception as debug_e:
-                print(f"⚠️ Could not save debug text file: {debug_e}")
+                print(f"⚠️ Could not save copied text file: {debug_e}")
             
             # Parse container data from text
             lines = page_text.split('\n')
@@ -1115,9 +1112,20 @@ class EModalBusinessOperations:
                         for i, line in enumerate(lines[:50], 1):
                             f.write(f"{i:3d}: {repr(line)}\n")
                 
-                print(f"💾 Parsing debug saved to: parsing_debug.txt")
+                print(f"💾 Parsing debug saved to: {debug_parse_file}")
+                print(f"   File size: {os.path.getsize(debug_parse_file)} bytes")
             except Exception as debug_e:
                 print(f"⚠️ Could not save parsing debug file: {debug_e}")
+            
+            # List all files in download directory for verification
+            print(f"\n📂 Files in download directory ({download_dir}):")
+            try:
+                for fname in os.listdir(download_dir):
+                    fpath = os.path.join(download_dir, fname)
+                    fsize = os.path.getsize(fpath) if os.path.isfile(fpath) else 0
+                    print(f"   - {fname} ({fsize} bytes)")
+            except Exception as list_e:
+                print(f"   ⚠️ Could not list files: {list_e}")
             
             if not containers_data:
                 return {"success": False, "error": "No container data extracted"}
