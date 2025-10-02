@@ -807,29 +807,65 @@ class EModalBusinessOperations:
             
             # Click to open dropdown
             self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown)
-            time.sleep(0.5)
-            dropdown.click()
             time.sleep(1)
+            
+            # Try regular click first
+            try:
+                dropdown.click()
+                print(f"  ✅ Clicked {dropdown_label} dropdown (regular click)")
+            except Exception as click_error:
+                print(f"  ⚠️ Regular click failed, using JavaScript click...")
+                self.driver.execute_script("arguments[0].click();", dropdown)
+                print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click)")
+            
+            # Wait longer for overlay panel to appear and render (especially on Linux/Xvfb)
+            print(f"  ⏳ Waiting 3 seconds for dropdown options to load...")
+            time.sleep(3)
             
             print(f"  ✅ Opened {dropdown_label} dropdown")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
             
+            # Wait for mat-option elements to be present
+            print(f"  🔍 Looking for option: '{option_text}'...")
+            
             # Find option by exact text
             options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{option_text}']")
+            print(f"  📊 Found {len(options)} matching options")
             
             if not options:
+                # Try to find any options to see what's available
+                all_options = self.driver.find_elements(By.XPATH, "//mat-option//span[@class='mat-option-text' or contains(@class,'mat-select-min-line')]")
+                print(f"  📊 Total options visible: {len(all_options)}")
+                if all_options:
+                    print(f"  📊 Available options:")
+                    for i, opt in enumerate(all_options[:10], 1):
+                        print(f"     {i}. '{opt.text.strip()}'")
+                
                 # Close dropdown
                 try:
                     self.driver.find_element(By.TAG_NAME, "body").click()
+                    time.sleep(0.5)
                 except:
                     pass
+                
+                self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_option_not_found")
                 return {"success": False, "error": f"Option '{option_text}' not found in {dropdown_label}"}
             
             # Click the option
             option = options[0]
+            print(f"  ✅ Found option, clicking...")
             self.driver.execute_script("arguments[0].scrollIntoView(true);", option)
-            time.sleep(0.3)
-            option.click()
+            time.sleep(0.5)
+            
+            # Try regular click first
+            try:
+                option.click()
+                print(f"  ✅ Clicked option (regular click)")
+            except Exception as opt_click_error:
+                print(f"  ⚠️ Regular click failed, using JavaScript click...")
+                self.driver.execute_script("arguments[0].click();", option)
+                print(f"  ✅ Clicked option (JavaScript click)")
+            
             time.sleep(1)
             
             print(f"  ✅ Selected '{option_text}' from {dropdown_label}")
@@ -839,6 +875,9 @@ class EModalBusinessOperations:
             
         except Exception as e:
             print(f"  ❌ Error selecting dropdown: {e}")
+            import traceback
+            traceback.print_exc()
+            self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_error")
             return {"success": False, "error": str(e)}
     
     def fill_container_number(self, container_id: str) -> Dict[str, Any]:
