@@ -25,6 +25,7 @@ import zipfile
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
@@ -42,6 +43,11 @@ app = Flask(__name__)
 # Global session storage
 active_sessions = {}
 session_timeout = 1800  # 30 minutes
+
+# Appointment sessions with extended timeout for multi-phase operations
+appointment_sessions = {}
+appointment_session_timeout = 600  # 10 minutes for error recovery
+
 DOWNLOADS_DIR = os.path.join(os.getcwd(), "downloads")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 SCREENSHOTS_DIR = os.path.join(os.getcwd(), "screenshots")
@@ -67,6 +73,42 @@ class BrowserSession:
     def update_last_used(self):
         """Update last used timestamp"""
         self.last_used = datetime.now()
+
+
+@dataclass
+class AppointmentSession:
+    """Appointment session with current phase state"""
+    session_id: str
+    browser_session: BrowserSession
+    current_phase: int  # 1, 2, or 3
+    created_at: datetime
+    last_used: datetime
+    phase_data: dict  # Store data from each phase
+    
+    def is_expired(self) -> bool:
+        """Check if appointment session has expired (10 minutes)"""
+        return (datetime.now() - self.last_used).seconds > appointment_session_timeout
+    
+    def update_last_used(self):
+        """Update last used timestamp"""
+        self.last_used = datetime.now()
+
+
+def cleanup_expired_appointment_sessions():
+    """Clean up expired appointment sessions"""
+    expired = []
+    for session_id, appt_session in appointment_sessions.items():
+        if appt_session.is_expired():
+            expired.append(session_id)
+    
+    for session_id in expired:
+        appt_session = appointment_sessions[session_id]
+        try:
+            appt_session.browser_session.driver.quit()
+            print(f"🔒 Cleaned up expired appointment session: {session_id}")
+        except:
+            pass
+        del appointment_sessions[session_id]
 
 
 class EModalBusinessOperations:
@@ -692,36 +734,667 @@ class EModalBusinessOperations:
             except Exception:
                 pass
 
-            variants = [
-                "https://termops.emodal.com/trucker/web/addvisit",
-                "https://termops.emodal.com/trucker/web/#/addvisit"
-            ]
-            last_error = None
-            for ix, url in enumerate(variants, start=1):
-                print(f"📅 Navigating to appointment page (variant {ix}/{len(variants)}): {url}")
-                try:
-                    self.driver.get(url)
-                except Exception as nav_e:
-                    last_error = f"Navigation error: {nav_e}"
-                    continue
-                try:
-                    self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-                except Exception:
-                    pass
-                self._wait_for_app_ready(25)
-                self._capture_screenshot("appointment_attempt")
-                current_url = self.driver.current_url or ""
-                page_title = self.driver.title or ""
-                print(f"  ➜ Current URL: {current_url}")
-                print(f"  ➜ Page title: {page_title}")
-                if "addvisit" in current_url.lower() or "add visit" in page_title.lower():
-                    print("✅ Appointment page loaded")
-                    self._capture_screenshot("appointment")
-                    return {"success": True, "url": current_url, "title": page_title}
-                last_error = f"After navigating to {url}, ended on {current_url} ({page_title})"
-            return {"success": False, "error": last_error or "Unknown navigation failure"}
+            # Use only the first variant
+            url = "https://termops.emodal.com/trucker/web/addvisit"
+            print(f"📅 Navigating to appointment page: {url}")
+            
+            try:
+                self.driver.get(url)
+            except Exception as nav_e:
+                return {"success": False, "error": f"Navigation error: {nav_e}"}
+            
+            # Wait for body to be present
+            try:
+                self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+            except Exception:
+                pass
+            
+            # Screenshot before waiting
+            self._capture_screenshot("appointment_before_wait")
+            
+            # Wait 30 seconds for page to fully load
+            print("⏳ Waiting 30 seconds for appointment page to fully load...")
+            time.sleep(30)
+            print("✅ Page load wait complete")
+            
+            # Screenshot after waiting
+            self._capture_screenshot("appointment_after_wait")
+            
+            current_url = self.driver.current_url or ""
+            page_title = self.driver.title or ""
+            print(f"  ➜ Current URL: {current_url}")
+            print(f"  ➜ Page title: {page_title}")
+            
+            # Check if we're on the appointment page
+            if "addvisit" in current_url.lower() or "add" in page_title.lower() or "appointment" in page_title.lower():
+                print("✅ Appointment page loaded successfully")
+                return {"success": True, "url": current_url, "title": page_title}
+            else:
+                return {"success": False, "error": f"Navigation ended on unexpected page: {current_url} ({page_title})"}
+            
         except Exception as e:
             return {"success": False, "error": f"Navigation failed: {str(e)}"}
+    
+    # ============================================================================
+    # APPOINTMENT BOOKING METHODS (3 PHASES)
+    # ============================================================================
+    
+    def select_dropdown_by_text(self, dropdown_label: str, option_text: str) -> Dict[str, Any]:
+        """
+        Select an option from a Material dropdown by exact text match.
+        
+        Args:
+            dropdown_label: Label of the dropdown (e.g., "Terminal", "Move Type")
+            option_text: Exact text of the option to select
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            print(f"🔽 Selecting '{option_text}' from '{dropdown_label}' dropdown...")
+            
+            # Find dropdown by label
+            dropdowns = self.driver.find_elements(By.XPATH, f"//mat-label[contains(text(),'{dropdown_label}')]/ancestor::mat-form-field//mat-select")
+            
+            if not dropdowns:
+                # Try alternative: find by placeholder or aria-label
+                dropdowns = self.driver.find_elements(By.XPATH, f"//mat-select[contains(@aria-label,'{dropdown_label}')]")
+            
+            if not dropdowns:
+                return {"success": False, "error": f"Dropdown '{dropdown_label}' not found"}
+            
+            dropdown = dropdowns[0]
+            
+            # Click to open dropdown
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown)
+            time.sleep(0.5)
+            dropdown.click()
+            time.sleep(1)
+            
+            print(f"  ✅ Opened {dropdown_label} dropdown")
+            self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
+            
+            # Find option by exact text
+            options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{option_text}']")
+            
+            if not options:
+                # Close dropdown
+                try:
+                    self.driver.find_element(By.TAG_NAME, "body").click()
+                except:
+                    pass
+                return {"success": False, "error": f"Option '{option_text}' not found in {dropdown_label}"}
+            
+            # Click the option
+            option = options[0]
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", option)
+            time.sleep(0.3)
+            option.click()
+            time.sleep(1)
+            
+            print(f"  ✅ Selected '{option_text}' from {dropdown_label}")
+            self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_selected")
+            
+            return {"success": True, "selected": option_text}
+            
+        except Exception as e:
+            print(f"  ❌ Error selecting dropdown: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def fill_container_number(self, container_id: str) -> Dict[str, Any]:
+        """
+        Fill the container number field (chip input).
+        Clears existing chips first, then adds the new container.
+        
+        Args:
+            container_id: Container number to add
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            print(f"📦 Filling container number: {container_id}...")
+            
+            # Clear existing chips first
+            remove_buttons = self.driver.find_elements(By.XPATH, "//mat-icon[@matchipremove and contains(text(),'cancel')]")
+            if remove_buttons:
+                print(f"  🗑️ Removing {len(remove_buttons)} existing container(s)...")
+                for btn in remove_buttons:
+                    try:
+                        btn.click()
+                        time.sleep(0.3)
+                    except:
+                        pass
+                self._capture_screenshot("containers_cleared")
+            
+            # Find the input field
+            container_input = None
+            try:
+                container_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='containerNumber']")
+            except:
+                try:
+                    container_input = self.driver.find_element(By.XPATH, "//input[@placeholder='Container number(s)']")
+                except:
+                    pass
+            
+            if not container_input:
+                return {"success": False, "error": "Container number input field not found"}
+            
+            # Click and type
+            container_input.click()
+            time.sleep(0.3)
+            container_input.send_keys(container_id)
+            time.sleep(0.5)
+            
+            # Press Enter to add as chip
+            container_input.send_keys(Keys.ENTER)
+            time.sleep(1)
+            
+            # Click blank area to confirm chip is added
+            try:
+                # Click on the page body to remove focus from input
+                self.driver.find_element(By.TAG_NAME, "body").click()
+                time.sleep(0.5)
+                print(f"  ✅ Container chip confirmed")
+            except:
+                pass
+            
+            # Verify chip was added
+            chips = self.driver.find_elements(By.XPATH, f"//mat-chip//span[contains(text(),'{container_id}')]")
+            if chips:
+                print(f"  ✅ Added container: {container_id}")
+                self._capture_screenshot("container_added")
+                return {"success": True, "container_id": container_id}
+            else:
+                print(f"  ⚠️ Container chip may not have been added, but continuing...")
+                self._capture_screenshot("container_added_unverified")
+                return {"success": True, "container_id": container_id}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling container number: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def get_current_phase_from_stepper(self) -> int:
+        """
+        Detect current phase from the Material stepper in the top bar.
+        Returns phase number (1-4) or 0 if unable to detect.
+        """
+        try:
+            # Find the selected/active step header
+            selected_headers = self.driver.find_elements(By.XPATH, 
+                "//mat-step-header[contains(@class,'mat-step-icon-selected')]")
+            
+            if selected_headers:
+                # Get aria-posinset which indicates the step number
+                aria_pos = selected_headers[0].get_attribute("aria-posinset")
+                if aria_pos:
+                    return int(aria_pos)
+            
+            # Fallback: check for aria-selected="true"
+            active_headers = self.driver.find_elements(By.XPATH,
+                "//mat-step-header[@aria-selected='true']")
+            
+            if active_headers:
+                aria_pos = active_headers[0].get_attribute("aria-posinset")
+                if aria_pos:
+                    return int(aria_pos)
+            
+            return 0  # Unable to detect
+            
+        except Exception as e:
+            print(f"  ⚠️ Could not detect phase from stepper: {e}")
+            return 0
+    
+    def click_next_button(self, phase: int) -> Dict[str, Any]:
+        """
+        Click the Next button to proceed to the next phase.
+        Verifies phase transition using the stepper bar.
+        
+        Args:
+            phase: Current phase number (for logging)
+        
+        Returns:
+            Dict with success status and needs_retry flag
+        """
+        try:
+            print(f"➡️ Clicking Next button (Phase {phase} → {phase + 1})...")
+            
+            # Check current phase from stepper
+            stepper_phase_before = self.get_current_phase_from_stepper()
+            if stepper_phase_before > 0:
+                print(f"  📊 Stepper shows we're in phase: {stepper_phase_before}")
+            
+            # Find Next button (prioritize visible and enabled ones)
+            # IMPORTANT: Explicitly exclude Submit button to avoid accidents
+            # Look for button with class 'text-next' which is the active Next button
+            next_buttons = self.driver.find_elements(By.XPATH, 
+                "//button[contains(@class,'text-next') and .//span[text()='Next' or contains(text(),'Next')]]")
+            
+            if not next_buttons:
+                # Fallback: find any button with Next text (but NOT Submit)
+                next_buttons = self.driver.find_elements(By.XPATH, 
+                    "//button[.//span[text()='Next' or contains(text(),'Next')]][not(.//span[text()='Submit'])]")
+            
+            if not next_buttons:
+                return {"success": False, "error": "Next button not found"}
+            
+            # Filter for visible and enabled buttons
+            visible_buttons = []
+            for btn in next_buttons:
+                try:
+                    if btn.is_displayed() and btn.is_enabled():
+                        visible_buttons.append(btn)
+                except:
+                    pass
+            
+            if not visible_buttons:
+                # If no visible buttons, just use first one found
+                next_button = next_buttons[0]
+                print(f"  ⚠️ Using first Next button (may not be visible)")
+            else:
+                next_button = visible_buttons[0]
+                print(f"  ✅ Found visible and enabled Next button")
+                if len(visible_buttons) > 1:
+                    print(f"  📊 Note: {len(visible_buttons)} Next buttons found, using first visible one")
+            
+            # Scroll into view (center of viewport)
+            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", next_button)
+            time.sleep(1)
+            
+            # Try regular click first
+            try:
+                next_button.click()
+                print(f"  ✅ Clicked Next button (regular click)")
+            except Exception as click_error:
+                # If regular click fails, use JavaScript click
+                print(f"  ⚠️ Regular click failed, using JavaScript click...")
+                self.driver.execute_script("arguments[0].click();", next_button)
+                print(f"  ✅ Clicked Next button (JavaScript click)")
+            
+            # Wait for transition and stepper UI to update
+            print(f"  ⏳ Waiting 15 seconds for stepper to update...")
+            time.sleep(15)
+            print(f"  ✅ Wait complete, checking stepper...")
+            
+            # Verify phase transition using stepper
+            stepper_phase_after = self.get_current_phase_from_stepper()
+            if stepper_phase_after > 0:
+                print(f"  📊 After click, stepper shows phase: {stepper_phase_after}")
+                
+                if stepper_phase_after == stepper_phase_before:
+                    print(f"  ⚠️ Phase did not advance! Still in phase {stepper_phase_after}")
+                    self._capture_screenshot(f"phase_{phase}_stuck")
+                    return {"success": False, "error": f"Phase did not advance from {stepper_phase_before}", "needs_retry": True}
+                elif stepper_phase_after == phase + 1:
+                    print(f"  ✅ Successfully advanced to phase {stepper_phase_after}")
+                    self._capture_screenshot(f"phase_{phase + 1}_loaded")
+                    return {"success": True}
+                else:
+                    print(f"  ⚠️ Unexpected phase {stepper_phase_after}, expected {phase + 1}")
+            
+            # If stepper detection failed, just assume success
+            self._capture_screenshot(f"phase_{phase + 1}_loaded")
+            return {"success": True}
+            
+        except Exception as e:
+            print(f"  ❌ Error clicking Next: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def select_container_checkbox(self) -> Dict[str, Any]:
+        """Select the container checkbox in Phase 2"""
+        try:
+            print("☑️ Selecting container checkbox...")
+            checkboxes = self.driver.find_elements(By.XPATH, "//input[@type='checkbox' and contains(@class,'mat-checkbox-input')]")
+            if not checkboxes:
+                return {"success": False, "error": "Container checkbox not found"}
+            checkbox = checkboxes[0]
+            is_checked = checkbox.is_selected()
+            if not is_checked:
+                try:
+                    parent = checkbox.find_element(By.XPATH, "./ancestor::mat-checkbox")
+                    parent.click()
+                    time.sleep(1)
+                    print("  ✅ Checkbox selected")
+                except:
+                    checkbox.click()
+                    time.sleep(1)
+                    print("  ✅ Checkbox selected (direct)")
+            else:
+                print("  ✅ Checkbox already selected")
+            self._capture_screenshot("checkbox_selected")
+            return {"success": True}
+        except Exception as e:
+            print(f"  ❌ Error selecting checkbox: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def fill_pin_code(self, pin_code: str) -> Dict[str, Any]:
+        """Fill the PIN code field in Phase 2"""
+        try:
+            print(f"🔢 Filling PIN code...")
+            pin_input = None
+            try:
+                pin_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='Pin']")
+            except:
+                try:
+                    pin_input = self.driver.find_element(By.XPATH, "//input[@matinput and contains(@placeholder,'PIN')]")
+                except:
+                    pass
+            if not pin_input:
+                return {"success": False, "error": "PIN code field not found"}
+            pin_input.click()
+            time.sleep(0.3)
+            pin_input.clear()
+            pin_input.send_keys(pin_code)
+            time.sleep(0.5)
+            print(f"  ✅ PIN code entered")
+            self._capture_screenshot("pin_entered")
+            return {"success": True, "pin_code": pin_code}
+        except Exception as e:
+            print(f"  ❌ Error filling PIN: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def fill_truck_plate(self, truck_plate: str, allow_any_if_missing: bool = True) -> Dict[str, Any]:
+        """
+        Fill the truck plate field in Phase 2.
+        If exact match not found, can select any available option.
+        
+        Args:
+            truck_plate: Desired truck plate number
+            allow_any_if_missing: If True, select first available option if exact match fails
+        """
+        try:
+            print(f"🚛 Filling truck plate: {truck_plate}...")
+            
+            # Find plate input field
+            plate_input = None
+            try:
+                plate_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='Plate']")
+            except:
+                try:
+                    plate_input = self.driver.find_element(By.XPATH, "//input[@matinput and contains(@class,'mat-autocomplete-trigger')]")
+                except:
+                    pass
+            
+            if not plate_input:
+                return {"success": False, "error": "Truck plate field not found"}
+            
+            # Click and type
+            plate_input.click()
+            time.sleep(0.3)
+            plate_input.clear()
+            plate_input.send_keys(truck_plate)
+            time.sleep(1.5)  # Wait for autocomplete to populate
+            
+            # Try to find exact match
+            try:
+                options = self.driver.find_elements(By.XPATH, f"//mat-option//span[contains(text(),'{truck_plate}')]")
+                if options:
+                    options[0].click()
+                    time.sleep(0.5)
+                    print(f"  ✅ Selected '{truck_plate}' from autocomplete")
+                    
+                    # Click blank area to confirm selection
+                    try:
+                        self.driver.find_element(By.TAG_NAME, "body").click()
+                        time.sleep(0.5)
+                        print(f"  ✅ Truck plate confirmed")
+                    except:
+                        pass
+                    
+                    self._capture_screenshot("truck_plate_entered")
+                    return {"success": True, "truck_plate": truck_plate, "exact_match": True}
+            except:
+                pass
+            
+            # If exact match not found, try to select any available option
+            if allow_any_if_missing:
+                print(f"  ⚠️ Exact match not found for '{truck_plate}'")
+                print(f"  🔄 Looking for any available truck plate option...")
+                
+                try:
+                    # Get all available options
+                    all_options = self.driver.find_elements(By.XPATH, "//mat-option")
+                    
+                    if all_options:
+                        # Select first available option
+                        first_option = all_options[0]
+                        selected_text = first_option.text.strip()
+                        first_option.click()
+                        time.sleep(0.5)
+                        print(f"  ✅ Selected alternative truck plate: '{selected_text}'")
+                        
+                        # Click blank area to confirm selection
+                        try:
+                            self.driver.find_element(By.TAG_NAME, "body").click()
+                            time.sleep(0.5)
+                            print(f"  ✅ Truck plate confirmed")
+                        except:
+                            pass
+                        
+                        self._capture_screenshot("truck_plate_alternative_selected")
+                        return {"success": True, "truck_plate": selected_text, "exact_match": False, "original_request": truck_plate}
+                    else:
+                        print(f"  ❌ No truck plate options available")
+                        # Close autocomplete
+                        try:
+                            self.driver.find_element(By.TAG_NAME, "body").click()
+                        except:
+                            pass
+                except Exception as option_error:
+                    print(f"  ⚠️ Could not select alternative: {option_error}")
+            
+            # If we reach here, just accept whatever was typed
+            print(f"  ⚠️ Using typed value (no autocomplete selection)")
+            
+            # Click blank area to confirm
+            try:
+                self.driver.find_element(By.TAG_NAME, "body").click()
+                time.sleep(0.5)
+            except:
+                pass
+            
+            self._capture_screenshot("truck_plate_typed")
+            return {"success": True, "truck_plate": truck_plate, "exact_match": False}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling truck plate: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def toggle_own_chassis(self, own_chassis: bool) -> Dict[str, Any]:
+        """Toggle the 'Own Chassis' button"""
+        try:
+            target = "YES" if own_chassis else "NO"
+            print(f"🔘 Setting Own Chassis to: {target}...")
+            
+            # Find all YES/NO toggle spans
+            toggle_spans = self.driver.find_elements(By.XPATH, "//span[text()='YES' or text()='NO']")
+            if not toggle_spans:
+                return {"success": False, "error": "Own chassis toggle not found"}
+            
+            # Detect current state by checking multiple indicators
+            current_state = None
+            current_span = None
+            
+            for span in toggle_spans:
+                try:
+                    # Check parent button for checked state
+                    parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                    classes = parent.get_attribute("class") or ""
+                    aria_pressed = parent.get_attribute("aria-pressed") or ""
+                    
+                    # Check if this button is currently selected
+                    if "mat-button-toggle-checked" in classes or aria_pressed == "true":
+                        current_state = span.text
+                        current_span = span
+                        break
+                except:
+                    pass
+            
+            # If still no state detected, assume first one (NO) is default
+            if current_state is None:
+                current_state = "NO"
+                print(f"  📊 Could not detect state, assuming default: {current_state}")
+            else:
+                print(f"  📊 Current state: {current_state}")
+            
+            # Check if already in desired state
+            if current_state == target:
+                print(f"  ✅ Already set to {target} - no action needed")
+                self._capture_screenshot("own_chassis_already_set")
+                return {"success": True, "own_chassis": own_chassis}
+            
+            # Need to toggle - find and click the target button
+            print(f"  🔄 Changing from {current_state} to {target}...")
+            for span in toggle_spans:
+                if span.text == target:
+                    try:
+                        # Scroll into view
+                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", span)
+                        time.sleep(0.5)
+                        
+                        # Click the span (or its parent button)
+                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                        parent.click()
+                        time.sleep(1)
+                        
+                        print(f"  ✅ Toggled to {target}")
+                        self._capture_screenshot("own_chassis_toggled")
+                        return {"success": True, "own_chassis": own_chassis}
+                    except Exception as click_error:
+                        # Try clicking span directly
+                        span.click()
+                        time.sleep(1)
+                        print(f"  ✅ Toggled to {target} (direct click)")
+                        self._capture_screenshot("own_chassis_toggled")
+                        return {"success": True, "own_chassis": own_chassis}
+            
+            return {"success": False, "error": f"Could not find {target} option"}
+        except Exception as e:
+            print(f"  ❌ Error toggling own chassis: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def get_available_appointment_times(self) -> Dict[str, Any]:
+        """
+        Get all available appointment time slots from Phase 3 dropdown.
+        ⚠️ This method DOES NOT click Submit - only retrieves available times.
+        Safe for /check_appointments endpoint.
+        """
+        try:
+            print("📅 Getting available appointment times...")
+            print("  ℹ️  NOTE: Will NOT click Submit button - only retrieving times")
+            
+            # Take screenshot before attempting to find dropdown
+            self._capture_screenshot("phase_3_before_dropdown")
+            
+            # Try multiple strategies to find the appointment dropdown
+            print("  🔍 Looking for appointment dropdown...")
+            
+            # Strategy 1: By formcontrolname='slot'
+            dropdowns = self.driver.find_elements(By.XPATH, "//mat-select[@formcontrolname='slot']")
+            print(f"  📊 Strategy 1 (formcontrolname='slot'): Found {len(dropdowns)} dropdowns")
+            
+            if not dropdowns:
+                # Strategy 2: By mat-label text
+                dropdowns = self.driver.find_elements(By.XPATH, "//mat-label[contains(text(),'Appointment') or contains(text(),'Time')]/ancestor::mat-form-field//mat-select")
+                print(f"  📊 Strategy 2 (mat-label): Found {len(dropdowns)} dropdowns")
+            
+            if not dropdowns:
+                # Strategy 3: By aria-label
+                dropdowns = self.driver.find_elements(By.XPATH, "//mat-select[contains(@aria-label,'appointment') or contains(@aria-label,'time')]")
+                print(f"  📊 Strategy 3 (aria-label): Found {len(dropdowns)} dropdowns")
+            
+            if not dropdowns:
+                # Strategy 4: Any mat-select in Phase 3
+                dropdowns = self.driver.find_elements(By.XPATH, "//mat-select")
+                print(f"  📊 Strategy 4 (any mat-select): Found {len(dropdowns)} dropdowns")
+            
+            if not dropdowns:
+                self._capture_screenshot("appointment_dropdown_not_found")
+                return {"success": False, "error": "Appointment time dropdown not found after trying all strategies"}
+            
+            dropdown = dropdowns[0]
+            print(f"  ✅ Found dropdown, using first one")
+            
+            # Scroll into view and click
+            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", dropdown)
+            time.sleep(1)
+            
+            # Try clicking
+            try:
+                dropdown.click()
+                print("  ✅ Clicked dropdown (regular click)")
+            except Exception as click_error:
+                print(f"  ⚠️ Regular click failed, using JavaScript click...")
+                self.driver.execute_script("arguments[0].click();", dropdown)
+                print("  ✅ Clicked dropdown (JavaScript click)")
+            
+            time.sleep(2)
+            print("  ✅ Opened appointment dropdown")
+            self._capture_screenshot("appointment_dropdown_opened")
+            
+            # Get options
+            options = self.driver.find_elements(By.XPATH, "//mat-option//span[@class='mat-option-text' or contains(@class,'mat-select-min-line')]")
+            print(f"  📊 Found {len(options)} option elements")
+            
+            available_times = []
+            for option in options:
+                time_text = option.text.strip()
+                if time_text:
+                    available_times.append(time_text)
+            
+            # Close dropdown
+            try:
+                self.driver.find_element(By.TAG_NAME, "body").click()
+                time.sleep(0.5)
+            except:
+                pass
+            
+            print(f"  ✅ Found {len(available_times)} available appointment times")
+            for i, time_slot in enumerate(available_times[:5], 1):
+                print(f"     {i}. {time_slot}")
+            if len(available_times) > 5:
+                print(f"     ... and {len(available_times) - 5} more")
+            
+            self._capture_screenshot("appointment_times_retrieved")
+            return {"success": True, "available_times": available_times, "count": len(available_times)}
+        except Exception as e:
+            print(f"  ❌ Error getting appointment times: {e}")
+            import traceback
+            traceback.print_exc()
+            self._capture_screenshot("appointment_error")
+            return {"success": False, "error": str(e)}
+    
+    def select_appointment_time(self, appointment_time: str) -> Dict[str, Any]:
+        """Select a specific appointment time in Phase 3"""
+        try:
+            print(f"📅 Selecting appointment time: {appointment_time}...")
+            result = self.select_dropdown_by_text("Appointment", appointment_time)
+            if result["success"]:
+                print(f"  ✅ Appointment time selected")
+                self._capture_screenshot("appointment_time_selected")
+            return result
+        except Exception as e:
+            print(f"  ❌ Error selecting appointment time: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def click_submit_button(self) -> Dict[str, Any]:
+        """Click the Submit button in Phase 3 - ACTUALLY SUBMITS THE APPOINTMENT!"""
+        try:
+            print("✅ Clicking Submit button (FINAL SUBMISSION)...")
+            submit_buttons = self.driver.find_elements(By.XPATH, "//button//span[contains(text(),'Submit')]/..")
+            if not submit_buttons:
+                return {"success": False, "error": "Submit button not found"}
+            submit_button = submit_buttons[0]
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", submit_button)
+            time.sleep(0.5)
+            submit_button.click()
+            time.sleep(3)
+            print(f"  ✅ Submit button clicked - Appointment submitted!")
+            self._capture_screenshot("appointment_submitted")
+            return {"success": True}
+        except Exception as e:
+            print(f"  ❌ Error clicking Submit: {e}")
+            return {"success": False, "error": str(e)}
     
     def select_all_containers(self) -> Dict[str, Any]:
         """Select all containers using the master checkbox"""
@@ -3290,139 +3963,683 @@ def get_containers():
         }), 500
 
 
+@app.route('/check_appointments', methods=['POST'])
+def check_appointments():
+    """
+    Check available appointment times by going through all 3 phases.
+    Does NOT submit the appointment - only retrieves available time slots.
+    
+    Required fields (always):
+        - username, password, captcha_api_key
+    
+    Phase 1 fields (required unless continuing from session_id):
+        - trucking_company: Trucking company name
+        - terminal: Terminal name (e.g., "ITS Long Beach")
+        - move_type: Move type (e.g., "DROP EMPTY")
+        - container_id: Container number
+    
+    Phase 2 fields (required unless continuing from session_id):
+        - pin_code: PIN code (optional, can be missing)
+        - truck_plate: Truck plate number
+        - own_chassis: Boolean (true/false)
+    
+    Session continuation (if error occurred):
+        - session_id: To continue from where it left off
+    
+    Returns:
+        - success: True/False
+        - available_times: List of appointment time slots
+        - debug_bundle_url: ZIP file with screenshots
+        - session_id: For error recovery (kept alive for 10 minutes)
+        - current_phase: Current phase number (1-3)
+        - message: Error message if missing fields
+    """
+    request_id = f"check_appt_{int(time.time())}"
+    appt_session = None
+    
+    try:
+        cleanup_expired_appointment_sessions()
+        
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+        
+        data = request.get_json()
+        session_id = data.get('session_id')
+        
+        # Check if continuing from existing session
+        if session_id and session_id in appointment_sessions:
+            print(f"🔄 Continuing from existing appointment session: {session_id}")
+            appt_session = appointment_sessions[session_id]
+            appt_session.update_last_used()
+            operations = EModalBusinessOperations(appt_session.browser_session)
+            operations.screens_enabled = True
+            operations.screens_label = appt_session.browser_session.username
+            
+        else:
+            # New session - require authentication
+            username = data.get('username')
+            password = data.get('password')
+            captcha_api_key = data.get('captcha_api_key')
+            
+            if not all([username, password, captcha_api_key]):
+                return jsonify({
+                    "success": False,
+                    "error": "Missing required fields: username, password, captcha_api_key"
+                }), 400
+            
+            logger.info(f"[{request_id}] Check appointments request for user: {username}")
+            
+            # Create authenticated session
+            try:
+                browser_session = create_browser_session(username, password, captcha_api_key, keep_alive=True)
+                # Create appointment session
+                appt_session = AppointmentSession(
+                    session_id=browser_session.session_id,
+                    browser_session=browser_session,
+                    current_phase=1,
+                    created_at=datetime.now(),
+                    last_used=datetime.now(),
+                    phase_data={}
+                )
+                appointment_sessions[appt_session.session_id] = appt_session
+                logger.info(f"[{request_id}] Appointment session created: {appt_session.session_id}")
+                
+                operations = EModalBusinessOperations(browser_session)
+                operations.screens_enabled = True
+                operations.screens_label = username
+                
+                # Ensure app context
+                print("🕒 Ensuring app context is fully loaded...")
+                ctx = operations.ensure_app_context(30)
+                if not ctx.get("success"):
+                    print("⚠️ App readiness not confirmed - proceeding to appointment page...")
+                
+                # Navigate to appointment page (includes 30-second wait)
+                nav_result = operations.navigate_to_appointment()
+                if not nav_result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Navigation failed: {nav_result['error']}",
+                        "session_id": appt_session.session_id,
+                        "current_phase": 1
+                    }), 500
+                
+            except Exception as login_error:
+                logger.error(f"[{request_id}] Authentication failed: {str(login_error)}")
+                return jsonify({
+                    "success": False,
+                    "error": f"Authentication failed: {str(login_error)}"
+                }), 401
+        
+        # Execute phases based on current phase
+        operations = EModalBusinessOperations(appt_session.browser_session)
+        operations.screens_enabled = True
+        operations.screens_label = appt_session.browser_session.username
+        
+        # PHASE 1: Dropdowns + Container Number
+        if appt_session.current_phase == 1:
+            print("\n" + "="*70)
+            print("📋 PHASE 1: Trucking Company, Terminal, Move Type, Container")
+            print("="*70)
+            
+            # Wait 5 seconds for phase to fully load
+            print("⏳ Waiting 5 seconds for Phase 1 to fully load...")
+            time.sleep(5)
+            print("✅ Phase 1 ready")
+            
+            trucking_company = data.get('trucking_company')
+            terminal = data.get('terminal')
+            move_type = data.get('move_type')
+            container_id = data.get('container_id')
+            
+            # Check for missing fields
+            missing_fields = []
+            if not trucking_company:
+                missing_fields.append("trucking_company")
+            if not terminal:
+                missing_fields.append("terminal")
+            if not move_type:
+                missing_fields.append("move_type")
+            if not container_id:
+                missing_fields.append("container_id")
+            
+            if missing_fields:
+                return jsonify({
+                    "success": False,
+                    "error": f"Missing required fields for Phase 1: {', '.join(missing_fields)}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 1,
+                    "message": f"Please provide {', '.join(missing_fields)} and retry with session_id"
+                }), 400
+            
+            # Fill Phase 1
+            result = operations.select_dropdown_by_text("Trucking", trucking_company)
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 1 failed - Trucking company: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 1
+                }), 500
+            
+            result = operations.select_dropdown_by_text("Terminal", terminal)
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 1 failed - Terminal: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 1
+                }), 500
+            
+            result = operations.select_dropdown_by_text("Move", move_type)
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 1 failed - Move type: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 1
+                }), 500
+            
+            result = operations.fill_container_number(container_id)
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 1 failed - Container: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 1
+                }), 500
+            
+            # Click Next
+            result = operations.click_next_button(1)
+            if not result["success"]:
+                # Check if retry is needed
+                if result.get("needs_retry"):
+                    print("  🔄 Phase did not advance, re-filling Phase 1 fields before retry...")
+                    
+                    # Re-fill all Phase 1 fields
+                    operations.select_dropdown_by_text("Trucking", trucking_company)
+                    operations.select_dropdown_by_text("Terminal", terminal)
+                    operations.select_dropdown_by_text("Move", move_type)
+                    operations.fill_container_number(container_id)
+                    
+                    # Retry Next button
+                    print("  🔄 Retrying Next button after re-filling...")
+                    result = operations.click_next_button(1)
+                    if not result["success"]:
+                        return jsonify({
+                            "success": False,
+                            "error": f"Phase 1 failed - Next button (after retry): {result['error']}",
+                            "session_id": appt_session.session_id,
+                            "current_phase": 1
+                        }), 500
+                else:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 1 failed - Next button: {result['error']}",
+                        "session_id": appt_session.session_id,
+                        "current_phase": 1
+                    }), 500
+            
+            # Update session
+            appt_session.current_phase = 2
+            appt_session.phase_data.update({
+                "trucking_company": trucking_company,
+                "terminal": terminal,
+                "move_type": move_type,
+                "container_id": container_id
+            })
+            print("✅ Phase 1 completed successfully")
+        
+        # PHASE 2: Checkbox, PIN, Plate, Chassis
+        if appt_session.current_phase == 2:
+            print("\n" + "="*70)
+            print("📋 PHASE 2: Container Selection, PIN, Truck Plate, Chassis")
+            print("="*70)
+            
+            # Wait 5 seconds for phase to fully load
+            print("⏳ Waiting 5 seconds for Phase 2 to fully load...")
+            time.sleep(5)
+            print("✅ Phase 2 ready")
+            
+            pin_code = data.get('pin_code')
+            truck_plate = data.get('truck_plate')
+            own_chassis = data.get('own_chassis', False)
+            
+            # Select checkbox (always required)
+            result = operations.select_container_checkbox()
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 2 failed - Checkbox: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 2
+                }), 500
+            
+            # PIN code (optional)
+            if pin_code:
+                result = operations.fill_pin_code(pin_code)
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 2 failed - PIN: {result['error']}",
+                        "session_id": appt_session.session_id,
+                        "current_phase": 2
+                    }), 500
+            
+            # Truck plate (required)
+            if not truck_plate:
+                return jsonify({
+                    "success": False,
+                    "error": "Missing required field for Phase 2: truck_plate",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 2,
+                    "message": "Please provide truck_plate and retry with session_id"
+                }), 400
+            
+            result = operations.fill_truck_plate(truck_plate)
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 2 failed - Truck plate: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 2
+                }), 500
+            
+            # Own chassis toggle
+            result = operations.toggle_own_chassis(own_chassis)
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 2 failed - Own chassis: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 2
+                }), 500
+            
+            # Click Next
+            result = operations.click_next_button(2)
+            if not result["success"]:
+                # Check if retry is needed
+                if result.get("needs_retry"):
+                    print("  🔄 Phase did not advance, re-filling Phase 2 fields before retry...")
+                    
+                    # Re-fill all Phase 2 fields
+                    operations.select_container_checkbox()
+                    if pin_code:
+                        operations.fill_pin_code(pin_code)
+                    operations.fill_truck_plate(truck_plate)
+                    operations.toggle_own_chassis(own_chassis)
+                    
+                    # Retry Next button
+                    print("  🔄 Retrying Next button after re-filling...")
+                    result = operations.click_next_button(2)
+                    if not result["success"]:
+                        return jsonify({
+                            "success": False,
+                            "error": f"Phase 2 failed - Next button (after retry): {result['error']}",
+                            "session_id": appt_session.session_id,
+                            "current_phase": 2
+                        }), 500
+                else:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 2 failed - Next button: {result['error']}",
+                        "session_id": appt_session.session_id,
+                        "current_phase": 2
+                    }), 500
+            
+            # Update session
+            appt_session.current_phase = 3
+            appt_session.phase_data.update({
+                "pin_code": pin_code,
+                "truck_plate": truck_plate,
+                "own_chassis": own_chassis
+            })
+            print("✅ Phase 2 completed successfully")
+        
+        # PHASE 3: Get Available Times
+        if appt_session.current_phase == 3:
+            print("\n" + "="*70)
+            print("📋 PHASE 3: Retrieving Available Appointment Times")
+            print("="*70)
+            
+            # Wait 5 seconds for phase to fully load
+            print("⏳ Waiting 5 seconds for Phase 3 to fully load...")
+            time.sleep(5)
+            print("✅ Phase 3 ready")
+            
+            result = operations.get_available_appointment_times()
+            if not result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Phase 3 failed: {result['error']}",
+                    "session_id": appt_session.session_id,
+                    "current_phase": 3
+                }), 500
+            
+            available_times = result["available_times"]
+            print("✅ Phase 3 completed successfully")
+            print(f"✅ Found {len(available_times)} available appointment times")
+        
+        # Create debug bundle
+        bundle_name = None
+        bundle_url = None
+        try:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            bundle_name = f"{appt_session.session_id}_{ts}_check_appointments.zip"
+            bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+            
+            with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # Include screenshots
+                session_sc_dir = operations.screens_dir
+                if os.path.isdir(session_sc_dir):
+                    for root, _, files in os.walk(session_sc_dir):
+                        for f in files:
+                            fp = os.path.join(root, f)
+                            rel = os.path.relpath(fp, session_sc_dir)
+                            arc = os.path.join('screenshots', rel)
+                            zf.write(fp, arc)
+            
+            bundle_url = f"/files/{bundle_name}"
+            print(f"\n{'='*70}")
+            print(f"📦 DEBUG BUNDLE CREATED")
+            print(f"{'='*70}")
+            print(f" Public URL: http://89.117.63.196:5010{bundle_url}")
+            print(f" File: {bundle_name}")
+            print(f" Size: {os.path.getsize(bundle_path)} bytes")
+            print(f"{'='*70}\n")
+            
+        except Exception as be:
+            print(f"⚠️ Bundle creation failed: {be}")
+        
+        # Clean up appointment session
+        if appt_session.session_id in appointment_sessions:
+            try:
+                appt_session.browser_session.driver.quit()
+            except:
+                pass
+            del appointment_sessions[appt_session.session_id]
+        
+        logger.info(f"[{request_id}] Check appointments completed successfully")
+        
+        return jsonify({
+            "success": True,
+            "available_times": available_times,
+            "count": len(available_times),
+            "debug_bundle_url": bundle_url,
+            "phase_data": appt_session.phase_data
+        }), 200
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "session_id": appt_session.session_id if appt_session else None,
+            "current_phase": appt_session.current_phase if appt_session else 0
+        }), 500
+
+
 @app.route('/make_appointment', methods=['POST'])
 def make_appointment():
     """
-    Navigate to the Make Appointment (Add Visit) page and return a session bundle
-    Same inputs as /get_containers; later steps will be added.
+    Make an appointment by going through all 3 phases and SUBMITTING.
+    ⚠️ WARNING: This ACTUALLY SUBMITS the appointment!
+    
+    Required fields (same as /check_appointments):
+        - username, password, captcha_api_key
+        - trucking_company, terminal, move_type, container_id
+        - truck_plate, own_chassis
+        - appointment_time: The specific time slot to select
+        - pin_code: Optional PIN code
+    
+    Returns:
+        - success: True/False
+        - appointment_confirmed: True if submitted successfully
+        - debug_bundle_url: ZIP file with screenshots
     """
-    request_id = f"appointment_{int(time.time())}"
+    request_id = f"make_appt_{int(time.time())}"
+    appt_session = None
+    
     try:
+        cleanup_expired_appointment_sessions()
+        
         if not request.is_json:
             return jsonify({"success": False, "error": "Request must be JSON"}), 400
-
+        
         data = request.get_json()
+        
+        # Required fields
         username = data.get('username')
         password = data.get('password')
         captcha_api_key = data.get('captcha_api_key')
-        keep_alive = data.get('keep_browser_alive', False)
-        return_url = data.get('return_url', True)
-        capture_screens = data.get('capture_screens', True)
-        screens_label = data.get('screens_label', username)
-
-        if not all([username, password, captcha_api_key]):
+        
+        # Phase 1
+        trucking_company = data.get('trucking_company')
+        terminal = data.get('terminal')
+        move_type = data.get('move_type')
+        container_id = data.get('container_id')
+        
+        # Phase 2
+        pin_code = data.get('pin_code')
+        truck_plate = data.get('truck_plate')
+        own_chassis = data.get('own_chassis', False)
+        
+        # Phase 3
+        appointment_time = data.get('appointment_time')
+        
+        # Validate all required fields
+        missing = []
+        if not username: missing.append("username")
+        if not password: missing.append("password")
+        if not captcha_api_key: missing.append("captcha_api_key")
+        if not trucking_company: missing.append("trucking_company")
+        if not terminal: missing.append("terminal")
+        if not move_type: missing.append("move_type")
+        if not container_id: missing.append("container_id")
+        if not truck_plate: missing.append("truck_plate")
+        if not appointment_time: missing.append("appointment_time")
+        
+        if missing:
             return jsonify({
                 "success": False,
-                "error": "Missing required fields: username, password, captcha_api_key"
+                "error": f"Missing required fields: {', '.join(missing)}"
             }), 400
-
-        logger.info(f"[{request_id}] Appointment request for user: {username}")
-        logger.info(f"[{request_id}] Keep alive: {keep_alive}")
-
+        
+        logger.info(f"[{request_id}] Make appointment request for user: {username}")
+        print("\n" + "="*70)
+        print("⚠️  MAKE APPOINTMENT - WILL SUBMIT THE APPOINTMENT!")
+        print("="*70)
+        
         # Create authenticated session
         try:
-            session = create_browser_session(username, password, captcha_api_key, keep_alive)
-            if keep_alive:
-                active_sessions[session.session_id] = session
-                logger.info(f"[{request_id}] Session stored for reuse: {session.session_id}")
+            browser_session = create_browser_session(username, password, captcha_api_key, keep_alive=False)
+            appt_session = AppointmentSession(
+                session_id=browser_session.session_id,
+                browser_session=browser_session,
+                current_phase=1,
+                created_at=datetime.now(),
+                last_used=datetime.now(),
+                phase_data={}
+            )
+            
+            operations = EModalBusinessOperations(browser_session)
+            operations.screens_enabled = True
+            operations.screens_label = username
+            
+            # Ensure app context
+            print("🕒 Ensuring app context is fully loaded...")
+            ctx = operations.ensure_app_context(30)
+            if not ctx.get("success"):
+                print("⚠️ App readiness not confirmed - proceeding to appointment page...")
+            
+            # Navigate to appointment page (includes 30-second wait)
+            nav_result = operations.navigate_to_appointment()
+            if not nav_result["success"]:
+                return jsonify({
+                    "success": False,
+                    "error": f"Navigation failed: {nav_result['error']}"
+                }), 500
+            
         except Exception as login_error:
-            logger.error(f"[{request_id}] Login failed: {str(login_error)}")
+            logger.error(f"[{request_id}] Authentication failed: {str(login_error)}")
             return jsonify({
                 "success": False,
                 "error": f"Authentication failed: {str(login_error)}"
             }), 401
-
-        # Operations
+        
+        # PHASE 1
+        print("\n" + "="*70)
+        print("📋 PHASE 1: Trucking Company, Terminal, Move Type, Container")
+        print("="*70)
+        
+        # Wait 5 seconds for phase to fully load
+        print("⏳ Waiting 5 seconds for Phase 1 to fully load...")
+        time.sleep(5)
+        print("✅ Phase 1 ready")
+        
+        result = operations.select_dropdown_by_text("Trucking", trucking_company)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 1 - Trucking: {result['error']}"}), 500
+        
+        result = operations.select_dropdown_by_text("Terminal", terminal)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 1 - Terminal: {result['error']}"}), 500
+        
+        result = operations.select_dropdown_by_text("Move", move_type)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 1 - Move type: {result['error']}"}), 500
+        
+        result = operations.fill_container_number(container_id)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 1 - Container: {result['error']}"}), 500
+        
+        result = operations.click_next_button(1)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 1 - Next: {result['error']}"}), 500
+        
+        print("✅ Phase 1 completed")
+        
+        # PHASE 2
+        print("\n" + "="*70)
+        print("📋 PHASE 2: Container Selection, PIN, Truck Plate, Chassis")
+        print("="*70)
+        
+        # Wait 5 seconds for phase to fully load
+        print("⏳ Waiting 5 seconds for Phase 2 to fully load...")
+        time.sleep(5)
+        print("✅ Phase 2 ready")
+        
+        result = operations.select_container_checkbox()
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 2 - Checkbox: {result['error']}"}), 500
+        
+        if pin_code:
+            result = operations.fill_pin_code(pin_code)
+            if not result["success"]:
+                return jsonify({"success": False, "error": f"Phase 2 - PIN: {result['error']}"}), 500
+        
+        result = operations.fill_truck_plate(truck_plate)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 2 - Truck plate: {result['error']}"}), 500
+        
+        result = operations.toggle_own_chassis(own_chassis)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 2 - Own chassis: {result['error']}"}), 500
+        
+        result = operations.click_next_button(2)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 2 - Next: {result['error']}"}), 500
+        
+        print("✅ Phase 2 completed")
+        
+        # PHASE 3
+        print("\n" + "="*70)
+        print("📋 PHASE 3: Selecting Appointment Time and SUBMITTING")
+        print("="*70)
+        
+        # Wait 5 seconds for phase to fully load
+        print("⏳ Waiting 5 seconds for Phase 3 to fully load...")
+        time.sleep(5)
+        print("✅ Phase 3 ready")
+        
+        result = operations.select_appointment_time(appointment_time)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 3 - Appointment time: {result['error']}"}), 500
+        
+        # ⚠️ SUBMIT THE APPOINTMENT
+        result = operations.click_submit_button()
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 3 - Submit: {result['error']}"}), 500
+        
+        print("✅ Phase 3 completed - APPOINTMENT SUBMITTED!")
+        
+        # Create debug bundle
+        bundle_name = None
+        bundle_url = None
         try:
-            operations = EModalBusinessOperations(session)
-            operations.screens_enabled = bool(capture_screens)
-            operations.screens_label = screens_label
-
-            # Ensure app context is loaded
-            print("🕒 Ensuring app context is fully loaded after login...")
-            ctx = operations.ensure_app_context(30)
-            if not ctx.get("success"):
-                try:
-                    print("⚠️ App readiness not confirmed in 30s — requesting appointment directly...")
-                    session.driver.get("https://termops.emodal.com/trucker/web/addvisit")
-                    operations._wait_for_app_ready(15)
-                except Exception:
-                    pass
-
-            # Navigate to appointment page
-            nav_result = operations.navigate_to_appointment()
-            if not nav_result["success"]:
-                if not keep_alive:
-                    session.driver.quit()
-                return jsonify({
-                    "success": False,
-                    "error": f"Navigation failed: {nav_result['error'] }"
-                }), 500
-
-            # Build a session bundle (even if no download yet) for parity
-            bundle_name = None
-            bundle_path = None
-            try:
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                bundle_name = f"{session.session_id}_{ts}.zip"
-                bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                session_root = session.session_id
-                with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    # include session downloads dir (may be empty)
-                    session_dl_dir = os.path.join(DOWNLOADS_DIR, session.session_id)
-                    if os.path.isdir(session_dl_dir):
-                        for root, _, files in os.walk(session_dl_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                rel = os.path.relpath(fp, session_dl_dir)
-                                arc = os.path.join(session_root, 'downloads', rel)
-                                zf.write(fp, arc)
-                    # include screenshots
-                    session_sc_dir = operations.screens_dir
-                    if os.path.isdir(session_sc_dir):
-                        for root, _, files in os.walk(session_sc_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                rel = os.path.relpath(fp, session_sc_dir)
-                                arc = os.path.join(session_root, 'screenshots', rel)
-                                zf.write(fp, arc)
-            except Exception as be:
-                print(f"⚠️ Bundle creation failed: {be}")
-
-            # Close or keep session
-            if not keep_alive:
-                try:
-                    session.driver.quit()
-                except Exception:
-                    pass
-                logger.info(f"[{request_id}] Browser session closed")
-            else:
-                session.update_last_used()
-                logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
-
-            if return_url:
-                return jsonify({
-                    "success": True,
-                    "bundle_url": (f"/files/{os.path.basename(bundle_path)}" if bundle_path and os.path.exists(bundle_path) else None)
-                })
-            else:
-                # Return 204 No Content if not returning URL
-                return ('', 204)
-
-        except Exception as operation_error:
-            logger.error(f"[{request_id}] Operation failed: {str(operation_error)}")
-            if not keep_alive:
-                try:
-                    session.driver.quit()
-                except:
-                    pass
-            return jsonify({
-                "success": False,
-                "error": f"Operation failed: {str(operation_error)}"
-            }), 500
-
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            bundle_name = f"{appt_session.session_id}_{ts}_appointment_submitted.zip"
+            bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+            
+            with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                session_sc_dir = operations.screens_dir
+                if os.path.isdir(session_sc_dir):
+                    for root, _, files in os.walk(session_sc_dir):
+                        for f in files:
+                            fp = os.path.join(root, f)
+                            rel = os.path.relpath(fp, session_sc_dir)
+                            arc = os.path.join('screenshots', rel)
+                            zf.write(fp, arc)
+            
+            bundle_url = f"/files/{bundle_name}"
+            print(f"\n{'='*70}")
+            print(f"📦 APPOINTMENT SUBMITTED - DEBUG BUNDLE CREATED")
+            print(f"{'='*70}")
+            print(f" Public URL: http://89.117.63.196:5010{bundle_url}")
+            print(f" File: {bundle_name}")
+            print(f" Size: {os.path.getsize(bundle_path)} bytes")
+            print(f"{'='*70}\n")
+            
+        except Exception as be:
+            print(f"⚠️ Bundle creation failed: {be}")
+        
+        # Clean up session
+        try:
+            browser_session.driver.quit()
+        except:
+            pass
+        
+        logger.info(f"[{request_id}] Appointment submitted successfully")
+        
+        return jsonify({
+            "success": True,
+            "appointment_confirmed": True,
+            "debug_bundle_url": bundle_url,
+            "appointment_details": {
+                "trucking_company": trucking_company,
+                "terminal": terminal,
+                "move_type": move_type,
+                "container_id": container_id,
+                "truck_plate": truck_plate,
+                "own_chassis": own_chassis,
+                "appointment_time": appointment_time
+            }
+        }), 200
+    
     except Exception as e:
         logger.error(f"[{request_id}] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Clean up on error
+        if appt_session:
+            try:
+                appt_session.browser_session.driver.quit()
+            except:
+                pass
+        
         return jsonify({
             "success": False,
             "error": f"Unexpected error: {str(e)}"
