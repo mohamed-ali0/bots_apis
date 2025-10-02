@@ -121,8 +121,16 @@ def test_get_containers():
         keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
         keep_alive = keep_alive_input in ['y', 'yes']
     
-    # Get infinite_scrolling parameter (default: false)
-    infinite_scrolling = os.environ.get('INFINITE_SCROLLING', 'false').lower() in ['1', 'true', 'yes', 'y']
+    # Get infinite_scrolling parameter
+    # In interactive mode, ask user; in auto mode, use environment variable
+    if not auto_test:
+        print("\n📜 Infinite Scrolling Options:")
+        print("  1. Enable (loads ALL containers - may take 2-5 minutes)")
+        print("  2. Disable (first page only - ~40 containers)")
+        scroll_choice = input("\nEnable infinite scrolling? (1/2) [default: 2]: ").strip()
+        infinite_scrolling = scroll_choice == '1'
+    else:
+        infinite_scrolling = os.environ.get('INFINITE_SCROLLING', 'false').lower() in ['1', 'true', 'yes', 'y']
     
     payload = {
         "username": username,
@@ -339,22 +347,66 @@ def test_sessions():
 
 def main():
     """Main test function"""
-    print("🧪 E-Modal Business API Test Suite")
-    print("=" * 50)
+    print("\n" + "="*70)
+    print("E-MODAL BUSINESS API TEST - INFINITE SCROLLING")
+    print("="*70)
     
-    # First, choose the server
+    # Choose server first
     choose_server()
     
-    # Test get_containers with infinite scroll
+    # Test health
     if not test_health():
-        print("❌ Health check failed. Cannot proceed.")
+        print("\n❌ Health check failed! API might not be running.")
         return
+    
+    # Test active sessions
     test_sessions()
-    print("\n" + "=" * 50)
-    print("🚀 Running get_containers test...")
-    ok = test_get_containers()
-    if not ok:
-        print("❌ get_containers test failed")
+    
+    # Run the main test - Get containers WITH infinite scrolling
+    print("\n" + "="*70)
+    print("TESTING: Get Containers with Infinite Scrolling")
+    print("="*70)
+    print("\n⚠️  This test will take several minutes to complete!")
+    print("   The system will scroll through all containers until no new content appears.")
+    print("   Estimated time: 2-5 minutes depending on the number of containers.\n")
+    
+    input("Press Enter to start the test...")
+    
+    # Get configuration for infinite scrolling
+    print("\nChoose test mode:")
+    print("  1. With infinite scrolling (loads ALL containers)")
+    print("  2. Without infinite scrolling (first page only - ~40 containers)")
+    
+    choice = input("\nEnter your choice (1/2) [default: 1]: ").strip()
+    
+    # Set environment variable for infinite scrolling
+    if choice != '2':
+        os.environ['INFINITE_SCROLLING'] = 'true'
+    else:
+        os.environ['INFINITE_SCROLLING'] = 'false'
+    
+    # Test with chosen mode
+    result = test_get_containers()
+    
+    if result:
+        print("\n" + "="*70)
+        print("✅ TEST COMPLETED SUCCESSFULLY")
+        print("="*70)
+        print(f"\n📊 Results:")
+        print(f"   Total containers retrieved: {result.get('total_containers', 'N/A')}")
+        if 'scroll_cycles' in result:
+            print(f"   Scroll cycles performed: {result.get('scroll_cycles', 'N/A')}")
+        print(f"   Excel file: {result.get('file_name', 'N/A')}")
+        print(f"   File size: {result.get('file_size', 'N/A')} bytes")
+        
+        if 'download_url' in result:
+            print(f"\n📥 Download your file:")
+            print(f"   {result['download_url']}")
+    else:
+        print("\n" + "="*70)
+        print("❌ TEST FAILED")
+        print("="*70)
+    
     return
 
 

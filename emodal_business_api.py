@@ -429,35 +429,33 @@ class EModalBusinessOperations:
                 try:
                     print("  🔍 Counting containers...")
                     # Look for various container row indicators
-                    container_selectors = [
-                        "//tr[contains(@class, 'container') or contains(@class, 'row')]",
-                        "//div[contains(@class, 'container') or contains(@class, 'row')]",
-                        "//mat-row",
-                        "//tbody//tr",
-                        "//*[contains(@class, 'mat-table')]//tr",
-                        "//*[contains(@class, 'data-row')]",
-                        "//*[contains(@class, 'item-row')]"
-                    ]
-                    
-                    current_count = 0
-                    for selector in container_selectors:
+                    # Count actual container IDs (same logic as parser for accurate count)
+                    try:
+                        # Get text from the table
+                        searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
+                        page_text = searchres.text
+                        
+                        # Count lines that match container ID pattern (4 letters + 6-7 digits)
+                        import re
+                        lines = page_text.split('\n')
+                        container_count = 0
+                        for line in lines:
+                            # Match container ID pattern in the line
+                            if re.search(r'\b[A-Z]{4}\d{6,7}[A-Z]?\b', line):
+                                container_count += 1
+                        
+                        current_count = container_count
+                        print(f"  📊 Found {current_count} actual container IDs in text")
+                        
+                    except Exception as count_e:
+                        print(f"  ⚠️ Error counting containers: {count_e}")
+                        # Fallback to DOM counting
                         try:
-                            elements = self.driver.find_elements(By.XPATH, selector)
-                            if elements:
-                                current_count = len(elements)
-                                print(f"  📊 Found {current_count} containers using selector: {selector}")
-                                break
-                        except Exception:
-                            continue
-                    
-                    if current_count == 0:
-                        # Fallback: count any clickable rows or items
-                        try:
-                            all_rows = self.driver.find_elements(By.XPATH, "//tr | //div[contains(@class, 'row')] | //mat-row")
-                            current_count = len(all_rows)
-                            print(f"  📊 Fallback count: {current_count} total rows/divs")
-                        except Exception:
-                            pass
+                            elements = self.driver.find_elements(By.XPATH, "//tbody//tr")
+                            current_count = len(elements)
+                            print(f"  📊 Fallback DOM count: {current_count} rows")
+                        except:
+                            current_count = previous_count
                     
                 except Exception as e:
                     print(f"  ⚠️ Error counting containers: {e}")
