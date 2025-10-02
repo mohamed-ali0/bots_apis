@@ -816,6 +816,7 @@ class EModalBusinessOperations:
                     self.driver.execute_script("arguments[0].click();", th_parent)
                     clicked = True
                     print(f"✅ Clicked via TH parent")
+                    time.sleep(1)
                 except Exception as e1:
                     print(f"⚠️ TH parent click failed: {e1}")
                 
@@ -828,6 +829,7 @@ class EModalBusinessOperations:
                             self.driver.execute_script("arguments[0].click();", label)
                             clicked = True
                             print(f"✅ Clicked via label[for]")
+                            time.sleep(1)
                     except Exception as e2:
                         print(f"⚠️ Label[for] click failed: {e2}")
                 
@@ -838,6 +840,7 @@ class EModalBusinessOperations:
                         self.driver.execute_script("arguments[0].click();", inner)
                         clicked = True
                         print(f"✅ Clicked via inner-container")
+                        time.sleep(1)
                     except Exception as e3:
                         print(f"⚠️ Inner-container click failed: {e3}")
                 
@@ -845,8 +848,25 @@ class EModalBusinessOperations:
                 if not clicked:
                     self.driver.execute_script("arguments[0].click();", select_all_checkbox)
                     print(f"✅ Clicked via JS on input")
+                    time.sleep(1)
                 
-                time.sleep(2)  # Wait for selection to process
+                # Wait for selection to process
+                time.sleep(3)
+                
+                # Check if selection worked, if not try double-click on TH parent
+                initial_check = select_all_checkbox.is_selected()
+                if not initial_check:
+                    print(f"⚠️ First click didn't select, trying double-click...")
+                    try:
+                        th_parent = select_all_checkbox.find_element(By.XPATH, "ancestor::th[1]")
+                        # Double click
+                        self.driver.execute_script("arguments[0].click();", th_parent)
+                        time.sleep(0.3)
+                        self.driver.execute_script("arguments[0].click();", th_parent)
+                        time.sleep(2)
+                        print(f"✅ Double-clicked TH parent")
+                    except Exception as dbl_e:
+                        print(f"⚠️ Double-click failed: {dbl_e}")
                 
                 # Verify the click worked
                 new_state = select_all_checkbox.is_selected()
@@ -2027,7 +2047,7 @@ def get_containers():
         captcha_api_key = data.get('captcha_api_key')
         keep_alive = data.get('keep_browser_alive', False)
         return_url = data.get('return_url', False)
-        capture_screens = data.get('capture_screens', False)
+        capture_screens = data.get('capture_screens', True)  # Default: enabled for debugging
         screens_label = data.get('screens_label', username)
         infinite_scrolling = data.get('infinite_scrolling', True)  # Default: enabled
         
@@ -2183,6 +2203,18 @@ def get_containers():
                                 rel = os.path.relpath(fp, session_sc_dir)
                                 arc = os.path.join(session_root, 'screenshots', rel)
                                 zf.write(fp, arc)
+                
+                # Print public download URL immediately
+                if bundle_path and os.path.exists(bundle_path):
+                    public_url = f"http://{request.host}/files/{bundle_name}"
+                    print(f"\n{'='*70}")
+                    print(f"📦 BUNDLE READY FOR DOWNLOAD")
+                    print(f"{'='*70}")
+                    print(f"🌐 Public URL: {public_url}")
+                    print(f"📂 File: {bundle_name}")
+                    print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
+                    print(f"{'='*70}\n")
+                
             except Exception as be:
                 print(f"⚠️ Bundle creation failed: {be}")
 
