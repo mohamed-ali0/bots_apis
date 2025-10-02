@@ -2163,11 +2163,49 @@ def get_containers():
             # Step 3: Download Excel file
             download_result = operations.download_excel_file()
             if not download_result["success"]:
+                # Create failure bundle with screenshots
+                bundle_path = None
+                bundle_name = None
+                try:
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bundle_name = f"{session.session_id}_{ts}_FAILED.zip"
+                    bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+                    session_root = session.session_id
+                    
+                    with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        # Include screenshots
+                        session_sc_dir = operations.screens_dir
+                        if os.path.isdir(session_sc_dir):
+                            for root, _, files in os.walk(session_sc_dir):
+                                for f in files:
+                                    fp = os.path.join(root, f)
+                                    rel = os.path.relpath(fp, session_sc_dir)
+                                    arc = os.path.join(session_root, 'screenshots', rel)
+                                    zf.write(fp, arc)
+                        # Add error log
+                        error_log = f"Error: {download_result['error']}\nTime: {datetime.now().isoformat()}\nRequest ID: {request_id}\nStep: Download Excel"
+                        zf.writestr(os.path.join(session_root, 'error.txt'), error_log)
+                    
+                    # Print download URL
+                    if bundle_path and os.path.exists(bundle_path):
+                        public_url = f"http://{request.host}/files/{bundle_name}"
+                        print(f"\n{'='*70}")
+                        print(f"❌ DOWNLOAD FAILED - DEBUG BUNDLE AVAILABLE")
+                        print(f"{'='*70}")
+                        print(f"🌐 Public URL: {public_url}")
+                        print(f"📂 File: {bundle_name}")
+                        print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
+                        print(f"🔍 Error: {download_result['error']}")
+                        print(f"{'='*70}\n")
+                except Exception as bundle_e:
+                    print(f"⚠️ Failed to create error bundle: {bundle_e}")
+                
                 if not keep_alive:
                     session.driver.quit()
                 return jsonify({
                     "success": False,
-                    "error": f"Download failed: {download_result['error']}"
+                    "error": f"Download failed: {download_result['error']}",
+                    "debug_bundle_url": (f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None)
                 }), 500
             
             # Success - ensure file is under project downloads; otherwise move it
