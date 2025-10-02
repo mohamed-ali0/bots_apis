@@ -119,11 +119,13 @@ class EModalBusinessOperations:
 
     def _capture_screenshot(self, tag: str):
         if not self.screens_enabled:
+            print(f"📸 Screenshot skipped (disabled): {tag}")
             return
         try:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
             self.driver.save_screenshot(raw_path)
+            print(f"📸 Screenshot saved: {os.path.basename(raw_path)}")
             # Annotate top-right with label and URL
             try:
                 img = Image.open(raw_path).convert("RGBA")
@@ -853,7 +855,7 @@ class EModalBusinessOperations:
                 # Wait for selection to process
                 time.sleep(3)
                 
-                # Check if selection worked, if not try double-click on TH parent
+                # Check if selection worked, if not try alternative methods
                 initial_check = select_all_checkbox.is_selected()
                 if not initial_check:
                     print(f"⚠️ First click didn't select, trying double-click...")
@@ -865,6 +867,28 @@ class EModalBusinessOperations:
                         self.driver.execute_script("arguments[0].click();", th_parent)
                         time.sleep(2)
                         print(f"✅ Double-clicked TH parent")
+                        
+                        # Check again
+                        if not select_all_checkbox.is_selected():
+                            print(f"⚠️ Double-click also failed, trying to select individual rows...")
+                            # Fallback: Select first 40 rows individually
+                            try:
+                                row_checkboxes = self.driver.find_elements(By.XPATH, "//tbody//tr//input[@type='checkbox']")
+                                print(f"   Found {len(row_checkboxes)} row checkboxes")
+                                selected = 0
+                                for i, row_cb in enumerate(row_checkboxes[:40]):  # Max 40
+                                    try:
+                                        if not row_cb.is_selected():
+                                            self.driver.execute_script("arguments[0].click();", row_cb)
+                                            selected += 1
+                                            if i % 10 == 0:
+                                                time.sleep(0.5)  # Pause every 10 clicks
+                                    except Exception:
+                                        pass
+                                print(f"✅ Manually selected {selected} row checkboxes")
+                                time.sleep(2)
+                            except Exception as manual_e:
+                                print(f"⚠️ Manual row selection failed: {manual_e}")
                     except Exception as dbl_e:
                         print(f"⚠️ Double-click failed: {dbl_e}")
                 
@@ -2081,6 +2105,8 @@ def get_containers():
             operations = EModalBusinessOperations(session)
             operations.screens_enabled = bool(capture_screens)
             operations.screens_label = screens_label
+            print(f"📸 Screenshots enabled: {operations.screens_enabled}")
+            print(f"📁 Screenshots directory: {operations.screens_dir}")
 
             # Ensure app fully ready after login before any navigation
             print("🕒 Ensuring app context is fully loaded after login...")
