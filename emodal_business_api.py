@@ -928,19 +928,20 @@ class EModalBusinessOperations:
             return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
     def scrape_containers_to_excel(self) -> Dict[str, Any]:
-        """Scrape container data from table and create Excel file"""
+        """Scrape container data using simple text extraction"""
         try:
             import pandas as pd
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, PatternFill
+            import re
             
-            print("📊 Scraping container data from table...")
+            print("📊 Extracting container data from page text...")
             self._capture_screenshot("before_scraping")
             
-            # Wait for table to be loaded
+            # Wait for page to be loaded
             time.sleep(2)
             
-            # Define expected columns based on your sample
+            # Define expected columns
             columns = [
                 'Container #', 'Trade Type', 'Status', 'Holds', 
                 'Pregate Ticket#', 'Emodal Pregate Status', 'Gate Status',
@@ -949,73 +950,53 @@ class EModalBusinessOperations:
                 'Fees', 'LFD/GTD', 'Tags'
             ]
             
-            # Try multiple selectors for table rows
-            row_selectors = [
-                "//tbody//tr[td]",  # Standard table rows
-                "//mat-row",  # Angular Material rows
-                "//div[contains(@class,'mat-row')]",  # Material divs
-                "//tr[contains(@class,'container-row')]",
-            ]
+            # Get all page text
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body')
+                page_text = body.text
+                print(f"📄 Extracted {len(page_text)} characters of text")
+            except Exception as e:
+                return {"success": False, "error": f"Could not extract page text: {e}"}
             
-            rows = []
-            for selector in row_selectors:
-                try:
-                    rows = self.driver.find_elements(By.XPATH, selector)
-                    if rows:
-                        print(f"✅ Found {len(rows)} rows using: {selector}")
-                        break
-                except Exception:
-                    continue
+            # Parse container data from text
+            # Container ID pattern: 4 letters + 6-7 digits (ends with digit, not letter)
+            container_pattern = r'([A-Z]{4}\d{6,7})(?:\s|$)'
             
-            if not rows:
-                return {"success": False, "error": "No container rows found in table"}
-            
-            # Extract data from each row
+            lines = page_text.split('\n')
             containers_data = []
-            for i, row in enumerate(rows):
-                try:
-                    # Get all cells in the row
-                    cells = row.find_elements(By.XPATH, ".//td | .//mat-cell | .//div[contains(@class,'mat-cell')]")
-                    
-                    if not cells:
-                        continue
-                    
-                    # Extract text from each cell
-                    row_data = {}
-                    for idx, cell in enumerate(cells):
-                        if idx < len(columns):
-                            cell_text = cell.text.strip()
-                            
-                            # Special handling for Container # column (remove badges/symbols)
-                            if idx == 0 and columns[idx] == 'Container #':
-                                # Remove common badge symbols that appear after container numbers
-                                # E.g., "HMMU9048448E E" -> "HMMU9048448E"
-                                # Split and take only container number part (letters + numbers)
-                                import re
-                                # Match typical container number format: 4 letters + 7 digits + 1 check digit
-                                match = re.search(r'([A-Z]{4}\d{7}[A-Z]?)', cell_text)
-                                if match:
-                                    cell_text = match.group(1)
-                                else:
-                                    # Fallback: just remove trailing single letters/symbols
-                                    cell_text = re.sub(r'\s+[A-Z]$', '', cell_text)
-                            
-                            # Handle empty cells
-                            if not cell_text or cell_text in ['N/A', '']:
-                                cell_text = ''
-                            row_data[columns[idx]] = cell_text
-                    
-                    # Only add if we have container number (first column)
-                    if row_data.get('Container #'):
-                        containers_data.append(row_data)
-                        if (i + 1) % 10 == 0:
-                            print(f"  Scraped {i + 1} containers...")
-                
-                except Exception as row_e:
-                    print(f"  ⚠️ Error scraping row {i}: {row_e}")
-                    continue
             
-            print(f"✅ Scraped {len(containers_data)} containers")
+            i = 0
+            while i < len(lines):
+                line = lines[i].strip()
+                
+                # Look for container ID (must end with digit)
+                match = re.match(container_pattern, line)
+                if match:
+                    container_id = match.group(1)
+                    
+                    # Collect next 17 fields (18 columns total including container ID)
+                    row_data = {'Container #': container_id}
+                    
+                    # Get the next fields
+                    field_idx = 1
+                    for j in range(i + 1, min(i + 30, len(lines))):
+                        field_line = lines[j].strip()
+                        if field_line and field_idx < len(columns):
+                            row_data[columns[field_idx]] = field_line
+                            field_idx += 1
+                            if field_idx >= len(columns):
+                                break
+                    
+                    # Only add if we have at least container# and a few other fields
+                    if len(row_data) >= 5:
+                        containers_data.append(row_data)
+                        print(f"  Found container: {container_id}")
+                        i = i + field_idx  # Skip processed lines
+                        continue
+                
+                i += 1
+            
+            print(f"✅ Extracted {len(containers_data)} containers")
             
             if not containers_data:
                 return {"success": False, "error": "No container data extracted"}
