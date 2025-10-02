@@ -927,6 +927,167 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
+    def scrape_containers_to_excel(self) -> Dict[str, Any]:
+        """Scrape container data from table and create Excel file"""
+        try:
+            import pandas as pd
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, Alignment, PatternFill
+            
+            print("📊 Scraping container data from table...")
+            self._capture_screenshot("before_scraping")
+            
+            # Wait for table to be loaded
+            time.sleep(2)
+            
+            # Define expected columns based on your sample
+            columns = [
+                'Container #', 'Trade Type', 'Status', 'Holds', 
+                'Pregate Ticket#', 'Emodal Pregate Status', 'Gate Status',
+                'Origin', 'Destination', 'Current Loc', 'Line', 
+                'Vessel Name', 'Vessel Code', 'Voyage', 'Size Type', 
+                'Fees', 'LFD/GTD', 'Tags'
+            ]
+            
+            # Try multiple selectors for table rows
+            row_selectors = [
+                "//tbody//tr[td]",  # Standard table rows
+                "//mat-row",  # Angular Material rows
+                "//div[contains(@class,'mat-row')]",  # Material divs
+                "//tr[contains(@class,'container-row')]",
+            ]
+            
+            rows = []
+            for selector in row_selectors:
+                try:
+                    rows = self.driver.find_elements(By.XPATH, selector)
+                    if rows:
+                        print(f"✅ Found {len(rows)} rows using: {selector}")
+                        break
+                except Exception:
+                    continue
+            
+            if not rows:
+                return {"success": False, "error": "No container rows found in table"}
+            
+            # Extract data from each row
+            containers_data = []
+            for i, row in enumerate(rows):
+                try:
+                    # Get all cells in the row
+                    cells = row.find_elements(By.XPATH, ".//td | .//mat-cell | .//div[contains(@class,'mat-cell')]")
+                    
+                    if not cells:
+                        continue
+                    
+                    # Extract text from each cell
+                    row_data = {}
+                    for idx, cell in enumerate(cells):
+                        if idx < len(columns):
+                            cell_text = cell.text.strip()
+                            
+                            # Special handling for Container # column (remove badges/symbols)
+                            if idx == 0 and columns[idx] == 'Container #':
+                                # Remove common badge symbols that appear after container numbers
+                                # E.g., "HMMU9048448E E" -> "HMMU9048448E"
+                                # Split and take only container number part (letters + numbers)
+                                import re
+                                # Match typical container number format: 4 letters + 7 digits + 1 check digit
+                                match = re.search(r'([A-Z]{4}\d{7}[A-Z]?)', cell_text)
+                                if match:
+                                    cell_text = match.group(1)
+                                else:
+                                    # Fallback: just remove trailing single letters/symbols
+                                    cell_text = re.sub(r'\s+[A-Z]$', '', cell_text)
+                            
+                            # Handle empty cells
+                            if not cell_text or cell_text in ['N/A', '']:
+                                cell_text = ''
+                            row_data[columns[idx]] = cell_text
+                    
+                    # Only add if we have container number (first column)
+                    if row_data.get('Container #'):
+                        containers_data.append(row_data)
+                        if (i + 1) % 10 == 0:
+                            print(f"  Scraped {i + 1} containers...")
+                
+                except Exception as row_e:
+                    print(f"  ⚠️ Error scraping row {i}: {row_e}")
+                    continue
+            
+            print(f"✅ Scraped {len(containers_data)} containers")
+            
+            if not containers_data:
+                return {"success": False, "error": "No container data extracted"}
+            
+            # Create Excel file
+            download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
+            os.makedirs(download_dir, exist_ok=True)
+            
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            excel_filename = f"containers_scraped_{ts}.xlsx"
+            excel_path = os.path.join(download_dir, excel_filename)
+            
+            # Create DataFrame
+            df = pd.DataFrame(containers_data)
+            
+            # Ensure all columns exist
+            for col in columns:
+                if col not in df.columns:
+                    df[col] = ''
+            
+            # Reorder columns to match expected format
+            df = df[columns]
+            
+            # Write to Excel with formatting
+            with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Containers', index=False)
+                
+                # Get workbook and worksheet
+                workbook = writer.book
+                worksheet = writer.sheets['Containers']
+                
+                # Format header row
+                header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+                header_font = Font(color='FFFFFF', bold=True)
+                
+                for cell in worksheet[1]:
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                
+                # Auto-adjust column widths
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+            
+            file_size = os.path.getsize(excel_path)
+            print(f"✅ Excel file created: {excel_filename} ({file_size} bytes)")
+            self._capture_screenshot("after_scraping")
+            
+            return {
+                "success": True,
+                "file_path": excel_path,
+                "file_name": excel_filename,
+                "file_size": file_size,
+                "total_containers": len(containers_data),
+                "method": "scraped"
+            }
+            
+        except Exception as e:
+            print(f"❌ Scraping failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": f"Scraping failed: {str(e)}"}
+    
     def download_excel_file(self) -> Dict[str, Any]:
         """Download Excel file with container data"""
         try:
@@ -2150,18 +2311,12 @@ def get_containers():
                     "message": "Infinite scrolling disabled by request"
                 }
             
-            # Step 2: Select all containers
-            select_result = operations.select_all_containers()
-            if not select_result["success"]:
-                if not keep_alive:
-                    session.driver.quit()
-                return jsonify({
-                    "success": False,
-                    "error": f"Container selection failed: {select_result['error']}"
-                }), 500
+            # Step 2: Skip selection, directly scrape table data
+            # (No need to select checkboxes if we're scraping)
+            print("📊 Skipping checkbox selection - will scrape table directly")
             
-            # Step 3: Download Excel file
-            download_result = operations.download_excel_file()
+            # Step 3: Scrape table and create Excel file
+            download_result = operations.scrape_containers_to_excel()
             if not download_result["success"]:
                 # Create failure bundle with screenshots
                 bundle_path = None
