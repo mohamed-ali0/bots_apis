@@ -346,10 +346,24 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Navigation failed: {str(e)}"}
 
-    def load_all_containers_with_infinite_scroll(self) -> Dict[str, Any]:
-        """Scroll through containers page to load all content via infinite scrolling"""
+    def load_all_containers_with_infinite_scroll(self, target_count: int = None, target_container_id: str = None) -> Dict[str, Any]:
+        """
+        Scroll through containers page to load content via infinite scrolling
+        
+        Args:
+            target_count: Stop scrolling when this many containers are loaded (None = load all)
+            target_container_id: Stop scrolling when this container ID is found (None = load all)
+        
+        Returns:
+            Dict with success, total_containers, scroll_cycles, and optionally found_target_container
+        """
         try:
-            print("📜 Starting infinite scroll to load all containers...")
+            if target_count:
+                print(f"📜 Starting scroll to load {target_count} containers...")
+            elif target_container_id:
+                print(f"📜 Starting scroll to find container: {target_container_id}...")
+            else:
+                print("📜 Starting infinite scroll to load all containers...")
             self._capture_screenshot("before_infinite_scroll")
             
             # Ensure the window is maximized so scrollbar is available
@@ -469,6 +483,38 @@ class EModalBusinessOperations:
                 else:
                     no_new_content_count += 1
                     print(f"  ⏳ No new content ({no_new_content_count}/{max_no_new_content_cycles})")
+                
+                # Check if we've reached target count
+                if target_count and current_count >= target_count:
+                    print(f"  🎯 Target count reached: {current_count} >= {target_count}")
+                    self._capture_screenshot("after_infinite_scroll")
+                    return {
+                        "success": True,
+                        "total_containers": current_count,
+                        "scroll_cycles": scroll_cycle,
+                        "stopped_reason": f"Target count {target_count} reached"
+                    }
+                
+                # Check if we've found target container ID
+                if target_container_id:
+                    try:
+                        searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
+                        page_text = searchres.text
+                        # Clean the target ID (remove trailing letter)
+                        import re
+                        clean_target = re.sub(r'[A-Z]$', '', target_container_id)
+                        if clean_target in page_text or target_container_id in page_text:
+                            print(f"  🎯 Target container found: {target_container_id}")
+                            self._capture_screenshot("after_infinite_scroll")
+                            return {
+                                "success": True,
+                                "total_containers": current_count,
+                                "scroll_cycles": scroll_cycle,
+                                "found_target_container": target_container_id,
+                                "stopped_reason": f"Container {target_container_id} found"
+                            }
+                    except Exception as e:
+                        print(f"  ⚠️ Error checking for target container: {e}")
                 
                 # Scroll down with multiple methods (targeting scrollable container)
                 print("  📜 Scrolling down...")
@@ -2349,8 +2395,14 @@ def get_containers():
         "password": "your_password", 
         "captcha_api_key": "your_2captcha_key",
         "keep_browser_alive": true/false,
-        "infinite_scrolling": true/false  (default: true)
+        "infinite_scrolling": true/false  (default: true) - Load all containers
+        "target_count": 500  (optional) - Stop when this many containers loaded
+        "target_container_id": "MSDU5772413"  (optional) - Stop when this container found
+        "debug": true/false  (default: false) - If true, return ZIP with screenshots; if false, Excel only
     }
+    
+    Note: Only one of infinite_scrolling, target_count, or target_container_id should be used at a time.
+    Priority: target_container_id > target_count > infinite_scrolling
     
     Returns Excel file with container data
     """
@@ -2367,9 +2419,23 @@ def get_containers():
         captcha_api_key = data.get('captcha_api_key')
         keep_alive = data.get('keep_browser_alive', False)
         return_url = data.get('return_url', False)
-        capture_screens = data.get('capture_screens', True)  # Default: enabled for debugging
+        debug_mode = data.get('debug', False)  # Default: no debug (Excel only)
+        capture_screens = debug_mode  # Only capture if debug mode is enabled
         screens_label = data.get('screens_label', username)
+        
+        # Work mode selection (priority order)
+        target_container_id = data.get('target_container_id', None)
+        target_count = data.get('target_count', None)
         infinite_scrolling = data.get('infinite_scrolling', True)  # Default: enabled
+        
+        # Determine the work mode
+        work_mode = "all"  # default
+        if target_container_id:
+            work_mode = "find_container"
+            infinite_scrolling = False
+        elif target_count:
+            work_mode = "target_count"
+            infinite_scrolling = False
         
         if not all([username, password, captcha_api_key]):
             return jsonify({
@@ -2379,7 +2445,14 @@ def get_containers():
         
         logger.info(f"[{request_id}] Container request for user: {username}")
         logger.info(f"[{request_id}] Keep alive: {keep_alive}")
-        logger.info(f"[{request_id}] Infinite scrolling: {infinite_scrolling}")
+        logger.info(f"[{request_id}] Work mode: {work_mode}")
+        if target_container_id:
+            logger.info(f"[{request_id}] Target container: {target_container_id}")
+        elif target_count:
+            logger.info(f"[{request_id}] Target count: {target_count}")
+        else:
+            logger.info(f"[{request_id}] Infinite scrolling: {infinite_scrolling}")
+        logger.info(f"[{request_id}] Debug mode: {debug_mode}")
         
         # Create authenticated session
         try:
@@ -2428,17 +2501,34 @@ def get_containers():
                     "error": f"Navigation failed: {nav_result['error']}"
                 }), 500
             
-            # Step 1.5: Load all containers with infinite scroll (if enabled)
-            if infinite_scrolling:
+            # Step 1.5: Load containers based on work mode
+            scroll_result = {}
+            if target_container_id:
+                print(f"🔍 Scrolling to find container: {target_container_id}...")
+                scroll_result = operations.load_all_containers_with_infinite_scroll(
+                    target_container_id=target_container_id
+                )
+                if scroll_result.get("success") and scroll_result.get("found_target_container"):
+                    print(f"✅ Container found: {target_container_id} after {scroll_result.get('scroll_cycles', 0)} cycles")
+                else:
+                    print(f"⚠️ Container {target_container_id} not found after scrolling")
+            elif target_count:
+                print(f"🔢 Scrolling to load {target_count} containers...")
+                scroll_result = operations.load_all_containers_with_infinite_scroll(
+                    target_count=target_count
+                )
+                if scroll_result.get("success"):
+                    print(f"✅ Loaded {scroll_result.get('total_containers', 0)} containers (target: {target_count})")
+            elif infinite_scrolling:
                 print("📜 Loading all containers with infinite scroll...")
                 scroll_result = operations.load_all_containers_with_infinite_scroll()
                 if not scroll_result["success"]:
-                    print(f"⚠️ Infinite scroll failed: {scroll_result['error']}")
+                    print(f"⚠️ Infinite scroll failed: {scroll_result.get('error', 'Unknown error')}")
                     # Continue anyway - maybe all containers are already loaded
                 else:
                     print(f"✅ Infinite scroll completed: {scroll_result.get('total_containers', 'unknown')} containers loaded")
             else:
-                print("⏭️  Infinite scrolling disabled - using first page only")
+                print("⏭️  Scrolling disabled - using first page only")
                 scroll_result = {
                     "success": True,
                     "total_containers": "first_page_only",
@@ -2528,59 +2618,88 @@ def get_containers():
                 session.update_last_used()
                 logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
 
-            # Always build a single combined bundle (downloads + screenshots) zip with top-level session folder
+            # Build bundle based on debug mode
             bundle_name = None
             bundle_path = None
-            try:
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                bundle_name = f"{session.session_id}_{ts}.zip"
-                bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                session_root = session.session_id  # top-level folder inside zip
-                with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    # Include session downloads folder
-                    session_dl_dir = os.path.join(DOWNLOADS_DIR, session.session_id)
-                    if os.path.isdir(session_dl_dir):
-                        for root, _, files in os.walk(session_dl_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                # arc path inside zip: <session_id>/downloads/...
-                                rel = os.path.relpath(fp, session_dl_dir)
-                                arc = os.path.join(session_root, 'downloads', rel)
-                                zf.write(fp, arc)
-                    # Include session screenshots folder
-                    session_sc_dir = operations.screens_dir
-                    if os.path.isdir(session_sc_dir):
-                        for root, _, files in os.walk(session_sc_dir):
-                            for f in files:
-                                fp = os.path.join(root, f)
-                                # arc path: <session_id>/screenshots/...
-                                rel = os.path.relpath(fp, session_sc_dir)
-                                arc = os.path.join(session_root, 'screenshots', rel)
-                                zf.write(fp, arc)
-                
-                # Print public download URL immediately
-                if bundle_path and os.path.exists(bundle_path):
-                    public_url = f"http://{request.host}/files/{bundle_name}"
-                    print(f"\n{'='*70}")
-                    print(f"📦 BUNDLE READY FOR DOWNLOAD")
-                    print(f"{'='*70}")
-                    print(f"🌐 Public URL: {public_url}")
-                    print(f"📂 File: {bundle_name}")
-                    print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
-                    print(f"{'='*70}\n")
-                
-            except Exception as be:
-                print(f"⚠️ Bundle creation failed: {be}")
+            excel_url = None
+            
+            # Always prepare Excel file URL
+            excel_url = f"http://{request.host}/files/{session.session_id}/{final_name}"
+            
+            if debug_mode:
+                # Debug mode: Build ZIP with screenshots + debug files + Excel
+                try:
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bundle_name = f"{session.session_id}_{ts}_DEBUG.zip"
+                    bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+                    session_root = session.session_id  # top-level folder inside zip
+                    with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        # Include session downloads folder (Excel + debug files)
+                        session_dl_dir = os.path.join(DOWNLOADS_DIR, session.session_id)
+                        if os.path.isdir(session_dl_dir):
+                            for root, _, files in os.walk(session_dl_dir):
+                                for f in files:
+                                    fp = os.path.join(root, f)
+                                    # arc path inside zip: <session_id>/downloads/...
+                                    rel = os.path.relpath(fp, session_dl_dir)
+                                    arc = os.path.join(session_root, 'downloads', rel)
+                                    zf.write(fp, arc)
+                        # Include session screenshots folder
+                        session_sc_dir = operations.screens_dir
+                        if os.path.isdir(session_sc_dir):
+                            for root, _, files in os.walk(session_sc_dir):
+                                for f in files:
+                                    fp = os.path.join(root, f)
+                                    # arc path: <session_id>/screenshots/...
+                                    rel = os.path.relpath(fp, session_sc_dir)
+                                    arc = os.path.join(session_root, 'screenshots', rel)
+                                    zf.write(fp, arc)
+                    
+                    # Print debug bundle URL
+                    if bundle_path and os.path.exists(bundle_path):
+                        bundle_url = f"http://{request.host}/files/{bundle_name}"
+                        print(f"\n{'='*70}")
+                        print(f"🐛 DEBUG BUNDLE READY")
+                        print(f"{'='*70}")
+                        print(f"🌐 Bundle URL: {bundle_url}")
+                        print(f"📂 File: {bundle_name}")
+                        print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
+                        print(f"{'='*70}\n")
+                    
+                except Exception as be:
+                    print(f"⚠️ Debug bundle creation failed: {be}")
+            else:
+                # Normal mode: No bundle, just Excel
+                print(f"\n{'='*70}")
+                print(f"📄 EXCEL FILE READY")
+                print(f"{'='*70}")
+                print(f"🌐 Excel URL: {excel_url}")
+                print(f"📂 File: {final_name}")
+                print(f"📊 Size: {os.path.getsize(dest_path)} bytes")
+                print(f"{'='*70}\n")
 
+            # Build response
+            response_data = {
+                "success": True,
+                "file_url": excel_url,
+                "file_name": final_name,
+                "file_size": os.path.getsize(dest_path)
+            }
+            
+            # Add scroll information if available
+            if scroll_result.get("success"):
+                response_data["total_containers"] = scroll_result.get("total_containers")
+                response_data["scroll_cycles"] = scroll_result.get("scroll_cycles")
+                if scroll_result.get("found_target_container"):
+                    response_data["found_target_container"] = scroll_result.get("found_target_container")
+                if scroll_result.get("stopped_reason"):
+                    response_data["stopped_reason"] = scroll_result.get("stopped_reason")
+            
+            # Add debug bundle URL if debug mode
+            if debug_mode and bundle_path and os.path.exists(bundle_path):
+                response_data["debug_bundle_url"] = f"/files/{bundle_name}"
+            
             if return_url:
-                response_data = {
-                    "success": True,
-                    "bundle_url": (f"/files/{os.path.basename(bundle_path)}" if bundle_path and os.path.exists(bundle_path) else None)
-                }
-                # Add scroll information if available
-                if scroll_result.get("success"):
-                    response_data["total_containers"] = scroll_result.get("total_containers")
-                    response_data["scroll_cycles"] = scroll_result.get("scroll_cycles")
                 return jsonify(response_data)
             else:
                 return send_file(
