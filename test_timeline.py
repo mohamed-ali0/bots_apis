@@ -52,17 +52,20 @@ def test_timeline_debug_mode(container_id: str):
             data = response.json()
             print(f"✅ SUCCESS in {duration:.1f} seconds")
             print(f"  📦 Container ID: {data.get('container_id')}")
-            print(f"  📸 Pregate Screenshot URL: {data.get('pregate_screenshot_url')}")
+            print(f"  🚦 Passed Pregate: {data.get('passed_pregate')}")
+            print(f"  🔍 Detection Method: {data.get('detection_method')}")
             
-            if data.get('screenshot_details'):
-                details = data['screenshot_details']
-                print(f"  📐 Screenshot size: {details.get('width')}x{details.get('height')}px")
-            
-            # Print full download URL
-            if data.get('pregate_screenshot_url'):
-                full_url = f"{API_BASE_URL}{data['pregate_screenshot_url']}"
+            if data.get('debug_bundle_url'):
+                print(f"  📦 Debug Bundle: {data.get('debug_bundle_url')}")
+                full_url = f"{API_BASE_URL}{data['debug_bundle_url']}"
                 print(f"\n  🌐 Full download URL:")
                 print(f"     {full_url}")
+            
+            if data.get('image_analysis'):
+                analysis = data['image_analysis']
+                print(f"\n  📊 Image Analysis:")
+                print(f"     Brightness: {analysis.get('average_brightness'):.1f}")
+                print(f"     Threshold: {analysis.get('threshold')}")
             
             return True
         else:
@@ -115,7 +118,8 @@ def test_timeline_normal_mode(container_id: str):
             data = response.json()
             print(f"✅ SUCCESS in {duration:.1f} seconds")
             print(f"  📦 Container ID: {data.get('container_id')}")
-            print(f"  💬 Message: {data.get('message')}")
+            print(f"  🚦 Passed Pregate: {data.get('passed_pregate')}")
+            print(f"  🔍 Detection Method: {data.get('detection_method')}")
             return True
         else:
             print(f"❌ FAILED: {response.status_code}")

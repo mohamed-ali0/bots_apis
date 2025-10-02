@@ -2013,6 +2013,231 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Expand failed: {str(e)}"}
 
+    def check_pregate_status(self) -> Dict[str, Any]:
+        """
+        Determine if container passed Pregate by checking timeline line colors.
+        
+        Method 1 (Primary): Check DOM classes
+            - dividerflowcolor = colored line = passed Pregate
+            - horizontalconflow = gray line = not passed yet
+        
+        Method 2 (Fallback): Image processing on cropped screenshot
+            - Analyze line color under Pregate milestone
+        
+        Returns:
+            Dict with success, passed_pregate (bool), method, and optional screenshot
+        """
+        try:
+            print("🔍 Checking Pregate status...")
+            
+            # Find the timeline container
+            timeline_container = None
+            try:
+                timeline_container = self.driver.find_element(By.XPATH, "//app-containerflow")
+                print("  ✅ Found timeline container")
+            except Exception:
+                try:
+                    timeline_container = self.driver.find_element(By.XPATH, "//div[contains(@class,'timeline-container')]")
+                except Exception:
+                    return {"success": False, "error": "Timeline container not found"}
+            
+            # Find Pregate element
+            pregate_element = None
+            pregate_selectors = [
+                ".//span[normalize-space(.)='Pregate']",
+                ".//span[contains(text(),'Pregate')]",
+                ".//*[normalize-space(.)='Pregate']"
+            ]
+            
+            for selector in pregate_selectors:
+                try:
+                    pregate_element = timeline_container.find_element(By.XPATH, selector)
+                    print(f"  ✅ Found Pregate element")
+                    break
+                except Exception:
+                    continue
+            
+            if not pregate_element:
+                return {"success": False, "error": "Pregate milestone not found"}
+            
+            # METHOD 1: Check DOM classes (fast and reliable)
+            try:
+                print("  🔍 Method 1: Checking timeline divider classes...")
+                
+                # Find the parent row containing Pregate
+                pregate_row = pregate_element.find_element(By.XPATH, "./ancestor::div[contains(@fxlayout,'row')][1]")
+                
+                # Look for the timeline divider in this row or adjacent rows
+                # The divider can be before or after the milestone
+                divider = None
+                
+                # Try to find divider in the same row
+                try:
+                    divider = pregate_row.find_element(By.XPATH, ".//div[contains(@class,'timeline-divider')]")
+                except:
+                    # Try previous row
+                    try:
+                        prev_row = pregate_row.find_element(By.XPATH, "./preceding-sibling::div[contains(@fxlayout,'row')][1]")
+                        divider = prev_row.find_element(By.XPATH, ".//div[contains(@class,'timeline-divider')]")
+                    except:
+                        # Try next row
+                        try:
+                            next_row = pregate_row.find_element(By.XPATH, "./following-sibling::div[contains(@fxlayout,'row')][1]")
+                            divider = next_row.find_element(By.XPATH, ".//div[contains(@class,'timeline-divider')]")
+                        except:
+                            pass
+                
+                if divider:
+                    divider_classes = divider.get_attribute("class")
+                    print(f"  📋 Divider classes: {divider_classes}")
+                    
+                    # Check if line is colored (passed) or gray (not passed)
+                    if 'dividerflowcolor' in divider_classes and 'horizontalconflow' not in divider_classes:
+                        print("  ✅ Line is COLORED - Container passed Pregate")
+                        return {
+                            "success": True,
+                            "passed_pregate": True,
+                            "method": "dom_class_check",
+                            "divider_classes": divider_classes
+                        }
+                    elif 'horizontalconflow' in divider_classes:
+                        print("  ⏳ Line is GRAY - Container has NOT passed Pregate yet")
+                        return {
+                            "success": True,
+                            "passed_pregate": False,
+                            "method": "dom_class_check",
+                            "divider_classes": divider_classes
+                        }
+                    else:
+                        print(f"  ⚠️ Unknown divider class pattern: {divider_classes}")
+                else:
+                    print("  ⚠️ Could not find timeline divider in DOM")
+            
+            except Exception as dom_e:
+                print(f"  ⚠️ DOM check failed: {dom_e}")
+            
+            # METHOD 2: Fallback to image processing
+            print("  🖼️ Method 2: Using image processing fallback...")
+            return self._check_pregate_by_image()
+            
+        except Exception as e:
+            print(f"  ❌ Error checking Pregate status: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _check_pregate_by_image(self) -> Dict[str, Any]:
+        """
+        Fallback method: Capture screenshot of Pregate area and analyze line color.
+        
+        Returns:
+            Dict with success, passed_pregate (bool), method, and screenshot path
+        """
+        try:
+            print("    📸 Capturing Pregate area for image analysis...")
+            
+            # Find timeline and Pregate element
+            timeline_container = self.driver.find_element(By.XPATH, "//app-containerflow | //div[contains(@class,'timeline-container')]")
+            pregate_element = timeline_container.find_element(By.XPATH, ".//*[normalize-space(.)='Pregate']")
+            
+            # Scroll into view
+            self.driver.execute_script("""
+                arguments[0].scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'center'
+                });
+            """, pregate_element)
+            time.sleep(2)
+            
+            # Get Pregate container with the line
+            try:
+                pregate_container = pregate_element.find_element(By.XPATH, "./ancestor::div[contains(@class,'curr-loc-div')]")
+            except:
+                pregate_container = pregate_element
+            
+            # Get location
+            location = pregate_container.location
+            size = pregate_container.size
+            
+            # Take screenshot
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            full_screenshot_path = os.path.join(self.screens_dir, f"{timestamp}_full_page.png")
+            self.driver.save_screenshot(full_screenshot_path)
+            
+            from PIL import Image
+            import numpy as np
+            
+            img = Image.open(full_screenshot_path)
+            
+            # Crop tightly around Pregate text and line below it
+            # Small area: just the text + line underneath
+            padding_horizontal = 20
+            padding_top = 10
+            padding_bottom = 50  # More space below to capture the line
+            
+            left = max(0, location['x'] - padding_horizontal)
+            top = max(0, location['y'] - padding_top)
+            right = min(img.width, location['x'] + size['width'] + padding_horizontal)
+            bottom = min(img.height, location['y'] + size['height'] + padding_bottom)
+            
+            cropped_img = img.crop((left, top, right, bottom))
+            
+            # Save cropped image
+            cropped_path = os.path.join(self.screens_dir, f"{timestamp}_pregate_line.png")
+            cropped_img.save(cropped_path)
+            print(f"    ✅ Cropped Pregate image: {os.path.basename(cropped_path)}")
+            
+            # Analyze line color in bottom portion of image
+            img_array = np.array(cropped_img)
+            
+            # Focus on bottom 30% of image (where the line should be)
+            height = img_array.shape[0]
+            line_region = img_array[int(height * 0.7):, :]  # Bottom 30%
+            
+            # Calculate average color in line region
+            avg_color = np.mean(line_region, axis=(0, 1))
+            
+            # Calculate brightness (grayscale value)
+            brightness = np.mean(avg_color)
+            
+            print(f"    📊 Line region analysis:")
+            print(f"       Average color (RGB): {avg_color}")
+            print(f"       Brightness: {brightness:.1f}")
+            
+            # Threshold: Dark/colored line (< 180) = passed, Light/gray (>= 180) = not passed
+            threshold = 180
+            
+            if brightness < threshold:
+                print(f"    ✅ Line is DARK (brightness {brightness:.1f} < {threshold}) - Container passed Pregate")
+                passed = True
+            else:
+                print(f"    ⏳ Line is LIGHT (brightness {brightness:.1f} >= {threshold}) - Container has NOT passed Pregate")
+                passed = False
+            
+            # Clean up full screenshot
+            try:
+                os.remove(full_screenshot_path)
+            except:
+                pass
+            
+            return {
+                "success": True,
+                "passed_pregate": passed,
+                "method": "image_processing",
+                "screenshot_path": cropped_path,
+                "screenshot_name": os.path.basename(cropped_path),
+                "analysis": {
+                    "average_brightness": float(brightness),
+                    "threshold": threshold,
+                    "average_color_rgb": [float(c) for c in avg_color]
+                }
+            }
+            
+        except Exception as e:
+            print(f"    ❌ Image processing failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": f"Image processing failed: {str(e)}"}
+
     def capture_pregate_screenshot(self) -> Dict[str, Any]:
         """
         Locate the Pregate milestone in the horizontal timeline and capture a screenshot.
@@ -3283,19 +3508,25 @@ def get_container_timeline():
                     session.driver.quit()
                 return jsonify({"success": False, "error": f"Expand failed: {ex['error']}"}), 500
 
-            # Capture Pregate screenshot if debug mode enabled
-            pregate_screenshot_result = None
-            if debug_mode:
-                print("🐛 Debug mode enabled - capturing Pregate screenshot...")
-                pregate_screenshot_result = operations.capture_pregate_screenshot()
-                if pregate_screenshot_result.get("success"):
-                    print(f"  ✅ Pregate screenshot captured: {pregate_screenshot_result.get('screenshot_name')}")
-                else:
-                    print(f"  ⚠️ Failed to capture Pregate screenshot: {pregate_screenshot_result.get('error')}")
+            # Check Pregate status (DOM check + optional image processing)
+            pregate_status_result = operations.check_pregate_status()
+            
+            if not pregate_status_result.get("success"):
+                if not keep_alive:
+                    session.driver.quit()
+                return jsonify({
+                    "success": False,
+                    "error": f"Pregate status check failed: {pregate_status_result.get('error')}"
+                }), 500
+            
+            passed_pregate = pregate_status_result.get("passed_pregate")
+            detection_method = pregate_status_result.get("method")
+            
+            print(f"✅ Pregate status: {'PASSED' if passed_pregate else 'NOT PASSED'} (method: {detection_method})")
             
             # Build response based on debug mode
-            if debug_mode and pregate_screenshot_result and pregate_screenshot_result.get("success"):
-                # Debug mode: Create ZIP with screenshot
+            if debug_mode:
+                # Debug mode: Create ZIP with screenshots/images if available
                 bundle_name = None
                 bundle_path = None
                 try:
@@ -3305,12 +3536,7 @@ def get_container_timeline():
                     session_root = session.session_id
                     
                     with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                        # Add Pregate screenshot
-                        screenshot_path = pregate_screenshot_result['screenshot_path']
-                        arc_name = os.path.join(session_root, 'pregate', pregate_screenshot_result['screenshot_name'])
-                        zf.write(screenshot_path, arc_name)
-                        
-                        # Add any other screenshots from session
+                        # Add all screenshots from session (includes Pregate image if captured)
                         session_sc_dir = operations.screens_dir
                         if os.path.isdir(session_sc_dir):
                             for root, _, files in os.walk(session_sc_dir):
@@ -3345,21 +3571,23 @@ def get_container_timeline():
                     session.update_last_used()
                     logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
                 
-                # Return response with screenshot
+                # Return debug response with screenshot
                 response_data = {
                     "success": True,
                     "container_id": container_id,
-                    "pregate_screenshot_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None,
-                    "screenshot_details": {
-                        "width": pregate_screenshot_result['crop_area']['right'] - pregate_screenshot_result['crop_area']['left'],
-                        "height": pregate_screenshot_result['crop_area']['bottom'] - pregate_screenshot_result['crop_area']['top']
-                    }
+                    "passed_pregate": passed_pregate,
+                    "detection_method": detection_method,
+                    "debug_bundle_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
                 }
+                
+                # Add image analysis details if method was image processing
+                if detection_method == "image_processing" and pregate_status_result.get("analysis"):
+                    response_data["image_analysis"] = pregate_status_result["analysis"]
+                
                 return jsonify(response_data)
             
             else:
-                # Normal mode: No debug, will build response later
-                # For now, just return basic info
+                # Normal mode: Return only Pregate status (fast)
                 if not keep_alive:
                     try:
                         session.driver.quit()
@@ -3373,7 +3601,8 @@ def get_container_timeline():
                 return jsonify({
                     "success": True,
                     "container_id": container_id,
-                    "message": "Timeline accessed successfully (response format pending)"
+                    "passed_pregate": passed_pregate,
+                    "detection_method": detection_method
                 })
 
         except Exception as op_e:

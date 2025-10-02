@@ -13,6 +13,7 @@ pydub==0.25.1
 
 # Screenshots and image annotations
 Pillow==10.4.0
+numpy==1.24.3
 
 # Linux virtual display (Xvfb) for non-GUI servers
 pyvirtualdisplay==3.0
