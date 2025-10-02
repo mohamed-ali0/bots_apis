@@ -928,14 +928,15 @@ class EModalBusinessOperations:
             return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
     def scrape_containers_to_excel(self) -> Dict[str, Any]:
-        """Scrape container data using simple text extraction"""
+        """Extract container data using Ctrl+A Ctrl+C behavior"""
         try:
             import pandas as pd
             from openpyxl import Workbook
             from openpyxl.styles import Font, Alignment, PatternFill
             import re
+            from selenium.webdriver.common.keys import Keys
             
-            print("📊 Extracting container data from page text...")
+            print("📊 Extracting container data using select all...")
             self._capture_screenshot("before_scraping")
             
             # Wait for page to be loaded
@@ -950,60 +951,107 @@ class EModalBusinessOperations:
                 'Fees', 'LFD/GTD', 'Tags'
             ]
             
-            # Get ONLY table/results area text (not entire page)
+            # Focus on the results area and select all text (Ctrl+A)
             try:
-                # Try to find the specific table/results container
-                table_selectors = [
-                    "//div[@id='searchres']",  # The main search results div
-                    "//mat-table",
-                    "//table[contains(@class,'mat-table')]",
-                    "//div[contains(@class,'search-results')]",
-                    "//div[contains(@class,'table-container')]",
-                    "//tbody",
-                ]
+                # Find searchres div
+                searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
+                searchres.click()
+                time.sleep(0.5)
                 
-                table_element = None
-                for selector in table_selectors:
-                    try:
-                        table_element = self.driver.find_element(By.XPATH, selector)
-                        if table_element:
-                            print(f"✅ Found table container: {selector}")
-                            break
-                    except:
-                        continue
+                # Select all (Ctrl+A)
+                searchres.send_keys(Keys.CONTROL + 'a')
+                time.sleep(0.5)
                 
-                if not table_element:
-                    # Fallback to body but this might get extra text
-                    print("⚠️ Table container not found, using body (may get extra text)")
-                    table_element = self.driver.find_element(By.TAG_NAME, 'body')
-                
-                page_text = table_element.text
+                # Get selected text using JavaScript
+                page_text = self.driver.execute_script("return window.getSelection().toString();")
                 print(f"📄 Extracted {len(page_text)} characters of text")
+                
+                # Clear selection
+                searchres.send_keys(Keys.ESCAPE)
+                
             except Exception as e:
-                return {"success": False, "error": f"Could not extract page text: {e}"}
+                print(f"⚠️ Ctrl+A method failed: {e}, trying .text fallback")
+                try:
+                    searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
+                    page_text = searchres.text
+                    print(f"📄 Extracted {len(page_text)} characters via .text")
+                except:
+                    return {"success": False, "error": f"Could not extract page text: {e}"}
             
             # Parse container data from text
-            # Container ID pattern: 4 letters + 6-7 digits (ends with digit, not letter)
-            container_pattern = r'([A-Z]{4}\d{6,7})(?:\s|$)'
-            
             lines = page_text.split('\n')
             containers_data = []
             
-            i = 0
+            # Skip header lines - look for "Container #" then "Tags" (last column header)
+            start_idx = 0
+            found_container_header = False
+            for i, line in enumerate(lines):
+                if 'Container #' in line:
+                    found_container_header = True
+                if found_container_header and 'Tags' in line:
+                    start_idx = i + 1
+                    print(f"✅ Found header section ending at line {i}, data starts at line {start_idx}")
+                    break
+            
+            if start_idx == 0:
+                print("⚠️ Header not found, trying to find first container ID")
+                # Look for first container ID pattern
+                for i, line in enumerate(lines):
+                    if re.match(r'^([A-Z]{4}\d{6,7}[A-Z]?)\s*$', line.strip()):
+                        start_idx = i
+                        print(f"✅ Found first container at line {i}")
+                        break
+            
+            i = start_idx
             while i < len(lines):
                 line = lines[i].strip()
                 
-                # Look for container ID (must end with digit)
-                match = re.match(container_pattern, line)
+                # Check if line contains tabs (all data on one line) or just container ID
+                if '\t' in line:
+                    # Tab-separated format: all fields on one line
+                    fields = line.split('\t')
+                    fields = [f.strip() for f in fields if f.strip()]  # Remove empty fields
+                    
+                    # First field should be container ID
+                    if fields and re.match(r'^([A-Z]{4}\d{6,7}[A-Z]?)$', fields[0]):
+                        container_id_raw = fields[0]
+                        container_id_clean = re.sub(r'[A-Z]$', '', container_id_raw)
+                        
+                        # Build row data from tab-separated fields
+                        row_data = {}
+                        for idx, field in enumerate(fields):
+                            if idx == 0:
+                                row_data['Container #'] = container_id_clean
+                            elif idx < len(columns):
+                                row_data[columns[idx]] = field
+                        
+                        # Collect Fees, LFD/GTD, Tags from next 3 lines if not in current line
+                        if len(row_data) < len(columns):
+                            for j in range(i + 1, min(i + 4, len(lines))):
+                                next_line = lines[j].strip()
+                                if next_line and len(row_data) < len(columns):
+                                    row_data[columns[len(row_data)]] = next_line
+                        
+                        if len(row_data) >= 10:
+                            containers_data.append(row_data)
+                            if len(containers_data) % 10 == 0:
+                                print(f"  Parsed {len(containers_data)} containers...")
+                        
+                        i += 1
+                        continue
+                
+                # Newline-separated format: each field on its own line
+                match = re.match(r'^([A-Z]{4}\d{6,7}[A-Z]?)\s*$', line)
                 if match:
-                    container_id = match.group(1)
+                    container_id_raw = match.group(1)
+                    container_id_clean = re.sub(r'[A-Z]$', '', container_id_raw)
                     
                     # Collect next 17 fields (18 columns total including container ID)
-                    row_data = {'Container #': container_id}
+                    row_data = {'Container #': container_id_clean}
                     
                     # Get the next fields
                     field_idx = 1
-                    for j in range(i + 1, min(i + 30, len(lines))):
+                    for j in range(i + 1, min(i + 25, len(lines))):
                         field_line = lines[j].strip()
                         if field_line and field_idx < len(columns):
                             row_data[columns[field_idx]] = field_line
@@ -1011,16 +1059,17 @@ class EModalBusinessOperations:
                             if field_idx >= len(columns):
                                 break
                     
-                    # Only add if we have at least container# and a few other fields
-                    if len(row_data) >= 5:
+                    # Only add if we have all or most fields
+                    if len(row_data) >= 10:  # At least 10 fields
                         containers_data.append(row_data)
-                        print(f"  Found container: {container_id}")
+                        if len(containers_data) % 10 == 0:
+                            print(f"  Parsed {len(containers_data)} containers...")
                         i = i + field_idx  # Skip processed lines
                         continue
                 
                 i += 1
             
-            print(f"✅ Extracted {len(containers_data)} containers")
+            print(f"✅ Parsed {len(containers_data)} containers total")
             
             if not containers_data:
                 return {"success": False, "error": "No container data extracted"}
