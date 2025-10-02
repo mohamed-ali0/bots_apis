@@ -159,6 +159,17 @@ class EModalLoginHandler:
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
+        # Configure download behavior (important for Linux)
+        prefs = {
+            "download.default_directory": "/tmp",  # Will be overridden per-session
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing.enabled": False,
+            "profile.default_content_settings.popups": 0,
+            "profile.content_settings.exceptions.automatic_downloads.*.setting": 1
+        }
+        chrome_options.add_experimental_option("prefs", prefs)
+        
         # Linux-specific optimizations for server environments
         if platform.system() == 'Linux':
             chrome_options.add_argument("--disable-gpu")

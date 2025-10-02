@@ -806,35 +806,46 @@ class EModalBusinessOperations:
                 is_checked = select_all_checkbox.is_selected()
                 print(f"📋 Select-all checkbox current state: {'checked' if is_checked else 'unchecked'}")
                 
-                # Click to select all with robust fallback: input, label[for], inner-container, JS
+                # Click to select all with robust fallback chain
+                # Order: TH parent > Label > Inner container > JS on input
                 clicked = False
+                
+                # Method 1: Click the TH parent (most reliable for Angular Material)
                 try:
-                    select_all_checkbox.click()
+                    th_parent = select_all_checkbox.find_element(By.XPATH, "ancestor::th[1]")
+                    self.driver.execute_script("arguments[0].click();", th_parent)
                     clicked = True
+                    print(f"✅ Clicked via TH parent")
                 except Exception as e1:
-                    print(f"⚠️ Direct input click failed: {e1}")
+                    print(f"⚠️ TH parent click failed: {e1}")
+                
+                # Method 2: Click the label element
                 if not clicked:
                     try:
                         cb_id = select_all_checkbox.get_attribute('id')
                         if cb_id:
                             label = self.driver.find_element(By.XPATH, f"//label[@for='{cb_id}']")
-                            self.driver.execute_script("arguments[0].scrollIntoView(true);", label)
-                            time.sleep(0.2)
-                            label.click()
+                            self.driver.execute_script("arguments[0].click();", label)
                             clicked = True
+                            print(f"✅ Clicked via label[for]")
                     except Exception as e2:
                         print(f"⚠️ Label[for] click failed: {e2}")
+                
+                # Method 3: Click the mat-checkbox inner container
                 if not clicked:
                     try:
                         inner = select_all_checkbox.find_element(By.XPATH, "ancestor::mat-checkbox//span[contains(@class,'mat-checkbox-inner-container')]")
-                        self.driver.execute_script("arguments[0].scrollIntoView(true);", inner)
-                        time.sleep(0.2)
-                        inner.click()
+                        self.driver.execute_script("arguments[0].click();", inner)
                         clicked = True
+                        print(f"✅ Clicked via inner-container")
                     except Exception as e3:
                         print(f"⚠️ Inner-container click failed: {e3}")
+                
+                # Method 4: JS click on input directly (last resort)
                 if not clicked:
                     self.driver.execute_script("arguments[0].click();", select_all_checkbox)
+                    print(f"✅ Clicked via JS on input")
+                
                 time.sleep(2)  # Wait for selection to process
                 
                 # Verify the click worked
@@ -970,15 +981,20 @@ class EModalBusinessOperations:
             download_dir = os.path.join(DOWNLOADS_DIR, self.session.session_id)
             try:
                 os.makedirs(download_dir, exist_ok=True)
-            except Exception:
-                pass
+            except Exception as mkdir_e:
+                print(f"⚠️ Could not create download directory: {mkdir_e}")
             
-            # Configure active Chrome session to allow downloads into our temp dir via DevTools
+            # CRITICAL: Use absolute path for Linux compatibility
+            download_dir_abs = os.path.abspath(download_dir)
+            print(f"📁 Download directory: {download_dir_abs}")
+            
+            # Configure active Chrome session to allow downloads into our dir via DevTools
             try:
                 self.driver.execute_cdp_cmd("Page.setDownloadBehavior", {
                     "behavior": "allow",
-                    "downloadPath": download_dir
+                    "downloadPath": download_dir_abs  # Must be absolute path
                 })
+                print(f"✅ Chrome download behavior configured")
             except Exception as cdp_e:
                 print(f"⚠️ Could not set download behavior via CDP: {cdp_e}")
             
@@ -1011,20 +1027,31 @@ class EModalBusinessOperations:
                 download_timeout = 60  # allow longer for large files
                 start_time = time.time()
                 downloaded_file = None
+                check_count = 0
                 
                 while (time.time() - start_time) < download_timeout:
+                    check_count += 1
                     try:
-                        entries = os.listdir(download_dir)
-                    except Exception:
+                        entries = os.listdir(download_dir_abs)
+                    except Exception as list_e:
+                        print(f"  ⚠️ Could not list directory (attempt {check_count}): {list_e}")
                         entries = []
+                    
                     # Any crdownload indicates in-progress
                     in_progress = [f for f in entries if f.endswith('.crdownload')]
                     # Completed known extensions
                     complete_files = [f for f in entries if f.lower().endswith((".xlsx", ".xls", ".csv"))]
+                    
+                    # Debug output every 10 seconds
+                    if check_count % 10 == 0 or complete_files or in_progress:
+                        print(f"  📊 Check #{check_count}: {len(entries)} files, {len(in_progress)} in progress, {len(complete_files)} complete")
+                        if entries:
+                            print(f"     Files: {entries}")
+                    
                     if complete_files and not in_progress:
                         # Pick the newest completed file
-                        complete_files.sort(key=lambda f: os.path.getmtime(os.path.join(download_dir, f)), reverse=True)
-                        downloaded_file = os.path.join(download_dir, complete_files[0])
+                        complete_files.sort(key=lambda f: os.path.getmtime(os.path.join(download_dir_abs, f)), reverse=True)
+                        downloaded_file = os.path.join(download_dir_abs, complete_files[0])
                         # Additional small grace period to ensure file handlers closed
                         time.sleep(0.5)
                         break
