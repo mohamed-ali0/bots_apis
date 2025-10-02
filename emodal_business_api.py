@@ -111,6 +111,45 @@ def cleanup_expired_appointment_sessions():
         del appointment_sessions[session_id]
 
 
+def create_appointment_debug_bundle(session_id: str, username: str, request_type: str = "check_appointments") -> tuple:
+    """
+    Create a debug bundle ZIP file with all screenshots from the appointment session.
+    Returns (bundle_name, bundle_url) or (None, None) if failed.
+    """
+    try:
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        bundle_name = f"{session_id}_{ts}_{request_type}.zip"
+        bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+        
+        # Create ZIP with all screenshots
+        screenshot_pattern = os.path.join(DOWNLOADS_DIR, f"*{username}*.png")
+        screenshots = glob.glob(screenshot_pattern)
+        
+        if screenshots:
+            with zipfile.ZipFile(bundle_path, 'w') as zipf:
+                for screenshot in screenshots:
+                    zipf.write(screenshot, os.path.basename(screenshot))
+            
+            # Generate public URL
+            bundle_url = f"http://{request.host}/files/{bundle_name}"
+            
+            # Print to terminal
+            print("\n" + "="*70)
+            print("📦 DEBUG BUNDLE CREATED")
+            print("="*70)
+            print(f" 🔗 Public URL: {bundle_url}")
+            print("="*70 + "\n")
+            
+            return bundle_name, bundle_url
+        else:
+            print("  ⚠️ No screenshots found for debug bundle")
+            return None, None
+            
+    except Exception as e:
+        print(f"  ❌ Error creating debug bundle: {e}")
+        return None, None
+
+
 class EModalBusinessOperations:
     """Business operations handler for E-Modal platform"""
     
@@ -819,8 +858,8 @@ class EModalBusinessOperations:
                 print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click)")
             
             # Wait longer for overlay panel to appear and render (especially on Linux/Xvfb)
-            print(f"  ⏳ Waiting 3 seconds for dropdown options to load...")
-            time.sleep(3)
+            print(f"  ⏳ Waiting 5 seconds for dropdown options to load...")
+            time.sleep(5)
             
             print(f"  ✅ Opened {dropdown_label} dropdown")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
@@ -4154,11 +4193,18 @@ def check_appointments():
             # Fill Phase 1
             result = operations.select_dropdown_by_text("Trucking", trucking_company)
             if not result["success"]:
+                # Create debug bundle before returning error
+                bundle_name, bundle_url = create_appointment_debug_bundle(
+                    appt_session.session_id,
+                    appt_session.browser_session.username,
+                    "check_appointments_error"
+                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Trucking company: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1
+                    "current_phase": 1,
+                    "debug_bundle_url": bundle_url
                 }), 500
             
             result = operations.select_dropdown_by_text("Terminal", terminal)
