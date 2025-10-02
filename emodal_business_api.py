@@ -112,6 +112,26 @@ def cleanup_expired_appointment_sessions():
         del appointment_sessions[session_id]
 
 
+def create_and_return_error_response(appt_session, operations, error_message: str, phase: int, request_type: str = "check_appointments"):
+    """
+    Helper to create debug bundle and return error response with download link.
+    Always prints download link to terminal even on error.
+    """
+    bundle_name, bundle_url = create_appointment_debug_bundle(
+        appt_session.session_id,
+        appt_session.browser_session.username,
+        f"{request_type}_error",
+        operations.screens_dir if operations else None
+    )
+    return jsonify({
+        "success": False,
+        "error": error_message,
+        "session_id": appt_session.session_id,
+        "current_phase": phase,
+        "debug_bundle_url": bundle_url
+    }), 500
+
+
 def create_appointment_debug_bundle(session_id: str, username: str, request_type: str = "check_appointments", screens_dir: str = None) -> tuple:
     """
     Create a debug bundle ZIP file with all screenshots from the appointment session.
@@ -1139,8 +1159,13 @@ class EModalBusinessOperations:
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
             
             # Check if overlay panel is present in DOM
-            overlay_panels = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]")
+            overlay_panels = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-pane') and contains(@class,'mat-select-panel')]")
             print(f"  📊 Overlay panels in DOM: {len(overlay_panels)}")
+            
+            # CRITICAL: Wait for the options to refresh (Angular may show old options briefly)
+            print(f"  ⏳ Waiting 3 seconds for options to refresh...")
+            time.sleep(3)
+            
             if overlay_panels:
                 for i, panel in enumerate(overlay_panels[:3], 1):
                     is_displayed = panel.is_displayed()
@@ -1149,13 +1174,14 @@ class EModalBusinessOperations:
             # Wait for mat-option elements to be present
             print(f"  🔍 Looking for option: '{option_text}'...")
             
-            # Find option by exact text
-            options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{option_text}']")
+            # Find options ONLY within the visible overlay panel (not from other dropdowns)
+            visible_panel_xpath = "//div[contains(@class,'cdk-overlay-pane') and contains(@class,'mat-select-panel') and not(contains(@class,'ng-animating'))]"
+            options = self.driver.find_elements(By.XPATH, f"{visible_panel_xpath}//mat-option//span[normalize-space(text())='{option_text}']")
             print(f"  📊 Found {len(options)} matching options")
             
             if not options:
-                # Try to find any options to see what's available
-                all_options = self.driver.find_elements(By.XPATH, "//mat-option//span[@class='mat-option-text' or contains(@class,'mat-select-min-line')]")
+                # Try to find any options to see what's available (ONLY in visible panel)
+                all_options = self.driver.find_elements(By.XPATH, f"{visible_panel_xpath}//mat-option//span[@class='mat-option-text' or contains(@class,'mat-select-min-line')]")
                 print(f"  📊 Total options visible: {len(all_options)}")
                 if all_options:
                     print(f"  📊 Available options:")
@@ -4492,29 +4518,44 @@ def check_appointments():
             
             result = operations.select_dropdown_by_text("Terminal", terminal)
             if not result["success"]:
+                bundle_name, bundle_url = create_appointment_debug_bundle(
+                    appt_session.session_id, appt_session.browser_session.username,
+                    "check_appointments_error", operations.screens_dir
+                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Terminal: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1
+                    "current_phase": 1,
+                    "debug_bundle_url": bundle_url
                 }), 500
             
             result = operations.select_dropdown_by_text("Move", move_type)
             if not result["success"]:
+                bundle_name, bundle_url = create_appointment_debug_bundle(
+                    appt_session.session_id, appt_session.browser_session.username,
+                    "check_appointments_error", operations.screens_dir
+                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Move type: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1
+                    "current_phase": 1,
+                    "debug_bundle_url": bundle_url
                 }), 500
             
             result = operations.fill_container_number(container_id)
             if not result["success"]:
+                bundle_name, bundle_url = create_appointment_debug_bundle(
+                    appt_session.session_id, appt_session.browser_session.username,
+                    "check_appointments_error", operations.screens_dir
+                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Container: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1
+                    "current_phase": 1,
+                    "debug_bundle_url": bundle_url
                 }), 500
             
             # Click Next
@@ -4534,18 +4575,28 @@ def check_appointments():
                     print("  🔄 Retrying Next button after re-filling...")
                     result = operations.click_next_button(1)
                     if not result["success"]:
+                        bundle_name, bundle_url = create_appointment_debug_bundle(
+                            appt_session.session_id, appt_session.browser_session.username,
+                            "check_appointments_error", operations.screens_dir
+                        )
                         return jsonify({
                             "success": False,
                             "error": f"Phase 1 failed - Next button (after retry): {result['error']}",
                             "session_id": appt_session.session_id,
-                            "current_phase": 1
+                            "current_phase": 1,
+                            "debug_bundle_url": bundle_url
                         }), 500
                 else:
+                    bundle_name, bundle_url = create_appointment_debug_bundle(
+                        appt_session.session_id, appt_session.browser_session.username,
+                        "check_appointments_error", operations.screens_dir
+                    )
                     return jsonify({
                         "success": False,
                         "error": f"Phase 1 failed - Next button: {result['error']}",
                         "session_id": appt_session.session_id,
-                        "current_phase": 1
+                        "current_phase": 1,
+                        "debug_bundle_url": bundle_url
                     }), 500
             
             # Update session
