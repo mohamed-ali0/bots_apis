@@ -1873,11 +1873,22 @@ class EModalBusinessOperations:
             expand_element = None
             used_expand_selector = None
             
-            # First check if already expanded
+            # First check if already expanded (look for down arrow or expanded content)
             try:
-                already_expanded = row.find_element(By.XPATH, ".//mat-icon[normalize-space(text())='keyboard_arrow_down']")
-                if already_expanded:
-                    print("✅ Row is already expanded")
+                # Check for down arrow (v icon)
+                down_arrow = row.find_element(By.XPATH, ".//mat-icon[contains(text(),'keyboard_arrow_down') or contains(text(),'expand_less')]")
+                if down_arrow and down_arrow.is_displayed():
+                    print("✅ Row is already expanded (down arrow visible)")
+                    self._capture_screenshot("row_already_expanded")
+                    return {"success": True, "expanded": True, "method": "already_expanded"}
+            except Exception:
+                pass
+            
+            # Also check if timeline content is visible (more reliable)
+            try:
+                timeline_visible = row.find_element(By.XPATH, "./following-sibling::*[1]//div[contains(@class,'timeline') or contains(@class,'containerflow')]")
+                if timeline_visible and timeline_visible.is_displayed():
+                    print("✅ Row is already expanded (timeline visible)")
                     self._capture_screenshot("row_already_expanded")
                     return {"success": True, "expanded": True, "method": "already_expanded"}
             except Exception:
@@ -1933,32 +1944,68 @@ class EModalBusinessOperations:
                 
                 # Wait for expansion to complete
                 self._wait_for_app_ready(10)
-                time.sleep(1)
-                self._capture_screenshot("row_expanded")
+                time.sleep(2)  # Give more time for animation
+                self._capture_screenshot("after_expand_click")
                 
-                # Verify expansion worked
+                # Verify expansion worked by checking if arrow changed
+                expansion_verified = False
+                
                 try:
-                    # Look for expanded content indicators
-                    expanded_indicators = [
-                        ".//mat-icon[normalize-space(text())='keyboard_arrow_down']",
-                        ".//div[contains(@class,'expanded') or contains(@class,'timeline')]",
-                        ".//*[contains(@class,'details') or contains(@class,'content')]"
-                    ]
+                    # Method 1: Check if arrow changed from right (>) to down (v)
+                    try:
+                        down_arrow = row.find_element(By.XPATH, ".//mat-icon[contains(text(),'keyboard_arrow_down')]")
+                        if down_arrow.is_displayed():
+                            print("✅ Expansion verified - arrow changed to down")
+                            expansion_verified = True
+                    except Exception:
+                        pass
                     
-                    for indicator in expanded_indicators:
+                    # Method 2: Check if timeline/detail content appeared
+                    if not expansion_verified:
                         try:
-                            row.find_element(By.XPATH, indicator)
-                            print("✅ Expansion verified - found expanded indicator")
-                            return {"success": True, "expanded": True, "method": "expand_click", "selector_used": used_expand_selector}
+                            # Look for timeline in next sibling or within row
+                            timeline = row.find_element(By.XPATH, "./following-sibling::*[1]//div[contains(@class,'timeline') or contains(@class,'containerflow')]")
+                            if timeline and timeline.is_displayed():
+                                print("✅ Expansion verified - timeline visible")
+                                expansion_verified = True
                         except Exception:
-                            continue
+                            pass
                     
-                    print("⚠️ Expansion click completed but no expanded indicators found")
-                    return {"success": True, "expanded": True, "method": "expand_click_no_verification", "selector_used": used_expand_selector}
+                    # Method 3: Check if arrow is still showing "right" (means click didn't work)
+                    if not expansion_verified:
+                        try:
+                            right_arrow_still_there = row.find_element(By.XPATH, ".//mat-icon[contains(text(),'keyboard_arrow_right')]")
+                            if right_arrow_still_there.is_displayed():
+                                print("⚠️ Arrow still showing 'right' - expansion failed, retrying...")
+                                # Retry the click
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", expand_element)
+                                    time.sleep(3)
+                                    self._capture_screenshot("after_retry_click")
+                                    
+                                    # Check again
+                                    try:
+                                        down_arrow = row.find_element(By.XPATH, ".//mat-icon[contains(text(),'keyboard_arrow_down')]")
+                                        if down_arrow.is_displayed():
+                                            print("✅ Expansion verified after retry")
+                                            expansion_verified = True
+                                    except:
+                                        pass
+                                except Exception as retry_e:
+                                    print(f"⚠️ Retry click failed: {retry_e}")
+                        except Exception:
+                            # Arrow not found at all, might be expanded
+                            pass
+                    
+                    if expansion_verified:
+                        return {"success": True, "expanded": True, "method": "expand_click_verified", "selector_used": used_expand_selector}
+                    else:
+                        print("⚠️ Could not verify expansion - arrow state unclear")
+                        return {"success": False, "error": "Expansion verification failed - arrow did not change to down position"}
                     
                 except Exception as verify_e:
-                    print(f"⚠️ Could not verify expansion: {verify_e}")
-                    return {"success": True, "expanded": True, "method": "expand_click_no_verification", "selector_used": used_expand_selector}
+                    print(f"⚠️ Verification error: {verify_e}")
+                    return {"success": False, "error": f"Expansion verification failed: {str(verify_e)}"}
                 
             except Exception as click_e:
                 return {"success": False, "error": f"Expand click failed: {str(click_e)}"}
