@@ -112,7 +112,7 @@ def cleanup_expired_appointment_sessions():
         del appointment_sessions[session_id]
 
 
-def create_appointment_debug_bundle(session_id: str, username: str, request_type: str = "check_appointments") -> tuple:
+def create_appointment_debug_bundle(session_id: str, username: str, request_type: str = "check_appointments", screens_dir: str = None) -> tuple:
     """
     Create a debug bundle ZIP file with all screenshots from the appointment session.
     Returns (bundle_name, bundle_url) or (None, None) if failed.
@@ -122,12 +122,29 @@ def create_appointment_debug_bundle(session_id: str, username: str, request_type
         bundle_name = f"{session_id}_{ts}_{request_type}.zip"
         bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
         
-        # Create ZIP with all screenshots
-        screenshot_pattern = os.path.join(DOWNLOADS_DIR, f"*{username}*.png")
-        screenshots = glob.glob(screenshot_pattern)
+        # Collect screenshots from session directory
+        screenshots = []
+        if screens_dir and os.path.isdir(screens_dir):
+            # Get all screenshots from session-specific directory
+            screenshots = glob.glob(os.path.join(screens_dir, "*.png"))
+            print(f"  📊 Found {len(screenshots)} screenshots in session directory: {screens_dir}")
+        
+        if not screenshots:
+            # Fallback: Try DOWNLOADS_DIR with username pattern
+            screenshot_pattern = os.path.join(DOWNLOADS_DIR, f"*{username}*.png")
+            screenshots = glob.glob(screenshot_pattern)
+            print(f"  📊 Found {len(screenshots)} screenshots in downloads with username pattern")
+        
+        if not screenshots:
+            # Fallback 2: Try SCREENSHOTS_DIR with session_id
+            session_screenshot_dir = os.path.join(SCREENSHOTS_DIR, session_id)
+            if os.path.isdir(session_screenshot_dir):
+                screenshots = glob.glob(os.path.join(session_screenshot_dir, "*.png"))
+                print(f"  📊 Found {len(screenshots)} screenshots in screenshots/{session_id}")
         
         if screenshots:
-            with zipfile.ZipFile(bundle_path, 'w') as zipf:
+            print(f"  📦 Creating ZIP with {len(screenshots)} screenshots...")
+            with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for screenshot in screenshots:
                     zipf.write(screenshot, os.path.basename(screenshot))
             
@@ -139,15 +156,21 @@ def create_appointment_debug_bundle(session_id: str, username: str, request_type
             print("📦 DEBUG BUNDLE CREATED")
             print("="*70)
             print(f" 🔗 Public URL: {bundle_url}")
+            print(f" 📁 Bundle contains {len(screenshots)} screenshots")
             print("="*70 + "\n")
             
             return bundle_name, bundle_url
         else:
             print("  ⚠️ No screenshots found for debug bundle")
+            print(f"     Checked: {screens_dir if screens_dir else 'N/A'}")
+            print(f"     Checked: {DOWNLOADS_DIR}/*{username}*.png")
+            print(f"     Checked: {os.path.join(SCREENSHOTS_DIR, session_id)}")
             return None, None
             
     except Exception as e:
         print(f"  ❌ Error creating debug bundle: {e}")
+        import traceback
+        traceback.print_exc()
         return None, None
 
 
@@ -859,11 +882,19 @@ class EModalBusinessOperations:
                 print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click)")
             
             # Wait longer for overlay panel to appear and render (especially on Linux/Xvfb)
-            print(f"  ⏳ Waiting 5 seconds for dropdown options to load...")
-            time.sleep(5)
+            print(f"  ⏳ Waiting 8 seconds for dropdown options to load (Linux/Xvfb needs extra time)...")
+            time.sleep(8)
             
             print(f"  ✅ Opened {dropdown_label} dropdown")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
+            
+            # Check if overlay panel is present in DOM
+            overlay_panels = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-pane')]")
+            print(f"  📊 Overlay panels in DOM: {len(overlay_panels)}")
+            if overlay_panels:
+                for i, panel in enumerate(overlay_panels[:3], 1):
+                    is_displayed = panel.is_displayed()
+                    print(f"     Panel {i}: displayed={is_displayed}")
             
             # Wait for mat-option elements to be present
             print(f"  🔍 Looking for option: '{option_text}'...")
@@ -4198,7 +4229,8 @@ def check_appointments():
                 bundle_name, bundle_url = create_appointment_debug_bundle(
                     appt_session.session_id,
                     appt_session.browser_session.username,
-                    "check_appointments_error"
+                    "check_appointments_error",
+                    operations.screens_dir
                 )
                 return jsonify({
                     "success": False,
