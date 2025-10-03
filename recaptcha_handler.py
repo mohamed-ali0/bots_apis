@@ -211,6 +211,9 @@ class RecaptchaHandler:
             print("🎧 Switching to audio challenge...")
             self.driver.switch_to.frame(challenge_iframe)
             
+            # Wait for iframe to fully load (critical on Linux)
+            time.sleep(2)
+            
             # Find and click audio button
             audio_button_selectors = [
                 "#recaptcha-audio-button",
@@ -222,6 +225,11 @@ class RecaptchaHandler:
             for selector in audio_button_selectors:
                 try:
                     audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                    # Extra check: ensure it's not disabled
+                    if audio_button.get_attribute("disabled"):
+                        print(f"  ⏳ Audio button is disabled, waiting...")
+                        time.sleep(2)
+                        audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
                     break
                 except:
                     continue
@@ -229,9 +237,18 @@ class RecaptchaHandler:
             if not audio_button:
                 raise RecaptchaError("Audio button not found")
             
-            audio_button.click()
-            print("  ✅ Audio challenge selected")
-            time.sleep(1)
+            # Scroll button into view and click with JavaScript (more reliable on Linux)
+            try:
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", audio_button)
+                time.sleep(0.5)
+                self.driver.execute_script("arguments[0].click();", audio_button)
+                print("  ✅ Audio challenge selected (JS click)")
+            except:
+                # Fallback to regular click
+                audio_button.click()
+                print("  ✅ Audio challenge selected")
+            
+            time.sleep(2)  # Wait for audio challenge to load
             
             # Step 5: Click play button and get audio
             print("▶️ Getting audio challenge...")
@@ -270,22 +287,36 @@ class RecaptchaHandler:
                     pass
                 raise RecaptchaError("Play button not found after 3 attempts")
             
-            # Click with retry logic
+            # Click with retry logic - prefer JavaScript on Linux
             click_success = False
-            for click_attempt in range(2):
+            for click_attempt in range(3):
                 try:
-                    play_button.click()
+                    if click_attempt == 0:
+                        # Try JavaScript click first (most reliable)
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", play_button)
+                        time.sleep(0.3)
+                        self.driver.execute_script("arguments[0].click();", play_button)
+                        print("  ✅ Audio playing (JS click)")
+                    elif click_attempt == 1:
+                        # Try regular click
+                        play_button.click()
+                        print("  ✅ Audio playing (regular click)")
+                    else:
+                        # Final attempt: ActionChains
+                        from selenium.webdriver.common.action_chains import ActionChains
+                        ActionChains(self.driver).move_to_element(play_button).click().perform()
+                        print("  ✅ Audio playing (ActionChains)")
+                    
                     click_success = True
                     break
                 except Exception as e:
-                    if click_attempt == 0:
-                        print(f"  ⚠️ Click failed, retrying... ({str(e)[:50]})")
-                        time.sleep(1)
+                    if click_attempt < 2:
+                        print(f"  ⚠️ Click attempt {click_attempt + 1} failed, retrying... ({str(e)[:50]})")
+                        time.sleep(1.5)
                     else:
                         raise
             
             if click_success:
-                print("  ✅ Audio playing")
                 time.sleep(3)  # Increased wait time for audio to load
             
             # Step 6: Extract audio URL
