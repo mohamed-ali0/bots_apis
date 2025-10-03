@@ -881,48 +881,59 @@ class EModalBusinessOperations:
             print(f"🔽 Selecting '{option_text}' from '{dropdown_label}' dropdown...")
             print(f"  💡 Using direct value injection (no dropdown opening needed)")
             
-            # CRITICAL: Always re-find dropdown elements (don't use cached references)
-            # Find dropdown by label - be VERY specific to avoid selecting the wrong dropdown
-            print(f"  🔍 Searching for '{dropdown_label}' dropdown in current page...")
+            # CRITICAL: Use a mapping of known dropdown labels to their exact mat-label text
+            # This ensures we always get the RIGHT dropdown
+            label_map = {
+                "Trucking": "Trucking company",
+                "Terminal": "Terminal", 
+                "Move": "Move Type"
+            }
             
-            # Strategy 1: Find by mat-label that contains EXACTLY this text (case-insensitive partial match)
+            exact_label = label_map.get(dropdown_label, dropdown_label)
+            print(f"  🔍 Searching for dropdown with exact label: '{exact_label}'...")
+            
+            # Strategy 1: Find by EXACT mat-label text match (most reliable)
             dropdowns = self.driver.find_elements(By.XPATH, 
-                f"//mat-label[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{dropdown_label.lower()}')]/ancestor::mat-form-field//mat-select")
-            print(f"     Strategy 1 (mat-label exact): Found {len(dropdowns)} dropdowns")
+                f"//mat-label[normalize-space(text())='{exact_label}' or contains(normalize-space(text()),'{exact_label}')]/ancestor::mat-form-field//mat-select")
+            print(f"     Strategy 1 (exact mat-label): Found {len(dropdowns)} dropdown(s)")
             
-            if dropdowns and len(dropdowns) > 1:
-                # Multiple dropdowns found - filter out already-filled ones
-                print(f"     ⚠️ Multiple dropdowns found, filtering...")
-                unfilled = []
-                for dd in dropdowns:
-                    # Check if dropdown already has a value (has aria-label with selected text)
-                    aria_label = dd.get_attribute("aria-label") or ""
-                    # If it has a company name in aria-label, it's already filled
-                    if not any(keyword in aria_label for keyword in ["LLC", "Express", "Cartage", "Transport"]):
-                        unfilled.append(dd)
-                        print(f"        Found unfilled dropdown: {dd.get_attribute('id') or 'no-id'}")
-                if unfilled:
-                    dropdowns = unfilled
-                    print(f"     ✅ Filtered to {len(unfilled)} unfilled dropdown(s)")
+            # Debug: Show all dropdowns found
+            if len(dropdowns) > 1:
+                print(f"     ⚠️ Multiple dropdowns found, checking labels...")
+                for i, dd in enumerate(dropdowns):
+                    try:
+                        lbl = dd.find_element(By.XPATH, "./ancestor::mat-form-field//mat-label").text.strip()
+                        dd_id = dd.get_attribute("id") or f"index-{i}"
+                        print(f"        {i+1}. Label: '{lbl}' | ID: {dd_id}")
+                    except:
+                        pass
             
             if not dropdowns:
-                # Try alternative: find by formControlName attribute
-                dropdowns = self.driver.find_elements(By.XPATH, f"//mat-select[@formcontrolname='{dropdown_label.lower()}']")
-                print(f"     Strategy 2 (formControlName): Found {len(dropdowns)} dropdowns")
+                # Fallback: Find ALL mat-select elements and match by position
+                print(f"     Strategy 2: Finding all mat-select elements...")
+                all_selects = self.driver.find_elements(By.XPATH, "//mat-select")
+                print(f"     Found {len(all_selects)} total mat-select elements")
+                
+                # Match by index for known dropdowns (Trucking=0, Terminal=1, Move=2)
+                index_map = {"Trucking": 0, "Terminal": 1, "Move": 2}
+                if dropdown_label in index_map and len(all_selects) > index_map[dropdown_label]:
+                    dropdown = all_selects[index_map[dropdown_label]]
+                    print(f"     ✅ Using dropdown at index {index_map[dropdown_label]}")
+                    dropdowns = [dropdown]
+                else:
+                    return {"success": False, "error": f"Dropdown '{dropdown_label}' not found"}
             
-            if not dropdowns:
-                return {"success": False, "error": f"Dropdown '{dropdown_label}' not found"}
-            
-            # Get the FIRST dropdown that matches
+            # Get the FIRST (or only) dropdown
             dropdown = dropdowns[0]
             
-            # Verify this is the correct dropdown by checking its position and label
+            # Verify this is the correct dropdown
             try:
-                parent_label = dropdown.find_element(By.XPATH, "./ancestor::mat-form-field//mat-label").text
-                print(f"  ✅ Selected dropdown with label: '{parent_label}'")
-            except:
+                parent_label = dropdown.find_element(By.XPATH, "./ancestor::mat-form-field//mat-label").text.strip()
                 dropdown_id = dropdown.get_attribute("id") or "no-id"
-                print(f"  ✅ Selected dropdown element: {dropdown_id}")
+                print(f"  ✅ Selected dropdown | Label: '{parent_label}' | ID: {dropdown_id}")
+            except Exception as e:
+                dropdown_id = dropdown.get_attribute("id") or "no-id"
+                print(f"  ✅ Selected dropdown | ID: {dropdown_id}")
             
             # Check if dropdown is disabled
             is_disabled = dropdown.get_attribute("aria-disabled")
