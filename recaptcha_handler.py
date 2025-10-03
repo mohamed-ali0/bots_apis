@@ -253,27 +253,51 @@ class RecaptchaHandler:
             
             audio_button.click()
             print("  ✅ Audio challenge selected")
-            time.sleep(1)
+            
+            # Wait longer for audio challenge UI to load
+            print("  ⏳ Waiting 5 seconds for audio challenge UI...")
+            time.sleep(5)
+            
+            # Take screenshot of audio challenge
+            try:
+                self.driver.save_screenshot("/tmp/recaptcha_audio_challenge.png")
+                print("  📸 Screenshot saved: /tmp/recaptcha_audio_challenge.png")
+            except:
+                pass
             
             # Step 5: Click play button and get audio
             print("▶️ Getting audio challenge...")
             play_button_selectors = [
                 ".rc-audiochallenge-play-button",
+                "button.rc-button-audio",
                 "button[aria-label*='play']",
-                "button[title*='play']"
+                "button[title*='play']",
+                "button[aria-labelledby*='audio']"
             ]
             
             play_button = None
             for selector in play_button_selectors:
                 try:
+                    print(f"  🔍 Trying play button selector: {selector}")
                     play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
                     if play_button.is_displayed():
+                        print(f"  ✅ Found play button with: {selector}")
                         break
-                except:
+                    else:
+                        print(f"  ⚠️ Found but not visible: {selector}")
+                except Exception as e:
+                    print(f"  ⚠️ Play selector failed: {selector} - {str(e)[:50]}")
                     continue
             
+            # If still not found, dump the HTML
             if not play_button:
-                raise RecaptchaError("Play button not found")
+                try:
+                    body_html = self.driver.find_element(By.TAG_NAME, "body").get_attribute("innerHTML")
+                    print(f"  📄 Audio challenge body (first 800 chars):")
+                    print(f"  {body_html[:800]}")
+                except:
+                    pass
+                raise RecaptchaError("Play button not found - Audio challenge UI may not have loaded")
             
             play_button.click()
             print("  ✅ Audio playing")
