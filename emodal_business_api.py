@@ -1319,7 +1319,30 @@ class EModalBusinessOperations:
             remaining_options = self.driver.find_elements(By.XPATH, "//mat-option")
             visible_remaining = [opt for opt in remaining_options if opt.is_displayed()]
             if visible_remaining:
-                print(f"  ⚠️ Warning: {len(visible_remaining)} mat-options still visible")
+                print(f"  ⚠️ Warning: {len(visible_remaining)} mat-options still visible - FORCE REMOVING")
+                # Nuclear option: Forcefully remove ALL mat-options from DOM
+                try:
+                    self.driver.execute_script("""
+                        // Remove all mat-option elements
+                        var allOptions = document.querySelectorAll('mat-option');
+                        allOptions.forEach(function(opt) {
+                            opt.remove();
+                        });
+                        
+                        // Remove all overlay containers
+                        var overlays = document.querySelectorAll('.cdk-overlay-container mat-option, .cdk-overlay-pane');
+                        overlays.forEach(function(overlay) {
+                            if (overlay.style) {
+                                overlay.style.display = 'none';
+                                overlay.style.visibility = 'hidden';
+                            }
+                        });
+                        
+                        console.log('Forcefully removed all mat-options');
+                    """)
+                    print(f"  ✅ Forcefully removed {len(visible_remaining)} old mat-options from DOM")
+                except Exception as e:
+                    print(f"  ⚠️ Could not force remove options: {e}")
             else:
                 print(f"  ✅ All mat-options cleaned up")
             
