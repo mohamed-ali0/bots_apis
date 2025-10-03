@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
 Test script for appointment endpoints: /check_appointments and /make_appointment
+
+Usage:
+  # Quick test with defaults (remote server)
+  python test_appointments.py
+  
+  # With custom values
+  python test_appointments.py --server remote --trucking "K & R TRANSPORTATION LLC" --terminal "ITS Long Beach" --move "DROP EMPTY" --container CAIU7181746 --truck 9E53905
 """
 
 import os
 import requests
 import json
+import argparse
 
 # API Configuration - will be set after user chooses server
 API_HOST = None
@@ -62,10 +70,20 @@ def choose_server():
     
     return API_BASE_URL
 
-def test_check_appointments():
+def test_check_appointments(trucking_company=None, terminal=None, move_type=None, 
+                            container_id=None, truck_plate=None, pin_code=None, own_chassis=False):
     """
     Test the /check_appointments endpoint to get available appointment times.
     This goes through all 3 phases but DOES NOT submit.
+    
+    Args:
+        trucking_company: Trucking company name (if None, will prompt)
+        terminal: Terminal name (if None, will prompt)
+        move_type: Move type (if None, will prompt)
+        container_id: Container ID (if None, will prompt)
+        truck_plate: Truck plate (if None, will prompt)
+        pin_code: PIN code (optional)
+        own_chassis: Own chassis flag (default: False)
     """
     print("\n" + "="*70)
     print("🧪 TESTING: /check_appointments")
@@ -80,17 +98,25 @@ def test_check_appointments():
     
     print(f"✅ Using credentials for user: {username}\n")
     
-    # Phase 1 fields
-    trucking_company = input("Enter trucking company name [default: TEST TRUCKING]: ").strip() or "TEST TRUCKING"
-    terminal = input("Enter terminal [default: ITS Long Beach]: ").strip() or "ITS Long Beach"
-    move_type = input("Enter move type [default: DROP EMPTY]: ").strip() or "DROP EMPTY"
-    container_id = input("Enter container ID [default: CAIU7181746]: ").strip() or "CAIU7181746"
+    # Phase 1 fields - use provided values or prompt
+    if trucking_company is None:
+        trucking_company = input("Enter trucking company name [default: TEST TRUCKING]: ").strip() or "TEST TRUCKING"
+    if terminal is None:
+        terminal = input("Enter terminal [default: ITS Long Beach]: ").strip() or "ITS Long Beach"
+    if move_type is None:
+        move_type = input("Enter move type [default: DROP EMPTY]: ").strip() or "DROP EMPTY"
+    if container_id is None:
+        container_id = input("Enter container ID [default: CAIU7181746]: ").strip() or "CAIU7181746"
     
-    # Phase 2 fields
-    truck_plate = input("Enter truck plate [default: ABC123]: ").strip() or "ABC123"
-    pin_code = input("Enter PIN code (optional, press Enter to skip): ").strip() or None
-    own_chassis_input = input("Own chassis? (yes/no) [default: no]: ").strip().lower()
-    own_chassis = own_chassis_input in ['yes', 'y', 'true', '1']
+    # Phase 2 fields - use provided values or prompt
+    if truck_plate is None:
+        truck_plate = input("Enter truck plate [default: ABC123]: ").strip() or "ABC123"
+    if pin_code is None:
+        pin_code_input = input("Enter PIN code (optional, press Enter to skip): ").strip() or None
+        pin_code = pin_code_input
+    if not isinstance(own_chassis, bool):
+        own_chassis_input = input("Own chassis? (yes/no) [default: no]: ").strip().lower()
+        own_chassis = own_chassis_input in ['yes', 'y', 'true', '1']
     
     # Prepare request
     payload = {
@@ -251,8 +277,73 @@ def test_make_appointment():
 
 def main():
     """Main menu"""
-    # First, choose server
-    choose_server()
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Test E-Modal appointment endpoints')
+    parser.add_argument('--server', choices=['local', 'remote'], default='remote',
+                       help='Server to use (default: remote)')
+    parser.add_argument('--trucking', default='K & R TRANSPORTATION LLC',
+                       help='Trucking company name')
+    parser.add_argument('--terminal', default='ITS Long Beach',
+                       help='Terminal name')
+    parser.add_argument('--move', default='DROP EMPTY',
+                       help='Move type')
+    parser.add_argument('--container', default='CAIU7181746',
+                       help='Container ID')
+    parser.add_argument('--truck', default='9E53905',
+                       help='Truck plate')
+    parser.add_argument('--pin', default='',
+                       help='PIN code (optional)')
+    parser.add_argument('--chassis', choices=['yes', 'no'], default='no',
+                       help='Own chassis (default: no)')
+    parser.add_argument('--auto', action='store_true',
+                       help='Run automatically without prompts')
+    
+    args = parser.parse_args()
+    
+    # Set server based on argument
+    global API_HOST, API_PORT, API_BASE_URL
+    if args.server == 'local':
+        API_HOST = "localhost"
+        API_PORT = "5010"
+        API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+        print(f"[OK] Using local server: {API_BASE_URL}\n")
+    else:  # remote
+        API_HOST = "89.117.63.196"
+        API_PORT = "5010"
+        API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+        print(f"[OK] Using remote server: {API_BASE_URL}\n")
+    
+    # If --auto flag is set, run test_check_appointments directly with provided values
+    if args.auto:
+        print("\n" + "="*70)
+        print("  [AUTO] RUNNING AUTO MODE: /check_appointments")
+        print("="*70)
+        print("[WARNING] This endpoint will NOT submit any appointment")
+        print("   It only retrieves available appointment time slots\n")
+        
+        print("Parameters:")
+        print(f"   Trucking: {args.trucking}")
+        print(f"   Terminal: {args.terminal}")
+        print(f"   Move Type: {args.move}")
+        print(f"   Container: {args.container}")
+        print(f"   Truck Plate: {args.truck}")
+        print(f"   PIN Code: {args.pin or 'No'}")
+        print(f"   Own Chassis: {args.chassis.capitalize()}\n")
+        
+        # Call test function directly
+        test_check_appointments(
+            trucking_company=args.trucking,
+            terminal=args.terminal,
+            move_type=args.move,
+            container_id=args.container,
+            truck_plate=args.truck,
+            pin_code=args.pin,
+            own_chassis=(args.chassis == 'yes')
+        )
+        return
+    
+    # Otherwise, use interactive menu (old behavior)
+    # choose_server()  # Already set via args
     
     print("\n" + "="*70)
     print("  E-MODAL APPOINTMENT TESTING")

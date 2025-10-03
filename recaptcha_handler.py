@@ -238,24 +238,55 @@ class RecaptchaHandler:
             play_button_selectors = [
                 ".rc-audiochallenge-play-button",
                 "button[aria-label*='play']",
-                "button[title*='play']"
+                "button[title*='play']",
+                "button.rc-button-audio"
             ]
             
             play_button = None
-            for selector in play_button_selectors:
-                try:
-                    play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if play_button.is_displayed():
-                        break
-                except:
-                    continue
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                for selector in play_button_selectors:
+                    try:
+                        play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        if play_button.is_displayed():
+                            break
+                    except:
+                        continue
+                
+                if play_button:
+                    break
+                
+                if attempt < max_attempts - 1:
+                    print(f"  ⏳ Play button not found (attempt {attempt + 1}/{max_attempts}), waiting...")
+                    time.sleep(2)
             
             if not play_button:
-                raise RecaptchaError("Play button not found")
+                # Try to take a screenshot for debugging
+                try:
+                    screenshot_path = f"/tmp/recaptcha_play_button_error_{int(time.time())}.png"
+                    self.driver.save_screenshot(screenshot_path)
+                    print(f"  📸 Screenshot saved: {screenshot_path}")
+                except:
+                    pass
+                raise RecaptchaError("Play button not found after 3 attempts")
             
-            play_button.click()
-            print("  ✅ Audio playing")
-            time.sleep(2)
+            # Click with retry logic
+            click_success = False
+            for click_attempt in range(2):
+                try:
+                    play_button.click()
+                    click_success = True
+                    break
+                except Exception as e:
+                    if click_attempt == 0:
+                        print(f"  ⚠️ Click failed, retrying... ({str(e)[:50]})")
+                        time.sleep(1)
+                    else:
+                        raise
+            
+            if click_success:
+                print("  ✅ Audio playing")
+                time.sleep(3)  # Increased wait time for audio to load
             
             # Step 6: Extract audio URL
             print("🎵 Extracting audio URL...")
