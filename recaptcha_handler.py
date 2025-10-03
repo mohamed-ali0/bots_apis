@@ -211,23 +211,45 @@ class RecaptchaHandler:
             print("🎧 Switching to audio challenge...")
             self.driver.switch_to.frame(challenge_iframe)
             
+            # Wait 3 seconds for challenge iframe to fully load
+            print("  ⏳ Waiting for challenge iframe to load...")
+            time.sleep(3)
+            
+            # Take screenshot for debugging
+            try:
+                self.driver.save_screenshot("/tmp/recaptcha_challenge_iframe.png")
+                print("  📸 Screenshot saved: /tmp/recaptcha_challenge_iframe.png")
+            except:
+                pass
+            
             # Find and click audio button
             audio_button_selectors = [
                 "#recaptcha-audio-button",
                 "button[id*='audio']",
-                "button[aria-label*='audio']"
+                "button[aria-label*='audio']",
+                ".rc-button-audio"
             ]
             
             audio_button = None
             for selector in audio_button_selectors:
                 try:
+                    print(f"  🔍 Trying selector: {selector}")
                     audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                    print(f"  ✅ Found audio button with: {selector}")
                     break
-                except:
+                except Exception as e:
+                    print(f"  ⚠️ Selector failed: {selector} - {str(e)[:50]}")
                     continue
             
+            # If still not found, try to see what's in the iframe
             if not audio_button:
-                raise RecaptchaError("Audio button not found")
+                try:
+                    body_html = self.driver.find_element(By.TAG_NAME, "body").get_attribute("innerHTML")
+                    print(f"  📄 Challenge iframe body (first 500 chars):")
+                    print(f"  {body_html[:500]}")
+                except:
+                    pass
+                raise RecaptchaError("Audio button not found - reCAPTCHA may be blocking automation")
             
             audio_button.click()
             print("  ✅ Audio challenge selected")

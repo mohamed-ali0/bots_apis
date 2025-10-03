@@ -172,15 +172,6 @@ class EModalLoginHandler:
         
         # Linux-specific optimizations for server environments
         if platform.system() == 'Linux':
-            # Enable verbose logging for debugging
-            chrome_options.add_argument("--enable-logging")
-            chrome_options.add_argument("--v=1")
-            chrome_options.add_argument(f"--log-path=/tmp/chrome_debug_{os.getpid()}.log")
-            print(f"  📝 Chrome debug log: /tmp/chrome_debug_{os.getpid()}.log")
-            
-            # Critical stability flags to prevent crashes
-            chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
-            chrome_options.add_argument("--no-sandbox")  # Required for running as root or in containers
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--disable-software-rasterizer")
             chrome_options.add_argument("--disable-extensions")
@@ -197,19 +188,6 @@ class EModalLoginHandler:
             chrome_options.add_argument("--enable-automation")
             chrome_options.add_argument("--password-store=basic")
             chrome_options.add_argument("--use-mock-keychain")
-            # Memory and stability optimizations (critical for audio processing)
-            chrome_options.add_argument("--disable-web-security")  # Allow audio loading
-            chrome_options.add_argument("--ignore-certificate-errors")
-            chrome_options.add_argument("--allow-running-insecure-content")
-            # Use shared memory fallback instead of single-process (safer)
-            chrome_options.add_argument("--disable-features=IsolateOrigins,site-per-process")
-            chrome_options.add_argument("--disable-site-isolation-trials")
-            # Increase stability and prevent timeouts
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_argument("--disable-infobars")
-            chrome_options.add_argument("--disable-browser-side-navigation")
-            chrome_options.add_argument("--dns-prefetch-disable")
-            chrome_options.add_argument("--disable-features=VizDisplayCompositor")
             # Set window size for consistent rendering
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--start-maximized")
