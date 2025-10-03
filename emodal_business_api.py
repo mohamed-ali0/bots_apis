@@ -1280,25 +1280,48 @@ class EModalBusinessOperations:
             print(f"  ✅ Selected '{option_text}' from {dropdown_label}")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_selected")
             
-            # CRITICAL: Wait for Angular to clean up the mat-options from DOM
-            # This prevents the next dropdown from seeing old options
-            print(f"  ⏳ Waiting 2 seconds for Angular to clean up old options...")
-            time.sleep(2)
-            
-            # Verify old options are gone
-            remaining_options = self.driver.find_elements(By.XPATH, "//mat-option")
-            visible_remaining = [opt for opt in remaining_options if opt.is_displayed()]
-            if visible_remaining:
-                print(f"  ⚠️ Warning: {len(visible_remaining)} mat-options still visible after selection")
-                # Force close any lingering overlays
+            # CRITICAL: Force close the dropdown by clicking a blank area
+            print(f"  🖱️ Clicking blank area to ensure dropdown is fully closed...")
+            try:
+                # Click on the page header/title area (safe blank space)
+                blank_area = self.driver.find_element(By.TAG_NAME, "h1")
+                blank_area.click()
+                print(f"  ✅ Clicked h1 element to close dropdown")
+            except:
                 try:
+                    # Fallback: Click body
                     self.driver.find_element(By.TAG_NAME, "body").click()
+                    print(f"  ✅ Clicked body to close dropdown")
+                except:
+                    print(f"  ⚠️ Could not click blank area")
+            
+            # Wait for dropdown to close and overlay to disappear
+            print(f"  ⏳ Waiting 3 seconds for dropdown to fully close...")
+            time.sleep(3)
+            
+            # Verify overlay is gone
+            overlays = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-backdrop')]")
+            visible_overlays = [o for o in overlays if o.is_displayed()]
+            if visible_overlays:
+                print(f"  ⚠️ Warning: {len(visible_overlays)} overlay backdrop(s) still visible")
+                # Try pressing Escape key to close
+                try:
+                    from selenium.webdriver.common.keys import Keys
+                    self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
                     time.sleep(1)
-                    print(f"  ✅ Clicked body to force close overlays")
+                    print(f"  ✅ Pressed Escape to force close overlay")
                 except:
                     pass
             else:
-                print(f"  ✅ All old mat-options cleaned up successfully")
+                print(f"  ✅ Overlay fully closed")
+            
+            # Verify old mat-options are gone
+            remaining_options = self.driver.find_elements(By.XPATH, "//mat-option")
+            visible_remaining = [opt for opt in remaining_options if opt.is_displayed()]
+            if visible_remaining:
+                print(f"  ⚠️ Warning: {len(visible_remaining)} mat-options still visible")
+            else:
+                print(f"  ✅ All mat-options cleaned up")
             
             return {"success": True, "selected": option_text}
             
