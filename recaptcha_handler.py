@@ -265,6 +265,40 @@ class RecaptchaHandler:
             except:
                 pass
             
+            # Check if reCAPTCHA was solved immediately (some configurations auto-pass)
+            try:
+                # Look for recaptcha-token or other success indicators
+                token_input = self.driver.find_element(By.ID, "recaptcha-token")
+                if token_input:
+                    token_value = token_input.get_attribute("value")
+                    if token_value and len(token_value) > 50:  # Valid token
+                        print("  ✅ reCAPTCHA token found - challenge may be solved!")
+                        print(f"  🎫 Token preview: {token_value[:50]}...")
+                        
+                        # Switch back to main content and check if login button is enabled
+                        self.driver.switch_to.default_content()
+                        time.sleep(2)
+                        
+                        # Check if we're past the challenge
+                        try:
+                            # Look for challenge iframe - if it's gone, we're done
+                            challenge_frames = self.driver.find_elements(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/bframe')]")
+                            if not challenge_frames or not challenge_frames[0].is_displayed():
+                                print("  ✅ Challenge iframe gone - reCAPTCHA solved!")
+                                return {
+                                    "success": True,
+                                    "method": "auto_solved",
+                                    "message": "reCAPTCHA auto-solved after audio button click"
+                                }
+                        except:
+                            pass
+                        
+                        # Go back into iframe if still there
+                        challenge_iframe = self.driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/bframe')]")
+                        self.driver.switch_to.frame(challenge_iframe)
+            except:
+                pass
+            
             # Step 5: Click play button and get audio
             print("▶️ Getting audio challenge...")
             play_button_selectors = [
