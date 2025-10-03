@@ -268,25 +268,40 @@ class RecaptchaHandler:
             # Step 5: Click play button and get audio
             print("▶️ Getting audio challenge...")
             play_button_selectors = [
+                ".rc-audiochallenge-play-button button",  # Play button inside audio challenge
+                "button.rc-button.goog-inline-block:not([id])",  # Generic play button without ID
                 ".rc-audiochallenge-play-button",
-                "button.rc-button-audio",
-                "button[aria-label*='play']",
-                "button[title*='play']",
-                "button[aria-labelledby*='audio']"
+                "button[aria-label*='PLAY']",  # Uppercase PLAY
+                "button[title*='PLAY']",
+                "button.rc-button:not(#recaptcha-audio-button):not(.rc-button-disabled)"  # Exclude audio button and disabled
             ]
             
             play_button = None
             for selector in play_button_selectors:
                 try:
                     print(f"  🔍 Trying play button selector: {selector}")
-                    play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if play_button.is_displayed():
-                        print(f"  ✅ Found play button with: {selector}")
+                    buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for btn in buttons:
+                        # Check if it's NOT the audio challenge button and NOT disabled
+                        btn_id = btn.get_attribute("id")
+                        btn_disabled = btn.get_attribute("disabled")
+                        btn_class = btn.get_attribute("class") or ""
+                        
+                        if btn_id == "recaptcha-audio-button":
+                            print(f"    ⚠️ Skipping audio challenge button")
+                            continue
+                        if btn_disabled or "rc-button-disabled" in btn_class:
+                            print(f"    ⚠️ Skipping disabled button")
+                            continue
+                        if btn.is_displayed():
+                            play_button = btn
+                            print(f"  ✅ Found valid play button with: {selector}")
+                            print(f"    Button ID: {btn_id}, Class: {btn_class[:50]}")
+                            break
+                    if play_button:
                         break
-                    else:
-                        print(f"  ⚠️ Found but not visible: {selector}")
                 except Exception as e:
-                    print(f"  ⚠️ Play selector failed: {selector} - {str(e)[:50]}")
+                    print(f"  ⚠️ Play selector failed: {selector} - {str(e)[:80]}")
                     continue
             
             # If still not found, dump the HTML
