@@ -28,6 +28,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import undetected_chromedriver as uc
 
 from recaptcha_handler import RecaptchaHandler, RecaptchaError
 
@@ -192,10 +193,21 @@ class EModalLoginHandler:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--start-maximized")
         
-        # Initialize driver
-        print("🚀 Initializing Chrome WebDriver...")
-        self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # Initialize driver with undetected-chromedriver
+        print("🚀 Initializing Undetected Chrome WebDriver...")
+        try:
+            self.driver = uc.Chrome(
+                options=chrome_options,
+                use_subprocess=True,
+                version_main=None,  # Auto-detect Chrome version
+                driver_executable_path=None  # Auto-download if needed
+            )
+            print("  ✅ Undetected ChromeDriver initialized successfully")
+        except Exception as e:
+            print(f"  ⚠️ Undetected ChromeDriver failed: {e}")
+            print("  ⚠️ Falling back to regular ChromeDriver...")
+            self.driver = webdriver.Chrome(options=chrome_options)
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
