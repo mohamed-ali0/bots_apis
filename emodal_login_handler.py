@@ -191,6 +191,11 @@ class EModalLoginHandler:
             chrome_options.add_argument("--enable-automation")
             chrome_options.add_argument("--password-store=basic")
             chrome_options.add_argument("--use-mock-keychain")
+            # Memory and stability optimizations (critical for audio processing)
+            chrome_options.add_argument("--single-process")  # Run in single process mode
+            chrome_options.add_argument("--disable-web-security")  # Allow audio loading
+            chrome_options.add_argument("--ignore-certificate-errors")
+            chrome_options.add_argument("--allow-running-insecure-content")
             # Increase stability and prevent timeouts
             chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_argument("--disable-infobars")

@@ -323,26 +323,83 @@ class RecaptchaHandler:
             print("🎵 Extracting audio URL...")
             audio_url = None
             
-            # Look for audio element
-            try:
-                audio_element = self.driver.find_element(By.TAG_NAME, "audio")
-                audio_url = audio_element.get_attribute("src")
-            except:
-                # Look in page source
-                page_source = self.driver.page_source
-                audio_patterns = [
-                    r'src="([^"]*payload[^"]*)"',
-                    r'(https://[^\s]*payload[^\s]*)'
-                ]
-                
-                for pattern in audio_patterns:
-                    matches = re.findall(pattern, page_source)
-                    if matches:
-                        audio_url = matches[0]
-                        break
+            # Multiple attempts with increasing wait times
+            max_extract_attempts = 3
+            for extract_attempt in range(max_extract_attempts):
+                try:
+                    # Method 1: Find audio element directly
+                    try:
+                        audio_element = self.driver.find_element(By.TAG_NAME, "audio")
+                        audio_url = audio_element.get_attribute("src")
+                        if audio_url:
+                            break
+                    except:
+                        pass
+                    
+                    # Method 2: Look for download link
+                    try:
+                        download_link = self.driver.find_element(By.CSS_SELECTOR, "a.rc-audiochallenge-tdownload-link")
+                        audio_url = download_link.get_attribute("href")
+                        if audio_url:
+                            break
+                    except:
+                        pass
+                    
+                    # Method 3: JavaScript extraction
+                    try:
+                        audio_url = self.driver.execute_script("""
+                            var audio = document.querySelector('audio');
+                            if (audio && audio.src) return audio.src;
+                            var link = document.querySelector('a.rc-audiochallenge-tdownload-link');
+                            if (link && link.href) return link.href;
+                            return null;
+                        """)
+                        if audio_url:
+                            break
+                    except:
+                        pass
+                    
+                    # Method 4: Parse page source (last resort)
+                    try:
+                        page_source = self.driver.page_source
+                        audio_patterns = [
+                            r'src="([^"]*payload[^"]*)"',
+                            r'href="([^"]*payload[^"]*)"',
+                            r'(https://[^\s"\']*payload[^\s"\']*)'
+                        ]
+                        
+                        for pattern in audio_patterns:
+                            matches = re.findall(pattern, page_source)
+                            if matches:
+                                audio_url = matches[0]
+                                break
+                        if audio_url:
+                            break
+                    except Exception as e:
+                        print(f"  ⚠️ Page source parse error: {str(e)[:50]}")
+                    
+                    # If still no URL and not last attempt, wait and retry
+                    if not audio_url and extract_attempt < max_extract_attempts - 1:
+                        wait_time = 2 * (extract_attempt + 1)  # 2s, 4s, 6s
+                        print(f"  ⏳ Audio URL not found (attempt {extract_attempt + 1}/{max_extract_attempts}), waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                    
+                except Exception as e:
+                    if extract_attempt < max_extract_attempts - 1:
+                        print(f"  ⚠️ Extract attempt {extract_attempt + 1} failed: {str(e)[:50]}")
+                        time.sleep(2)
+                    else:
+                        # Take screenshot for debugging
+                        try:
+                            screenshot_path = f"/tmp/recaptcha_audio_url_error_{int(time.time())}.png"
+                            self.driver.save_screenshot(screenshot_path)
+                            print(f"  📸 Screenshot saved: {screenshot_path}")
+                        except:
+                            pass
+                        raise
             
             if not audio_url:
-                raise RecaptchaError("Could not extract audio URL")
+                raise RecaptchaError("Could not extract audio URL after 3 attempts")
             
             print(f"  🎵 Audio URL found: {audio_url[:50]}...")
             
