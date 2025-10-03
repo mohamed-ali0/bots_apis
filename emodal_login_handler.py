@@ -157,8 +157,6 @@ class EModalLoginHandler:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
         
         # Configure download behavior (important for Linux)
         prefs = {
@@ -196,11 +194,22 @@ class EModalLoginHandler:
         # Initialize driver with undetected-chromedriver
         print("🚀 Initializing Undetected Chrome WebDriver...")
         try:
+            # UC doesn't like some experimental options, so create minimal options for UC
+            uc_options = uc.ChromeOptions()
+            
+            # Copy essential arguments (not experimental options)
+            for arg in chrome_options.arguments:
+                if arg not in ['--enable-automation']:  # Skip automation flag
+                    uc_options.add_argument(arg)
+            
+            # Add prefs separately (UC handles this differently)
+            uc_options.add_experimental_option("prefs", prefs)
+            
+            # Initialize UC with minimal config
             self.driver = uc.Chrome(
-                options=chrome_options,
+                options=uc_options,
                 use_subprocess=True,
-                version_main=None,  # Auto-detect Chrome version
-                driver_executable_path=None  # Auto-download if needed
+                version_main=None  # Auto-detect Chrome version
             )
             print("  ✅ Undetected ChromeDriver initialized successfully")
         except Exception as e:
