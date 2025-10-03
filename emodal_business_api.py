@@ -1278,11 +1278,6 @@ class EModalBusinessOperations:
             time.sleep(1)
             
             print(f"  ✅ Selected '{option_text}' from {dropdown_label}")
-            
-            # Wait a moment for selection to be processed by Angular
-            print(f"  ⏳ Waiting 2 seconds for Angular to process selection...")
-            time.sleep(2)
-            
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_selected")
             
             # CRITICAL: Force close the dropdown by clicking a blank area
@@ -1301,8 +1296,8 @@ class EModalBusinessOperations:
                     print(f"  ⚠️ Could not click blank area")
             
             # Wait for dropdown to close and overlay to disappear
-            print(f"  ⏳ Waiting 2 seconds for dropdown to fully close...")
-            time.sleep(2)
+            print(f"  ⏳ Waiting 3 seconds for dropdown to fully close...")
+            time.sleep(3)
             
             # Verify overlay is gone
             overlays = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-backdrop')]")
@@ -1320,12 +1315,11 @@ class EModalBusinessOperations:
             else:
                 print(f"  ✅ Overlay fully closed")
             
-            # NOW force remove old mat-options AFTER selection is complete
-            print(f"  🧹 Cleaning up old mat-options from DOM...")
+            # Verify old mat-options are gone
             remaining_options = self.driver.find_elements(By.XPATH, "//mat-option")
             visible_remaining = [opt for opt in remaining_options if opt.is_displayed()]
             if visible_remaining:
-                print(f"  ⚠️ Found {len(visible_remaining)} lingering mat-options - FORCE REMOVING")
+                print(f"  ⚠️ Warning: {len(visible_remaining)} mat-options still visible - FORCE REMOVING")
                 # Nuclear option: Forcefully remove ALL mat-options from DOM
                 try:
                     self.driver.execute_script("""
@@ -1348,11 +1342,11 @@ class EModalBusinessOperations:
                     """)
                     print(f"  ✅ Forcefully removed {len(visible_remaining)} old mat-options from DOM")
                     # Wait a moment for DOM to stabilize after forced removal
-                    time.sleep(2)
+                    time.sleep(1)
                 except Exception as e:
                     print(f"  ⚠️ Could not force remove options: {e}")
             else:
-                print(f"  ✅ All mat-options already cleaned up")
+                print(f"  ✅ All mat-options cleaned up")
             
             return {"success": True, "selected": option_text}
             
