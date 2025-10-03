@@ -1174,19 +1174,40 @@ class EModalBusinessOperations:
             # Wait for mat-option elements to be present
             print(f"  🔍 Looking for option: '{option_text}'...")
             
-            # Find options ONLY within the visible overlay panel (not from other dropdowns)
-            visible_panel_xpath = "//div[contains(@class,'cdk-overlay-pane') and contains(@class,'mat-select-panel') and not(contains(@class,'ng-animating'))]"
-            options = self.driver.find_elements(By.XPATH, f"{visible_panel_xpath}//mat-option//span[normalize-space(text())='{option_text}']")
-            print(f"  📊 Found {len(options)} matching options")
+            # Get ONLY visible mat-options (filter by display and opacity)
+            print(f"  🔍 Finding all visible mat-option elements...")
+            all_mat_options = self.driver.find_elements(By.XPATH, "//mat-option")
             
-            if not options:
-                # Try to find any options to see what's available (ONLY in visible panel)
-                all_options = self.driver.find_elements(By.XPATH, f"{visible_panel_xpath}//mat-option//span[@class='mat-option-text' or contains(@class,'mat-select-min-line')]")
-                print(f"  📊 Total options visible: {len(all_options)}")
-                if all_options:
-                    print(f"  📊 Available options:")
-                    for i, opt in enumerate(all_options[:10], 1):
-                        print(f"     {i}. '{opt.text.strip()}'")
+            # Filter to only truly visible options
+            visible_options = []
+            option_texts = []
+            for opt in all_mat_options:
+                try:
+                    if opt.is_displayed():
+                        # Get the text content
+                        opt_text = opt.text.strip()
+                        if opt_text:
+                            visible_options.append(opt)
+                            option_texts.append(opt_text)
+                            print(f"     Found visible option: '{opt_text}'")
+                except:
+                    pass
+            
+            print(f"  📊 Total visible options: {len(visible_options)}")
+            
+            # Now search for our target option in the visible options
+            matched_option = None
+            for i, opt_text in enumerate(option_texts):
+                if opt_text == option_text:
+                    matched_option = visible_options[i]
+                    print(f"  ✅ Found exact match at index {i}")
+                    break
+            
+            if not matched_option:
+                print(f"  ⚠️ Option '{option_text}' not found in visible options")
+                print(f"  📊 Available options:")
+                for i, opt_text in enumerate(option_texts[:10], 1):
+                    print(f"     {i}. '{opt_text}'")
                 
                 # Close dropdown
                 try:
@@ -1198,19 +1219,18 @@ class EModalBusinessOperations:
                 self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_option_not_found")
                 return {"success": False, "error": f"Option '{option_text}' not found in {dropdown_label}"}
             
-            # Click the option
-            option = options[0]
+            # Click the matched option
             print(f"  ✅ Found option, clicking...")
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", option)
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", matched_option)
             time.sleep(0.5)
             
             # Try regular click first
             try:
-                option.click()
+                matched_option.click()
                 print(f"  ✅ Clicked option (regular click)")
             except Exception as opt_click_error:
                 print(f"  ⚠️ Regular click failed, using JavaScript click...")
-                self.driver.execute_script("arguments[0].click();", option)
+                self.driver.execute_script("arguments[0].click();", matched_option)
                 print(f"  ✅ Clicked option (JavaScript click)")
             
             time.sleep(1)
