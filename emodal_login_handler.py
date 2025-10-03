@@ -28,7 +28,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import undetected_chromedriver as uc
 
 from recaptcha_handler import RecaptchaHandler, RecaptchaError
 
@@ -157,6 +156,8 @@ class EModalLoginHandler:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
         
         # Configure download behavior (important for Linux)
         prefs = {
@@ -191,32 +192,10 @@ class EModalLoginHandler:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--start-maximized")
         
-        # Initialize driver with undetected-chromedriver
-        print("🚀 Initializing Undetected Chrome WebDriver...")
-        try:
-            # UC doesn't like some experimental options, so create minimal options for UC
-            uc_options = uc.ChromeOptions()
-            
-            # Copy essential arguments (not experimental options)
-            for arg in chrome_options.arguments:
-                if arg not in ['--enable-automation']:  # Skip automation flag
-                    uc_options.add_argument(arg)
-            
-            # Add prefs separately (UC handles this differently)
-            uc_options.add_experimental_option("prefs", prefs)
-            
-            # Initialize UC with minimal config
-            self.driver = uc.Chrome(
-                options=uc_options,
-                use_subprocess=True,
-                version_main=None  # Auto-detect Chrome version
-            )
-            print("  ✅ Undetected ChromeDriver initialized successfully")
-        except Exception as e:
-            print(f"  ⚠️ Undetected ChromeDriver failed: {e}")
-            print("  ⚠️ Falling back to regular ChromeDriver...")
-            self.driver = webdriver.Chrome(options=chrome_options)
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        # Initialize driver
+        print("🚀 Initializing Chrome WebDriver...")
+        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         

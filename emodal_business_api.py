@@ -14,7 +14,6 @@ import os
 import time
 import tempfile
 import threading
-import glob
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 from dataclasses import dataclass
@@ -110,91 +109,6 @@ def cleanup_expired_appointment_sessions():
         except:
             pass
         del appointment_sessions[session_id]
-
-
-def create_and_return_error_response(appt_session, operations, error_message: str, phase: int, request_type: str = "check_appointments"):
-    """
-    Helper to create debug bundle and return error response with download link.
-    Always prints download link to terminal even on error.
-    """
-    bundle_name, bundle_url = create_appointment_debug_bundle(
-        appt_session.session_id,
-        appt_session.browser_session.username,
-        f"{request_type}_error",
-        operations.screens_dir if operations else None
-    )
-    return jsonify({
-        "success": False,
-        "error": error_message,
-        "session_id": appt_session.session_id,
-        "current_phase": phase,
-        "debug_bundle_url": bundle_url
-    }), 500
-
-
-def create_appointment_debug_bundle(session_id: str, username: str, request_type: str = "check_appointments", screens_dir: str = None) -> tuple:
-    """
-    Create a debug bundle ZIP file with all screenshots from the appointment session.
-    Returns (bundle_name, bundle_url) or (None, None) if failed.
-    """
-    try:
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        bundle_name = f"{session_id}_{ts}_{request_type}.zip"
-        bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-        
-        # Collect screenshots from session directory
-        screenshots = []
-        if screens_dir and os.path.isdir(screens_dir):
-            # Get all screenshots from session-specific directory
-            screenshots = glob.glob(os.path.join(screens_dir, "*.png"))
-            print(f"  📊 Found {len(screenshots)} screenshots in session directory: {screens_dir}")
-        
-        if not screenshots:
-            # Fallback: Try DOWNLOADS_DIR with username pattern
-            screenshot_pattern = os.path.join(DOWNLOADS_DIR, f"*{username}*.png")
-            screenshots = glob.glob(screenshot_pattern)
-            print(f"  📊 Found {len(screenshots)} screenshots in downloads with username pattern")
-        
-        if not screenshots:
-            # Fallback 2: Try SCREENSHOTS_DIR with session_id
-            session_screenshot_dir = os.path.join(SCREENSHOTS_DIR, session_id)
-            if os.path.isdir(session_screenshot_dir):
-                screenshots = glob.glob(os.path.join(session_screenshot_dir, "*.png"))
-                print(f"  📊 Found {len(screenshots)} screenshots in screenshots/{session_id}")
-        
-        if screenshots:
-            print(f"  📦 Creating ZIP with {len(screenshots)} screenshots...")
-            with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for screenshot in screenshots:
-                    zipf.write(screenshot, os.path.basename(screenshot))
-            
-            # Generate public URL
-            bundle_url = f"http://{request.host}/files/{bundle_name}"
-            
-            # Print to terminal
-            print("\n" + "="*70)
-            print("📦 DEBUG BUNDLE CREATED")
-            print("="*70)
-            print(f" 🔗 Public URL: {bundle_url}")
-            print(f" 📁 Bundle contains {len(screenshots)} screenshots")
-            print(f" 📂 Bundle name: {bundle_name}")
-            print(f" 📍 Bundle path: {bundle_path}")
-            print(f" ✅ File exists: {os.path.exists(bundle_path)}")
-            print("="*70 + "\n")
-            
-            return bundle_name, bundle_url
-        else:
-            print("  ⚠️ No screenshots found for debug bundle")
-            print(f"     Checked: {screens_dir if screens_dir else 'N/A'}")
-            print(f"     Checked: {DOWNLOADS_DIR}/*{username}*.png")
-            print(f"     Checked: {os.path.join(SCREENSHOTS_DIR, session_id)}")
-            return None, None
-            
-    except Exception as e:
-        print(f"  ❌ Error creating debug bundle: {e}")
-        import traceback
-        traceback.print_exc()
-        return None, None
 
 
 class EModalBusinessOperations:
@@ -868,7 +782,6 @@ class EModalBusinessOperations:
     def select_dropdown_by_text(self, dropdown_label: str, option_text: str) -> Dict[str, Any]:
         """
         Select an option from a Material dropdown by exact text match.
-        Uses JavaScript to set value directly without opening the dropdown.
         
         Args:
             dropdown_label: Label of the dropdown (e.g., "Terminal", "Move Type")
@@ -879,482 +792,53 @@ class EModalBusinessOperations:
         """
         try:
             print(f"🔽 Selecting '{option_text}' from '{dropdown_label}' dropdown...")
-            print(f"  💡 Using direct value injection (no dropdown opening needed)")
             
-            # CRITICAL: Use a mapping of known dropdown labels to their exact mat-label text
-            # This ensures we always get the RIGHT dropdown
-            label_map = {
-                "Trucking": "Trucking company",
-                "Terminal": "Terminal", 
-                "Move": "Move Type"
-            }
-            
-            exact_label = label_map.get(dropdown_label, dropdown_label)
-            print(f"  🔍 Searching for dropdown with exact label: '{exact_label}'...")
-            
-            # Strategy 1: Find by EXACT mat-label text match (most reliable)
-            dropdowns = self.driver.find_elements(By.XPATH, 
-                f"//mat-label[normalize-space(text())='{exact_label}' or contains(normalize-space(text()),'{exact_label}')]/ancestor::mat-form-field//mat-select")
-            print(f"     Strategy 1 (exact mat-label): Found {len(dropdowns)} dropdown(s)")
-            
-            # Debug: Show all dropdowns found
-            if len(dropdowns) > 1:
-                print(f"     ⚠️ Multiple dropdowns found, checking labels...")
-                for i, dd in enumerate(dropdowns):
-                    try:
-                        lbl = dd.find_element(By.XPATH, "./ancestor::mat-form-field//mat-label").text.strip()
-                        dd_id = dd.get_attribute("id") or f"index-{i}"
-                        print(f"        {i+1}. Label: '{lbl}' | ID: {dd_id}")
-                    except:
-                        pass
+            # Find dropdown by label
+            dropdowns = self.driver.find_elements(By.XPATH, f"//mat-label[contains(text(),'{dropdown_label}')]/ancestor::mat-form-field//mat-select")
             
             if not dropdowns:
-                # Fallback: Find ALL mat-select elements and match by position
-                print(f"     Strategy 2: Finding all mat-select elements...")
-                all_selects = self.driver.find_elements(By.XPATH, "//mat-select")
-                print(f"     Found {len(all_selects)} total mat-select elements")
-                
-                # Match by index for known dropdowns (Trucking=0, Terminal=1, Move=2)
-                index_map = {"Trucking": 0, "Terminal": 1, "Move": 2}
-                if dropdown_label in index_map and len(all_selects) > index_map[dropdown_label]:
-                    dropdown = all_selects[index_map[dropdown_label]]
-                    print(f"     ✅ Using dropdown at index {index_map[dropdown_label]}")
-                    dropdowns = [dropdown]
-                else:
-                    return {"success": False, "error": f"Dropdown '{dropdown_label}' not found"}
+                # Try alternative: find by placeholder or aria-label
+                dropdowns = self.driver.find_elements(By.XPATH, f"//mat-select[contains(@aria-label,'{dropdown_label}')]")
             
-            # Get the FIRST (or only) dropdown
+            if not dropdowns:
+                return {"success": False, "error": f"Dropdown '{dropdown_label}' not found"}
+            
             dropdown = dropdowns[0]
             
-            # Verify this is the correct dropdown
-            try:
-                parent_label = dropdown.find_element(By.XPATH, "./ancestor::mat-form-field//mat-label").text.strip()
-                dropdown_id = dropdown.get_attribute("id") or "no-id"
-                print(f"  ✅ Selected dropdown | Label: '{parent_label}' | ID: {dropdown_id}")
-            except Exception as e:
-                dropdown_id = dropdown.get_attribute("id") or "no-id"
-                print(f"  ✅ Selected dropdown | ID: {dropdown_id}")
-            
-            # Check if dropdown is disabled
-            is_disabled = dropdown.get_attribute("aria-disabled")
-            print(f"  📊 Dropdown state: aria-disabled={is_disabled}")
-            
-            if is_disabled == "true":
-                return {"success": False, "error": f"{dropdown_label} dropdown is disabled"}
-            
-            # METHOD 1: Try to set value directly using JavaScript (FASTEST - no clicking needed!)
-            print(f"  🔧 Attempting to set value directly via JavaScript...")
-            set_result = self.driver.execute_script("""
-                var matSelect = arguments[0];
-                var optionText = arguments[1];
-                
-                // Get all mat-options (they exist in the DOM even if dropdown isn't open)
-                var allOptions = document.querySelectorAll('mat-option');
-                
-                // If no options found, try to get them from the component
-                if (allOptions.length === 0) {
-                    // Trigger open briefly to load options
-                    try {
-                        matSelect.click();
-                        // Wait a bit for options to load
-                        var startTime = Date.now();
-                        while (Date.now() - startTime < 1000) {
-                            allOptions = document.querySelectorAll('mat-option');
-                            if (allOptions.length > 0) break;
-                        }
-                        // Close dropdown
-                        document.body.click();
-                    } catch (e) {}
-                }
-                
-                // Find the option with matching text
-                var matchedOption = null;
-                for (var i = 0; i < allOptions.length; i++) {
-                    var optionTextContent = allOptions[i].textContent.trim();
-                    if (optionTextContent === optionText) {
-                        matchedOption = allOptions[i];
-                        break;
-                    }
-                }
-                
-                if (matchedOption) {
-                    // Get the option value
-                    var optionValue = matchedOption.getAttribute('value') || matchedOption.textContent.trim();
-                    
-                    // Set the value directly on the mat-select element
-                    try {
-                        // Try Angular way first
-                        if (matSelect.__ngContext__) {
-                            var componentRef = matSelect.__ngContext__.find(c => c && c.value !== undefined);
-                            if (componentRef) {
-                                componentRef.value = optionValue;
-                                componentRef._onChange(optionValue);
-                                return 'set via __ngContext__';
-                            }
-                        }
-                        
-                        // Try setting ngModel
-                        if (window.angular && window.angular.element) {
-                            var scope = angular.element(matSelect).scope();
-                            if (scope) {
-                                scope.$apply(function() {
-                                    scope.model = optionValue;
-                                });
-                                return 'set via angular.element';
-                            }
-                        }
-                        
-                        // Fallback: Set value attribute and dispatch change event
-                        matSelect.value = optionValue;
-                        matSelect.setAttribute('value', optionValue);
-                        
-                        // Dispatch events to notify Angular
-                        ['input', 'change', 'blur'].forEach(function(eventType) {
-                            var event = new Event(eventType, { bubbles: true });
-                            matSelect.dispatchEvent(event);
-                        });
-                        
-                        return 'set via value attribute';
-                    } catch (e) {
-                        return 'error: ' + e.message;
-                    }
-                } else {
-                    return 'option not found';
-                }
-            """, dropdown, option_text)
-            
-            if set_result and 'set via' in set_result:
-                print(f"  ✅ Value set directly: {set_result}")
-                time.sleep(1)
-                self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_selected")
-                return {"success": True, "selected": option_text, "method": "direct_value_set"}
-            else:
-                print(f"  ⚠️ Direct value set failed: {set_result}")
-                print(f"  ⚠️ Falling back to click method...")
-            
-            # Scroll into view
-            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'instant', block: 'center'});", dropdown)
-            time.sleep(2)
-            
-            # CRITICAL: Find the actual dropdown ARROW (not the field itself)
-            print(f"  🔍 Looking for dropdown arrow...")
-            arrow = None
-            
-            # Try to find the arrow div inside the mat-select
-            try:
-                arrow = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-arrow-wrapper')]")
-                print(f"  ✅ Found mat-select-arrow-wrapper")
-            except:
-                pass
-            
-            if not arrow:
-                try:
-                    arrow = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-arrow')]")
-                    print(f"  ✅ Found mat-select-arrow")
-                except:
-                    pass
-            
-            # Set target to arrow if found, otherwise use trigger
-            trigger = None
-            if arrow:
-                trigger = arrow
-                print(f"  🎯 Will click on the arrow element")
-            else:
-                # Fallback to trigger
-                try:
-                    trigger = dropdown.find_element(By.XPATH, ".//div[contains(@class,'mat-select-trigger')]")
-                    print(f"  ✅ Found mat-select-trigger (arrow not found)")
-                except:
-                    trigger = dropdown
-                    print(f"  ℹ️  Using dropdown element directly (no arrow or trigger found)")
-            
-            # Try multiple methods to open the dropdown
-            click_success = False
-            
-            # Method 1: Call Angular Material's open() method directly (BEST for Angular apps)
-            try:
-                print(f"  🔧 Attempting to call Angular Material open() method...")
-                open_result = self.driver.execute_script("""
-                    var matSelect = arguments[0];
-                    
-                    // Try to get the Angular component instance
-                    if (matSelect.__ngContext__) {
-                        // Angular 9+ way
-                        try {
-                            var componentRef = matSelect.__ngContext__.find(c => c && c.open);
-                            if (componentRef && typeof componentRef.open === 'function') {
-                                componentRef.open();
-                                return 'opened via __ngContext__';
-                            }
-                        } catch (e) {}
-                    }
-                    
-                    // Try jQuery/Angular element way
-                    if (window.angular && window.angular.element) {
-                        try {
-                            var scope = angular.element(matSelect).scope();
-                            if (scope && scope.$ctrl && typeof scope.$ctrl.open === 'function') {
-                                scope.$ctrl.open();
-                                return 'opened via angular.element';
-                            }
-                        } catch (e) {}
-                    }
-                    
-                    // Try direct property access
-                    if (matSelect._elementRef && matSelect._elementRef.nativeElement) {
-                        try {
-                            var component = matSelect._elementRef.nativeElement;
-                            if (typeof component.open === 'function') {
-                                component.open();
-                                return 'opened via _elementRef';
-                            }
-                        } catch (e) {}
-                    }
-                    
-                    // Fallback: Try to find any 'open' method
-                    for (var key in matSelect) {
-                        if (key.includes('open') && typeof matSelect[key] === 'function') {
-                            try {
-                                matSelect[key]();
-                                return 'opened via ' + key;
-                            } catch (e) {}
-                        }
-                    }
-                    
-                    return null;
-                """, dropdown)
-                
-                if open_result:
-                    print(f"  ✅ Opened dropdown using Angular method: {open_result}")
-                    click_success = True
-                    time.sleep(2)  # Wait for animation
-                else:
-                    print(f"  ⚠️ Angular open() method not found, trying click methods...")
-            except Exception as e_angular:
-                print(f"  ⚠️ Angular method failed: {e_angular}")
-            
-            # Method 2: Focus + ActionChains click
-            if not click_success:
-                try:
-                    from selenium.webdriver.common.action_chains import ActionChains
-                    
-                    # Focus on the dropdown
-                    self.driver.execute_script("arguments[0].focus();", dropdown)
-                    time.sleep(0.5)
-                    
-                    # Click using ActionChains
-                    ActionChains(self.driver).move_to_element(dropdown).click().perform()
-                    print(f"  ✅ Clicked {dropdown_label} dropdown (ActionChains)")
-                    click_success = True
-                except Exception as e1:
-                    print(f"  ⚠️ ActionChains click failed: {e1}")
-            
-            # Method 3: Click on trigger element
-            if not click_success:
-                try:
-                    trigger.click()
-                    print(f"  ✅ Clicked {dropdown_label} dropdown (regular click on trigger)")
-                    click_success = True
-                except Exception as e2:
-                    print(f"  ⚠️ Regular click failed: {e2}")
-            
-            # Method 4: JavaScript click
-            if not click_success:
-                try:
-                    self.driver.execute_script("arguments[0].click();", trigger)
-                    print(f"  ✅ Clicked {dropdown_label} dropdown (JavaScript click)")
-                    click_success = True
-                except Exception as e3:
-                    print(f"  ⚠️ JavaScript click failed: {e3}")
-            
-            # Method 5: Dispatch full mouse event sequence
-            if not click_success:
-                try:
-                    self.driver.execute_script("""
-                        var element = arguments[0];
-                        
-                        ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'].forEach(function(eventType) {
-                            var event = new MouseEvent(eventType, {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window,
-                                detail: 1
-                            });
-                            element.dispatchEvent(event);
-                        });
-                    """, trigger)
-                    time.sleep(0.5)
-                    print(f"  ✅ Clicked {dropdown_label} dropdown (full MouseEvent sequence)")
-                    click_success = True
-                except Exception as e4:
-                    print(f"  ❌ All click methods failed: {e4}")
-            
-            if not click_success:
-                self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_click_failed")
-                return {"success": False, "error": f"Could not click {dropdown_label} dropdown - all methods failed"}
-            
-            # Wait longer for overlay panel to appear and render (especially on Linux/Xvfb)
-            print(f"  ⏳ Waiting 10 seconds for dropdown options to load (Linux/Xvfb needs extra time)...")
-            time.sleep(10)
+            # Click to open dropdown
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown)
+            time.sleep(0.5)
+            dropdown.click()
+            time.sleep(1)
             
             print(f"  ✅ Opened {dropdown_label} dropdown")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
             
-            # Check if overlay panel is present in DOM
-            overlay_panels = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-pane') and contains(@class,'mat-select-panel')]")
-            print(f"  📊 Overlay panels in DOM: {len(overlay_panels)}")
+            # Find option by exact text
+            options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{option_text}']")
             
-            # CRITICAL: Wait for the options to refresh (Angular may show old options briefly)
-            print(f"  ⏳ Waiting 3 seconds for options to refresh...")
-            time.sleep(3)
-            
-            if overlay_panels:
-                for i, panel in enumerate(overlay_panels[:3], 1):
-                    is_displayed = panel.is_displayed()
-                    print(f"     Panel {i}: displayed={is_displayed}")
-            
-            # Wait for mat-option elements to be present
-            print(f"  🔍 Looking for option: '{option_text}'...")
-            
-            # Get ONLY visible mat-options (filter by display and opacity)
-            print(f"  🔍 Finding all visible mat-option elements...")
-            all_mat_options = self.driver.find_elements(By.XPATH, "//mat-option")
-            
-            # Filter to only truly visible options
-            visible_options = []
-            option_texts = []
-            for opt in all_mat_options:
-                try:
-                    if opt.is_displayed():
-                        # Get the text content
-                        opt_text = opt.text.strip()
-                        if opt_text:
-                            visible_options.append(opt)
-                            option_texts.append(opt_text)
-                            print(f"     Found visible option: '{opt_text}'")
-                except:
-                    pass
-            
-            print(f"  📊 Total visible options: {len(visible_options)}")
-            
-            # Now search for our target option in the visible options
-            matched_option = None
-            for i, opt_text in enumerate(option_texts):
-                if opt_text == option_text:
-                    matched_option = visible_options[i]
-                    print(f"  ✅ Found exact match at index {i}")
-                    break
-            
-            if not matched_option:
-                print(f"  ⚠️ Option '{option_text}' not found in visible options")
-                print(f"  📊 Available options:")
-                for i, opt_text in enumerate(option_texts[:10], 1):
-                    print(f"     {i}. '{opt_text}'")
-                
+            if not options:
                 # Close dropdown
                 try:
                     self.driver.find_element(By.TAG_NAME, "body").click()
-                    time.sleep(0.5)
                 except:
                     pass
-                
-                self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_option_not_found")
                 return {"success": False, "error": f"Option '{option_text}' not found in {dropdown_label}"}
             
-            # Click the matched option
-            print(f"  ✅ Found option, clicking...")
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", matched_option)
-            time.sleep(0.5)
-            
-            # Try regular click first
-            try:
-                matched_option.click()
-                print(f"  ✅ Clicked option (regular click)")
-            except Exception as opt_click_error:
-                print(f"  ⚠️ Regular click failed, using JavaScript click...")
-                self.driver.execute_script("arguments[0].click();", matched_option)
-                print(f"  ✅ Clicked option (JavaScript click)")
-            
+            # Click the option
+            option = options[0]
+            self.driver.execute_script("arguments[0].scrollIntoView(true);", option)
+            time.sleep(0.3)
+            option.click()
             time.sleep(1)
             
             print(f"  ✅ Selected '{option_text}' from {dropdown_label}")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_selected")
             
-            # CRITICAL: Force close the dropdown by clicking a blank area
-            print(f"  🖱️ Clicking blank area to ensure dropdown is fully closed...")
-            try:
-                # Click on the page header/title area (safe blank space)
-                blank_area = self.driver.find_element(By.TAG_NAME, "h1")
-                blank_area.click()
-                print(f"  ✅ Clicked h1 element to close dropdown")
-            except:
-                try:
-                    # Fallback: Click body
-                    self.driver.find_element(By.TAG_NAME, "body").click()
-                    print(f"  ✅ Clicked body to close dropdown")
-                except:
-                    print(f"  ⚠️ Could not click blank area")
-            
-            # Wait for dropdown to close and overlay to disappear
-            print(f"  ⏳ Waiting 3 seconds for dropdown to fully close...")
-            time.sleep(3)
-            
-            # Verify overlay is gone
-            overlays = self.driver.find_elements(By.XPATH, "//div[contains(@class,'cdk-overlay-backdrop')]")
-            visible_overlays = [o for o in overlays if o.is_displayed()]
-            if visible_overlays:
-                print(f"  ⚠️ Warning: {len(visible_overlays)} overlay backdrop(s) still visible")
-                # Try pressing Escape key to close
-                try:
-                    from selenium.webdriver.common.keys import Keys
-                    self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
-                    time.sleep(1)
-                    print(f"  ✅ Pressed Escape to force close overlay")
-                except:
-                    pass
-            else:
-                print(f"  ✅ Overlay fully closed")
-            
-            # Verify old mat-options are gone
-            remaining_options = self.driver.find_elements(By.XPATH, "//mat-option")
-            visible_remaining = [opt for opt in remaining_options if opt.is_displayed()]
-            if visible_remaining:
-                print(f"  ⚠️ Warning: {len(visible_remaining)} mat-options still visible - FORCE REMOVING")
-                # Nuclear option: Forcefully remove ALL mat-options from DOM
-                try:
-                    self.driver.execute_script("""
-                        // Remove all mat-option elements
-                        var allOptions = document.querySelectorAll('mat-option');
-                        allOptions.forEach(function(opt) {
-                            opt.remove();
-                        });
-                        
-                        // Remove all overlay containers
-                        var overlays = document.querySelectorAll('.cdk-overlay-container mat-option, .cdk-overlay-pane');
-                        overlays.forEach(function(overlay) {
-                            if (overlay.style) {
-                                overlay.style.display = 'none';
-                                overlay.style.visibility = 'hidden';
-                            }
-                        });
-                        
-                        console.log('Forcefully removed all mat-options');
-                    """)
-                    print(f"  ✅ Forcefully removed {len(visible_remaining)} old mat-options from DOM")
-                    # Wait a moment for DOM to stabilize after forced removal
-                    time.sleep(1)
-                except Exception as e:
-                    print(f"  ⚠️ Could not force remove options: {e}")
-            else:
-                print(f"  ✅ All mat-options cleaned up")
-            
             return {"success": True, "selected": option_text}
             
         except Exception as e:
             print(f"  ❌ Error selecting dropdown: {e}")
-            import traceback
-            traceback.print_exc()
-            self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_error")
             return {"success": False, "error": str(e)}
     
     def fill_container_number(self, container_id: str) -> Dict[str, Any]:
@@ -4631,61 +4115,38 @@ def check_appointments():
             # Fill Phase 1
             result = operations.select_dropdown_by_text("Trucking", trucking_company)
             if not result["success"]:
-                # Create debug bundle before returning error
-                bundle_name, bundle_url = create_appointment_debug_bundle(
-                    appt_session.session_id,
-                    appt_session.browser_session.username,
-                    "check_appointments_error",
-                    operations.screens_dir
-                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Trucking company: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1,
-                    "debug_bundle_url": bundle_url
+                    "current_phase": 1
                 }), 500
             
             result = operations.select_dropdown_by_text("Terminal", terminal)
             if not result["success"]:
-                bundle_name, bundle_url = create_appointment_debug_bundle(
-                    appt_session.session_id, appt_session.browser_session.username,
-                    "check_appointments_error", operations.screens_dir
-                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Terminal: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1,
-                    "debug_bundle_url": bundle_url
+                    "current_phase": 1
                 }), 500
             
             result = operations.select_dropdown_by_text("Move", move_type)
             if not result["success"]:
-                bundle_name, bundle_url = create_appointment_debug_bundle(
-                    appt_session.session_id, appt_session.browser_session.username,
-                    "check_appointments_error", operations.screens_dir
-                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Move type: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1,
-                    "debug_bundle_url": bundle_url
+                    "current_phase": 1
                 }), 500
             
             result = operations.fill_container_number(container_id)
             if not result["success"]:
-                bundle_name, bundle_url = create_appointment_debug_bundle(
-                    appt_session.session_id, appt_session.browser_session.username,
-                    "check_appointments_error", operations.screens_dir
-                )
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Container: {result['error']}",
                     "session_id": appt_session.session_id,
-                    "current_phase": 1,
-                    "debug_bundle_url": bundle_url
+                    "current_phase": 1
                 }), 500
             
             # Click Next
@@ -4705,28 +4166,18 @@ def check_appointments():
                     print("  🔄 Retrying Next button after re-filling...")
                     result = operations.click_next_button(1)
                     if not result["success"]:
-                        bundle_name, bundle_url = create_appointment_debug_bundle(
-                            appt_session.session_id, appt_session.browser_session.username,
-                            "check_appointments_error", operations.screens_dir
-                        )
                         return jsonify({
                             "success": False,
                             "error": f"Phase 1 failed - Next button (after retry): {result['error']}",
                             "session_id": appt_session.session_id,
-                            "current_phase": 1,
-                            "debug_bundle_url": bundle_url
+                            "current_phase": 1
                         }), 500
                 else:
-                    bundle_name, bundle_url = create_appointment_debug_bundle(
-                        appt_session.session_id, appt_session.browser_session.username,
-                        "check_appointments_error", operations.screens_dir
-                    )
                     return jsonify({
                         "success": False,
                         "error": f"Phase 1 failed - Next button: {result['error']}",
                         "session_id": appt_session.session_id,
-                        "current_phase": 1,
-                        "debug_bundle_url": bundle_url
+                        "current_phase": 1
                     }), 500
             
             # Update session

@@ -211,142 +211,47 @@ class RecaptchaHandler:
             print("🎧 Switching to audio challenge...")
             self.driver.switch_to.frame(challenge_iframe)
             
-            # Wait 3 seconds for challenge iframe to fully load
-            print("  ⏳ Waiting for challenge iframe to load...")
-            time.sleep(3)
-            
-            # Take screenshot for debugging
-            try:
-                self.driver.save_screenshot("/tmp/recaptcha_challenge_iframe.png")
-                print("  📸 Screenshot saved: /tmp/recaptcha_challenge_iframe.png")
-            except:
-                pass
-            
             # Find and click audio button
             audio_button_selectors = [
                 "#recaptcha-audio-button",
                 "button[id*='audio']",
-                "button[aria-label*='audio']",
-                ".rc-button-audio"
+                "button[aria-label*='audio']"
             ]
             
             audio_button = None
             for selector in audio_button_selectors:
                 try:
-                    print(f"  🔍 Trying selector: {selector}")
                     audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                    print(f"  ✅ Found audio button with: {selector}")
                     break
-                except Exception as e:
-                    print(f"  ⚠️ Selector failed: {selector} - {str(e)[:50]}")
+                except:
                     continue
             
-            # If still not found, try to see what's in the iframe
             if not audio_button:
-                try:
-                    body_html = self.driver.find_element(By.TAG_NAME, "body").get_attribute("innerHTML")
-                    print(f"  📄 Challenge iframe body (first 500 chars):")
-                    print(f"  {body_html[:500]}")
-                except:
-                    pass
-                raise RecaptchaError("Audio button not found - reCAPTCHA may be blocking automation")
+                raise RecaptchaError("Audio button not found")
             
             audio_button.click()
             print("  ✅ Audio challenge selected")
-            
-            # Wait longer for audio challenge UI to load
-            print("  ⏳ Waiting 5 seconds for audio challenge UI...")
-            time.sleep(5)
-            
-            # Take screenshot of audio challenge
-            try:
-                self.driver.save_screenshot("/tmp/recaptcha_audio_challenge.png")
-                print("  📸 Screenshot saved: /tmp/recaptcha_audio_challenge.png")
-            except:
-                pass
-            
-            # Check if reCAPTCHA was solved immediately (some configurations auto-pass)
-            try:
-                # Look for recaptcha-token or other success indicators
-                token_input = self.driver.find_element(By.ID, "recaptcha-token")
-                if token_input:
-                    token_value = token_input.get_attribute("value")
-                    if token_value and len(token_value) > 50:  # Valid token
-                        print("  ✅ reCAPTCHA token found - challenge may be solved!")
-                        print(f"  🎫 Token preview: {token_value[:50]}...")
-                        
-                        # Switch back to main content and check if login button is enabled
-                        self.driver.switch_to.default_content()
-                        time.sleep(2)
-                        
-                        # Check if we're past the challenge
-                        try:
-                            # Look for challenge iframe - if it's gone, we're done
-                            challenge_frames = self.driver.find_elements(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/bframe')]")
-                            if not challenge_frames or not challenge_frames[0].is_displayed():
-                                print("  ✅ Challenge iframe gone - reCAPTCHA solved!")
-                                return {
-                                    "success": True,
-                                    "method": "auto_solved",
-                                    "message": "reCAPTCHA auto-solved after audio button click"
-                                }
-                        except:
-                            pass
-                        
-                        # Go back into iframe if still there
-                        challenge_iframe = self.driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/bframe')]")
-                        self.driver.switch_to.frame(challenge_iframe)
-            except:
-                pass
+            time.sleep(1)
             
             # Step 5: Click play button and get audio
             print("▶️ Getting audio challenge...")
             play_button_selectors = [
-                ".rc-audiochallenge-play-button button",  # Play button inside audio challenge
-                "button.rc-button.goog-inline-block:not([id])",  # Generic play button without ID
                 ".rc-audiochallenge-play-button",
-                "button[aria-label*='PLAY']",  # Uppercase PLAY
-                "button[title*='PLAY']",
-                "button.rc-button:not(#recaptcha-audio-button):not(.rc-button-disabled)"  # Exclude audio button and disabled
+                "button[aria-label*='play']",
+                "button[title*='play']"
             ]
             
             play_button = None
             for selector in play_button_selectors:
                 try:
-                    print(f"  🔍 Trying play button selector: {selector}")
-                    buttons = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for btn in buttons:
-                        # Check if it's NOT the audio challenge button and NOT disabled
-                        btn_id = btn.get_attribute("id")
-                        btn_disabled = btn.get_attribute("disabled")
-                        btn_class = btn.get_attribute("class") or ""
-                        
-                        if btn_id == "recaptcha-audio-button":
-                            print(f"    ⚠️ Skipping audio challenge button")
-                            continue
-                        if btn_disabled or "rc-button-disabled" in btn_class:
-                            print(f"    ⚠️ Skipping disabled button")
-                            continue
-                        if btn.is_displayed():
-                            play_button = btn
-                            print(f"  ✅ Found valid play button with: {selector}")
-                            print(f"    Button ID: {btn_id}, Class: {btn_class[:50]}")
-                            break
-                    if play_button:
+                    play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if play_button.is_displayed():
                         break
-                except Exception as e:
-                    print(f"  ⚠️ Play selector failed: {selector} - {str(e)[:80]}")
+                except:
                     continue
             
-            # If still not found, dump the HTML
             if not play_button:
-                try:
-                    body_html = self.driver.find_element(By.TAG_NAME, "body").get_attribute("innerHTML")
-                    print(f"  📄 Audio challenge body (first 800 chars):")
-                    print(f"  {body_html[:800]}")
-                except:
-                    pass
-                raise RecaptchaError("Play button not found - Audio challenge UI may not have loaded")
+                raise RecaptchaError("Play button not found")
             
             play_button.click()
             print("  ✅ Audio playing")
