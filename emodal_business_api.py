@@ -1341,6 +1341,8 @@ class EModalBusinessOperations:
                         console.log('Forcefully removed all mat-options');
                     """)
                     print(f"  ✅ Forcefully removed {len(visible_remaining)} old mat-options from DOM")
+                    # Wait a moment for DOM to stabilize after forced removal
+                    time.sleep(1)
                 except Exception as e:
                     print(f"  ⚠️ Could not force remove options: {e}")
             else:
