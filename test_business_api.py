@@ -39,15 +39,16 @@ def choose_server():
     print("=" * 60)
     print("Choose which server to connect to:")
     print("")
-    print("  1. Local server    (http://localhost:5010)")
-    print("  2. Remote server   (http://89.117.63.196:5010)")
-    print("  3. Custom server   (enter IP/hostname)")
+    print("  1. Local server     (http://localhost:5010)")
+    print("  2. Remote server 1  (http://89.117.63.196:5010)")
+    print("  3. Remote server 2  (http://37.60.243.201:5010)")
+    print("  4. Custom server    (enter IP/hostname)")
     print("")
     
     while True:
-        choice = input("Enter your choice (1/2/3) [default: 2]: ").strip()
+        choice = input("Enter your choice (1/2/3/4) [default: 2]: ").strip()
         
-        # Default to remote server
+        # Default to remote server 1
         if not choice:
             choice = "2"
         
@@ -59,15 +60,20 @@ def choose_server():
         elif choice == "2":
             API_HOST = "89.117.63.196"
             API_PORT = "5010"
-            print(f"✅ Selected: Remote server (89.117.63.196)")
+            print(f"✅ Selected: Remote server 1 (89.117.63.196)")
             break
         elif choice == "3":
+            API_HOST = "37.60.243.201"
+            API_PORT = "5010"
+            print(f"✅ Selected: Remote server 2 (37.60.243.201)")
+            break
+        elif choice == "4":
             API_HOST = input("Enter server IP/hostname: ").strip()
             API_PORT = input("Enter port [5010]: ").strip() or "5010"
             print(f"✅ Selected: Custom server ({API_HOST}:{API_PORT})")
             break
         else:
-            print("❌ Invalid choice. Please enter 1, 2, or 3.")
+            print("❌ Invalid choice. Please enter 1, 2, 3, or 4.")
     
     API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
     print(f"🔗 API URL: {API_BASE_URL}")

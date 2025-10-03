@@ -27,7 +27,9 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
 
 from recaptcha_handler import RecaptchaHandler, RecaptchaError
 
@@ -192,9 +194,12 @@ class EModalLoginHandler:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--start-maximized")
         
-        # Initialize driver
+        # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
-        self.driver = webdriver.Chrome(options=chrome_options)
+        print("📦 Auto-downloading matching ChromeDriver version...")
+        service = Service(ChromeDriverManager().install())
+        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        print("✅ ChromeDriver initialized successfully")
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
