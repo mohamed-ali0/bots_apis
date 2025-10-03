@@ -211,9 +211,6 @@ class RecaptchaHandler:
             print("🎧 Switching to audio challenge...")
             self.driver.switch_to.frame(challenge_iframe)
             
-            # Wait for iframe to fully load (critical on Linux)
-            time.sleep(2)
-            
             # Find and click audio button
             audio_button_selectors = [
                 "#recaptcha-audio-button",
@@ -225,11 +222,6 @@ class RecaptchaHandler:
             for selector in audio_button_selectors:
                 try:
                     audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
-                    # Extra check: ensure it's not disabled
-                    if audio_button.get_attribute("disabled"):
-                        print(f"  ⏳ Audio button is disabled, waiting...")
-                        time.sleep(2)
-                        audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
                     break
                 except:
                     continue
@@ -237,169 +229,58 @@ class RecaptchaHandler:
             if not audio_button:
                 raise RecaptchaError("Audio button not found")
             
-            # Scroll button into view and click with JavaScript (more reliable on Linux)
-            try:
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", audio_button)
-                time.sleep(0.5)
-                self.driver.execute_script("arguments[0].click();", audio_button)
-                print("  ✅ Audio challenge selected (JS click)")
-            except:
-                # Fallback to regular click
-                audio_button.click()
-                print("  ✅ Audio challenge selected")
-            
-            time.sleep(2)  # Wait for audio challenge to load
+            audio_button.click()
+            print("  ✅ Audio challenge selected")
+            time.sleep(1)
             
             # Step 5: Click play button and get audio
             print("▶️ Getting audio challenge...")
             play_button_selectors = [
                 ".rc-audiochallenge-play-button",
                 "button[aria-label*='play']",
-                "button[title*='play']",
-                "button.rc-button-audio"
+                "button[title*='play']"
             ]
             
             play_button = None
-            max_attempts = 3
-            for attempt in range(max_attempts):
-                for selector in play_button_selectors:
-                    try:
-                        play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        if play_button.is_displayed():
-                            break
-                    except:
-                        continue
-                
-                if play_button:
-                    break
-                
-                if attempt < max_attempts - 1:
-                    print(f"  ⏳ Play button not found (attempt {attempt + 1}/{max_attempts}), waiting...")
-                    time.sleep(2)
+            for selector in play_button_selectors:
+                try:
+                    play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if play_button.is_displayed():
+                        break
+                except:
+                    continue
             
             if not play_button:
-                # Try to take a screenshot for debugging
-                try:
-                    screenshot_path = f"/tmp/recaptcha_play_button_error_{int(time.time())}.png"
-                    self.driver.save_screenshot(screenshot_path)
-                    print(f"  📸 Screenshot saved: {screenshot_path}")
-                except:
-                    pass
-                raise RecaptchaError("Play button not found after 3 attempts")
+                raise RecaptchaError("Play button not found")
             
-            # Click with retry logic - prefer JavaScript on Linux
-            click_success = False
-            for click_attempt in range(3):
-                try:
-                    if click_attempt == 0:
-                        # Try JavaScript click first (most reliable)
-                        self.driver.execute_script("arguments[0].scrollIntoView(true);", play_button)
-                        time.sleep(0.3)
-                        self.driver.execute_script("arguments[0].click();", play_button)
-                        print("  ✅ Audio playing (JS click)")
-                    elif click_attempt == 1:
-                        # Try regular click
-                        play_button.click()
-                        print("  ✅ Audio playing (regular click)")
-                    else:
-                        # Final attempt: ActionChains
-                        from selenium.webdriver.common.action_chains import ActionChains
-                        ActionChains(self.driver).move_to_element(play_button).click().perform()
-                        print("  ✅ Audio playing (ActionChains)")
-                    
-                    click_success = True
-                    break
-                except Exception as e:
-                    if click_attempt < 2:
-                        print(f"  ⚠️ Click attempt {click_attempt + 1} failed, retrying... ({str(e)[:50]})")
-                        time.sleep(1.5)
-                    else:
-                        raise
-            
-            if click_success:
-                time.sleep(3)  # Increased wait time for audio to load
+            play_button.click()
+            print("  ✅ Audio playing")
+            time.sleep(2)
             
             # Step 6: Extract audio URL
             print("🎵 Extracting audio URL...")
             audio_url = None
             
-            # Multiple attempts with increasing wait times
-            max_extract_attempts = 3
-            for extract_attempt in range(max_extract_attempts):
-                try:
-                    # Method 1: Find audio element directly
-                    try:
-                        audio_element = self.driver.find_element(By.TAG_NAME, "audio")
-                        audio_url = audio_element.get_attribute("src")
-                        if audio_url:
-                            break
-                    except:
-                        pass
-                    
-                    # Method 2: Look for download link
-                    try:
-                        download_link = self.driver.find_element(By.CSS_SELECTOR, "a.rc-audiochallenge-tdownload-link")
-                        audio_url = download_link.get_attribute("href")
-                        if audio_url:
-                            break
-                    except:
-                        pass
-                    
-                    # Method 3: JavaScript extraction
-                    try:
-                        audio_url = self.driver.execute_script("""
-                            var audio = document.querySelector('audio');
-                            if (audio && audio.src) return audio.src;
-                            var link = document.querySelector('a.rc-audiochallenge-tdownload-link');
-                            if (link && link.href) return link.href;
-                            return null;
-                        """)
-                        if audio_url:
-                            break
-                    except:
-                        pass
-                    
-                    # Method 4: Parse page source (last resort)
-                    try:
-                        page_source = self.driver.page_source
-                        audio_patterns = [
-                            r'src="([^"]*payload[^"]*)"',
-                            r'href="([^"]*payload[^"]*)"',
-                            r'(https://[^\s"\']*payload[^\s"\']*)'
-                        ]
-                        
-                        for pattern in audio_patterns:
-                            matches = re.findall(pattern, page_source)
-                            if matches:
-                                audio_url = matches[0]
-                                break
-                        if audio_url:
-                            break
-                    except Exception as e:
-                        print(f"  ⚠️ Page source parse error: {str(e)[:50]}")
-                    
-                    # If still no URL and not last attempt, wait and retry
-                    if not audio_url and extract_attempt < max_extract_attempts - 1:
-                        wait_time = 2 * (extract_attempt + 1)  # 2s, 4s, 6s
-                        print(f"  ⏳ Audio URL not found (attempt {extract_attempt + 1}/{max_extract_attempts}), waiting {wait_time}s...")
-                        time.sleep(wait_time)
-                    
-                except Exception as e:
-                    if extract_attempt < max_extract_attempts - 1:
-                        print(f"  ⚠️ Extract attempt {extract_attempt + 1} failed: {str(e)[:50]}")
-                        time.sleep(2)
-                    else:
-                        # Take screenshot for debugging
-                        try:
-                            screenshot_path = f"/tmp/recaptcha_audio_url_error_{int(time.time())}.png"
-                            self.driver.save_screenshot(screenshot_path)
-                            print(f"  📸 Screenshot saved: {screenshot_path}")
-                        except:
-                            pass
-                        raise
+            # Look for audio element
+            try:
+                audio_element = self.driver.find_element(By.TAG_NAME, "audio")
+                audio_url = audio_element.get_attribute("src")
+            except:
+                # Look in page source
+                page_source = self.driver.page_source
+                audio_patterns = [
+                    r'src="([^"]*payload[^"]*)"',
+                    r'(https://[^\s]*payload[^\s]*)'
+                ]
+                
+                for pattern in audio_patterns:
+                    matches = re.findall(pattern, page_source)
+                    if matches:
+                        audio_url = matches[0]
+                        break
             
             if not audio_url:
-                raise RecaptchaError("Could not extract audio URL after 3 attempts")
+                raise RecaptchaError("Could not extract audio URL")
             
             print(f"  🎵 Audio URL found: {audio_url[:50]}...")
             

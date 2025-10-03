@@ -172,6 +172,12 @@ class EModalLoginHandler:
         
         # Linux-specific optimizations for server environments
         if platform.system() == 'Linux':
+            # Enable verbose logging for debugging
+            chrome_options.add_argument("--enable-logging")
+            chrome_options.add_argument("--v=1")
+            chrome_options.add_argument(f"--log-path=/tmp/chrome_debug_{os.getpid()}.log")
+            print(f"  📝 Chrome debug log: /tmp/chrome_debug_{os.getpid()}.log")
+            
             # Critical stability flags to prevent crashes
             chrome_options.add_argument("--disable-dev-shm-usage")  # Overcome limited resource problems
             chrome_options.add_argument("--no-sandbox")  # Required for running as root or in containers
