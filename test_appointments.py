@@ -15,13 +15,25 @@ API_BASE_URL = None
 # Hardcoded Credentials (from test_business_api.py)
 DEFAULT_USERNAME = "jfernandez"
 DEFAULT_PASSWORD = "taffie"
-DEFAULT_CAPTCHA_KEY = "5a0a4a97f8b4c9505d0b719cd92a9dcb"
+DEFAULT_CAPTCHA_KEY = "7bf85bb6f37c9799543a2a463aab2b4f"
 
 
 def choose_server():
-    """Prompt user to choose between local or remote server"""
+    """Prompt user to choose between local or remote servers"""
     global API_HOST, API_PORT, API_BASE_URL
     
+    # Check if running in non-interactive mode
+    auto_test = os.environ.get('AUTO_TEST', '0') == '1'
+    
+    if auto_test or os.environ.get('API_HOST'):
+        # Use environment variables in non-interactive mode
+        API_HOST = os.environ.get('API_HOST', '37.60.243.201')
+        API_PORT = os.environ.get('API_PORT', '5010')
+        API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
+        print(f"🌐 Using API server from environment: {API_BASE_URL}")
+        return
+    
+    # Interactive mode - ask user
     print("\n" + "=" * 70)
     print("🌐 API Server Selection")
     print("=" * 70)

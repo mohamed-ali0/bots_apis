@@ -27,7 +27,7 @@ def choose_server():
     
     if auto_test or os.environ.get('API_HOST'):
         # Use environment variables in non-interactive mode
-        API_HOST = os.environ.get('API_HOST', '89.117.63.196')
+        API_HOST = os.environ.get('API_HOST', '37.60.243.201')
         API_PORT = os.environ.get('API_PORT', '5010')
         API_BASE_URL = f"http://{API_HOST}:{API_PORT}"
         print(f"🌐 Using API server from environment: {API_BASE_URL}")
@@ -117,13 +117,13 @@ def test_get_containers():
     if auto_test:
         username = os.environ.get('EMODAL_USERNAME', 'jfernandez')
         password = os.environ.get('EMODAL_PASSWORD', 'taffie')
-        api_key = os.environ.get('CAPTCHA_API_KEY', '5a0a4a97f8b4c9505d0b719cd92a9dcb')
+        api_key = os.environ.get('CAPTCHA_API_KEY', '7bf85bb6f37c9799543a2a463aab2b4f')
         keep_alive = os.environ.get('KEEP_BROWSER_ALIVE', 'true').lower() in ['1', 'true', 'yes', 'y']
     else:
         # Interactive fallback
         username = input("Enter E-Modal username (or press Enter for 'jfernandez'): ").strip() or "jfernandez"
         password = input("Enter E-Modal password (or press Enter for 'taffie'): ").strip() or "taffie"
-        api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "5a0a4a97f8b4c9505d0b719cd92a9dcb"
+        api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "7bf85bb6f37c9799543a2a463aab2b4f"
         keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
         keep_alive = keep_alive_input in ['y', 'yes']
     
@@ -254,12 +254,12 @@ def test_make_appointment():
     if auto_test:
         username = os.environ.get('EMODAL_USERNAME', 'jfernandez')
         password = os.environ.get('EMODAL_PASSWORD', 'taffie')
-        api_key = os.environ.get('CAPTCHA_API_KEY', '5a0a4a97f8b4c9505d0b719cd92a9dcb')
+        api_key = os.environ.get('CAPTCHA_API_KEY', '7bf85bb6f37c9799543a2a463aab2b4f')
         keep_alive = os.environ.get('KEEP_BROWSER_ALIVE', 'true').lower() in ['1', 'true', 'yes', 'y']
     else:
         username = input("Enter E-Modal username (or press Enter for 'jfernandez'): ").strip() or "jfernandez"
         password = input("Enter E-Modal password (or press Enter for 'taffie'): ").strip() or "taffie"
-        api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "5a0a4a97f8b4c9505d0b719cd92a9dcb"
+        api_key = input("Enter 2captcha API key (or press Enter for demo key): ").strip() or "7bf85bb6f37c9799543a2a463aab2b4f"
         keep_alive_input = input("Keep browser alive for more operations? (y/N): ").strip().lower()
         keep_alive = keep_alive_input in ['y', 'yes']
     

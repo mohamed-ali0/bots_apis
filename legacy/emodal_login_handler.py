@@ -157,42 +157,9 @@ class EModalLoginHandler:
         # Critical options for Linux servers
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        
-        # Enhanced anti-detection measures to avoid Google blocking
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--disable-web-security")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-client-side-phishing-detection")
-        chrome_options.add_argument("--disable-sync")
-        chrome_options.add_argument("--disable-default-apps")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-images")
-        chrome_options.add_argument("--disable-javascript")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--no-first-run")
-        chrome_options.add_argument("--no-default-browser-check")
-        chrome_options.add_argument("--disable-logging")
-        chrome_options.add_argument("--disable-permissions-api")
-        chrome_options.add_argument("--disable-presentation-api")
-        chrome_options.add_argument("--disable-print-preview")
-        chrome_options.add_argument("--disable-speech-api")
-        chrome_options.add_argument("--hide-scrollbars")
-        chrome_options.add_argument("--mute-audio")
-        chrome_options.add_argument("--no-zygote")
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--disable-features=TranslateUI")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
-        
-        # Remove automation indicators
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_experimental_option("detach", True)
         
         # Configure download behavior (important for Linux)
         prefs = {
@@ -233,133 +200,13 @@ class EModalLoginHandler:
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         print("✅ ChromeDriver initialized successfully")
-        
-        # Apply enhanced stealth measures
-        self._apply_stealth_measures()
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
         # Initialize reCAPTCHA handler
         self.recaptcha_handler = RecaptchaHandler(self.captcha_api_key, self.timeout)
-    
-    def _apply_stealth_measures(self) -> None:
-        """Apply comprehensive stealth measures to avoid detection"""
-        try:
-            print("🥷 Applying stealth measures...")
-            
-            # Remove webdriver property
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            # Override automation indicators
-            stealth_script = """
-            // Remove automation indicators
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-            
-            // Override chrome detection
-            window.chrome = {
-                runtime: {},
-                loadTimes: function() {},
-                csi: function() {},
-                app: {}
-            };
-            
-            // Override permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-            );
-            
-            // Override getParameter
-            const getParameter = WebGLRenderingContext.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                if (parameter === 37445) {
-                    return 'Intel Inc.';
-                }
-                if (parameter === 37446) {
-                    return 'Intel Iris OpenGL Engine';
-                }
-                return getParameter(parameter);
-            };
-            
-            // Override toString methods
-            const originalToString = Function.prototype.toString;
-            Function.prototype.toString = function() {
-                if (this === navigator.webdriver) {
-                    return 'function webdriver() { [native code] }';
-                }
-                return originalToString.apply(this, arguments);
-            };
-            """
-            
-            self.driver.execute_script(stealth_script)
-            
-            # Set realistic user agent
-            user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-            ]
-            
-            import random
-            user_agent = random.choice(user_agents)
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": user_agent,
-                "acceptLanguage": "en-US,en;q=0.9",
-                "platform": "Win32"
-            })
-            
-            print("✅ Stealth measures applied successfully")
-            
-        except Exception as e:
-            print(f"⚠️  Stealth measures warning: {e}")
-            # Continue anyway - stealth is best effort
-    
-    def _human_like_click(self, element) -> None:
-        """Simulate human-like clicking with mouse movement"""
-        try:
-            from selenium.webdriver.common.action_chains import ActionChains
-            import random
-            
-            # Move to element with slight offset (like human mouse movement)
-            actions = ActionChains(self.driver)
-            actions.move_to_element_with_offset(element, 
-                random.randint(-5, 5), random.randint(-5, 5))
-            actions.pause(random.uniform(0.1, 0.3))
-            actions.click()
-            actions.perform()
-            
-        except Exception:
-            # Fallback to regular click
-            element.click()
-    
-    def _human_like_type(self, element, text: str) -> None:
-        """Simulate human-like typing with variable delays"""
-        try:
-            import random
-            
-            for char in text:
-                element.send_keys(char)
-                # Variable delay between keystrokes (human-like)
-                delay = random.uniform(0.05, 0.25)
-                time.sleep(delay)
-                
-        except Exception:
-            # Fallback to regular typing
-            element.send_keys(text)
-    
-    def _human_like_pause(self) -> None:
-        """Add human-like random pause"""
-        import random
-        pause_time = random.uniform(1.5, 3.0)
-        print(f"⏳ Human-like pause: {pause_time:.1f}s")
-        time.sleep(pause_time)
+        self.recaptcha_handler.set_driver(self.driver)
     
     def _check_vpn_status(self) -> LoginResult:
         """Check if VPN is working (no 403 errors)"""
@@ -391,47 +238,21 @@ class EModalLoginHandler:
             )
     
     def _fill_credentials(self, username: str, password: str) -> LoginResult:
-        """Fill username and password fields with human-like behavior"""
+        """Fill username and password fields"""
         try:
-            import random
-            
-            # Find and fill username with human-like typing
+            # Find and fill username
             username_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Username"))
             )
-            
-            # Human-like click and focus
-            self._human_like_click(username_field)
-            time.sleep(random.uniform(0.5, 1.0))
-            
-            # Clear field with human-like behavior
             username_field.clear()
-            time.sleep(random.uniform(0.2, 0.5))
+            username_field.send_keys(username)
             
-            # Type with human-like delays
-            self._human_like_type(username_field, username)
-            
-            # Small pause between fields
-            time.sleep(random.uniform(0.8, 1.5))
-            
-            # Find and fill password with human-like typing
+            # Find and fill password
             password_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Password"))
             )
-            
-            # Human-like click and focus
-            self._human_like_click(password_field)
-            time.sleep(random.uniform(0.5, 1.0))
-            
-            # Clear field with human-like behavior
             password_field.clear()
-            time.sleep(random.uniform(0.2, 0.5))
-            
-            # Type with human-like delays
-            self._human_like_type(password_field, password)
-            
-            # Final pause before proceeding
-            time.sleep(random.uniform(1.0, 2.0))
+            password_field.send_keys(password)
             
             return LoginResult(success=True)
             
@@ -697,18 +518,12 @@ class EModalLoginHandler:
                 return cred_result
             print("✅ Credentials filled")
             
-            # Human-like pause before reCAPTCHA
-            self._human_like_pause()
-            
             # Step 4: Handle reCAPTCHA FIRST (LOGIN button is disabled until reCAPTCHA solved)
             print("🔒 Handling reCAPTCHA...")
             recaptcha_result = self._handle_recaptcha()
             if not recaptcha_result.success:
                 return recaptcha_result
             print(f"✅ reCAPTCHA handled: {recaptcha_result.recaptcha_method}")
-            
-            # Human-like pause after reCAPTCHA
-            self._human_like_pause()
             
             # Step 5: Now locate enabled LOGIN button (should be enabled after reCAPTCHA)
             print("🔍 Locating now-enabled LOGIN button...")
