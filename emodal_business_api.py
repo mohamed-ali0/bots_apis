@@ -2005,6 +2005,7 @@ class EModalBusinessOperations:
     def scroll_and_select_appointment_checkboxes(self, mode: str, target_value: Any = None) -> Dict[str, Any]:
         """
         Scroll through appointments and select all checkboxes.
+        Optimized flow: only scroll when no new content is found (like timeline search).
         
         Args:
             mode: "infinite", "count", or "id"
@@ -2023,7 +2024,7 @@ class EModalBusinessOperations:
             
             while True:
                 scroll_cycles += 1
-                print(f"\n🔄 Scroll cycle {scroll_cycles}")
+                print(f"\n🔄 Cycle {scroll_cycles} (no new: {no_new_content_count}/{max_no_new_content})")
                 
                 # Find all checkboxes
                 try:
@@ -2046,7 +2047,7 @@ class EModalBusinessOperations:
                         if not is_checked:
                             # Scroll into view
                             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
-                            time.sleep(0.3)
+                            time.sleep(0.1)  # Reduced from 0.3
                             
                             # Click the checkbox (or its parent mat-checkbox element)
                             try:
@@ -2056,11 +2057,12 @@ class EModalBusinessOperations:
                                 parent = checkbox.find_element(By.XPATH, "./ancestor::mat-checkbox")
                                 parent.click()
                             
-                            time.sleep(0.2)
+                            time.sleep(0.1)  # Reduced from 0.2
                             newly_selected += 1
                             selected_count += 1
                             
-                            print(f"    ✅ Selected checkbox {selected_count}")
+                            if selected_count % 10 == 0:  # Print every 10 to reduce log spam
+                                print(f"    ✅ Selected {selected_count} checkboxes so far...")
                             
                             # Check if we've reached target count
                             if mode == "count" and target_value and selected_count >= target_value:
@@ -2068,41 +2070,32 @@ class EModalBusinessOperations:
                                 return {"success": True, "selected_count": selected_count}
                                 
                     except Exception as e:
-                        print(f"    ⚠️ Error selecting checkbox: {e}")
+                        # Silent fail for individual checkboxes to reduce log spam
                         continue
                 
                 if newly_selected > 0:
                     print(f"  ✅ Selected {newly_selected} new checkboxes (total: {selected_count})")
                     no_new_content_count = 0
+                    # Don't scroll yet - continue checking for more checkboxes first
                 else:
-                    print(f"  ⏳ No new checkboxes selected")
+                    print(f"  ⏳ No new checkboxes found")
                     no_new_content_count += 1
+                    
+                    # Only scroll when there's no new content (optimized like timeline)
+                    if no_new_content_count < max_no_new_content:
+                        print(f"  📜 Scrolling to load more content...")
+                        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                        time.sleep(0.7)  # Short wait like timeline (instead of 3 seconds)
                 
                 # Check if we should stop
                 if no_new_content_count >= max_no_new_content:
                     print(f"  🛑 No new checkboxes for {max_no_new_content} cycles, stopping")
                     break
                 
-                # For infinite mode, continue until no new content
-                if mode == "infinite":
-                    # Scroll down
-                    print(f"  📜 Scrolling down...")
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(3)  # Wait for content to load
-                    
-                # For count mode, scroll and continue
-                elif mode == "count":
-                    if selected_count >= target_value:
-                        break
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(3)
-                
-                # For id mode (search for specific appointment)
-                elif mode == "id":
-                    # TODO: Implement ID-based search if needed
-                    # For now, treat similar to infinite
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(3)
+                # For count mode, check if target reached
+                if mode == "count" and target_value and selected_count >= target_value:
+                    print(f"  🎯 Target count reached: {selected_count}")
+                    break
             
             print(f"\n✅ Checkbox selection completed")
             print(f"  Total selected: {selected_count}")
@@ -3624,31 +3617,46 @@ class EModalBusinessOperations:
                     return {"success": False, "error": f"Could not find expanded row: {str(e)}"}
             
             # Look for "Booking #" label and its corresponding value
+            # The structure is: label div with "Booking #" text, followed by field-data div right under it
             try:
-                # Method 1: Find by label text "Booking #"
+                # Method 1: Find by label text "Booking #" and get the field-data right under it
+                print("  🔍 Searching for 'Booking #' label...")
                 booking_label = expanded_row.find_element(
                     By.XPATH,
                     ".//div[contains(@class, 'field-label') and contains(text(), 'Booking #')]"
                 )
                 print("  ✅ Found 'Booking #' label")
                 
-                # The value should be in a sibling or parent's sibling with class 'field-data'
+                # The value should be right under the label (following-sibling)
                 try:
-                    # Try finding the field-data in the same parent
-                    booking_value_elem = booking_label.find_element(
-                        By.XPATH,
-                        "..//div[contains(@class, 'field-data')]"
-                    )
-                except:
-                    # Try finding as a following sibling
+                    # Try following-sibling first (most common structure)
                     booking_value_elem = booking_label.find_element(
                         By.XPATH,
                         "following-sibling::div[contains(@class, 'field-data')]"
                     )
+                    print("  ✅ Found field-data as following-sibling")
+                except:
+                    try:
+                        # Try within same parent container
+                        parent = booking_label.find_element(By.XPATH, "..")
+                        booking_value_elem = parent.find_element(
+                            By.XPATH,
+                            ".//div[contains(@class, 'field-data')]"
+                        )
+                        print("  ✅ Found field-data within parent")
+                    except:
+                        # Try next sibling of parent
+                        parent = booking_label.find_element(By.XPATH, "..")
+                        booking_value_elem = parent.find_element(
+                            By.XPATH,
+                            "following-sibling::*//div[contains(@class, 'field-data')]"
+                        )
+                        print("  ✅ Found field-data in following parent sibling")
                 
                 booking_number = booking_value_elem.text.strip()
+                print(f"  📋 Extracted text: '{booking_number}'")
                 
-                if booking_number and booking_number != "N/A":
+                if booking_number and booking_number != "N/A" and booking_number != "":
                     print(f"  ✅ Booking number found: {booking_number}")
                     return {
                         "success": True,
@@ -3665,24 +3673,26 @@ class EModalBusinessOperations:
                     }
                     
             except Exception as e:
-                print(f"  ℹ️ Booking # field not found: {str(e)}")
+                print(f"  ℹ️ Method 1 failed: {str(e)}")
                 # Try Method 2: Look for any field-data with btn-link class (clickable booking numbers)
                 try:
+                    print("  🔍 Trying method 2: Looking for clickable field-data...")
                     booking_value_elem = expanded_row.find_element(
                         By.XPATH,
-                        ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link') and @style='cursor: pointer;']"
+                        ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link')]"
                     )
                     booking_number = booking_value_elem.text.strip()
+                    print(f"  📋 Extracted text (method 2): '{booking_number}'")
                     
-                    if booking_number:
+                    if booking_number and booking_number != "N/A" and booking_number != "":
                         print(f"  ✅ Booking number found (method 2): {booking_number}")
                         return {
                             "success": True,
                             "booking_number": booking_number,
                             "container_id": container_id
                         }
-                except:
-                    pass
+                except Exception as e2:
+                    print(f"  ℹ️ Method 2 failed: {str(e2)}")
                 
                 # Booking number doesn't exist for this container
                 print("  ℹ️ Booking number field does not exist for this container")
