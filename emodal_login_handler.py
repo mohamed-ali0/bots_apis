@@ -32,7 +32,6 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
 from recaptcha_handler import RecaptchaHandler, RecaptchaError
-from anti_detection_config import AntiDetectionConfig, get_proxy_config_from_env, get_vpn_config_from_env
 
 # Linux Xvfb support for non-GUI servers
 try:
@@ -134,16 +133,8 @@ class EModalLoginHandler:
             print("⚠️  pyvirtualdisplay not installed. Install with: pip install pyvirtualdisplay")
             print("⚠️  Continuing without Xvfb - may fail on non-GUI servers")
         
-        # Check for proxy/VPN configuration from environment
-        proxy_config = get_proxy_config_from_env() or get_vpn_config_from_env()
-        use_proxy = proxy_config is not None
+        chrome_options = Options()
         
-        # Initialize anti-detection configuration
-        print("🥷 Initializing anti-detection configuration...")
-        anti_detection = AntiDetectionConfig(use_proxy=use_proxy, proxy_config=proxy_config)
-        chrome_options = anti_detection.get_stealth_chrome_options()
-        
-        # Add custom user data directory if specified
         if self.custom_user_data_dir:
             chrome_options.add_argument(f"--user-data-dir={self.custom_user_data_dir}")
             chrome_options.add_argument("--profile-directory=Default")
@@ -163,7 +154,45 @@ class EModalLoginHandler:
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
         
-        print("✅ Anti-detection configuration applied")
+        # Critical options for Linux servers
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # Configure download behavior (important for Linux)
+        prefs = {
+            "download.default_directory": "/tmp",  # Will be overridden per-session
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing.enabled": False,
+            "profile.default_content_settings.popups": 0,
+            "profile.content_settings.exceptions.automatic_downloads.*.setting": 1
+        }
+        chrome_options.add_experimental_option("prefs", prefs)
+        
+        # Linux-specific optimizations for server environments
+        if platform.system() == 'Linux':
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-software-rasterizer")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-background-timer-throttling")
+            chrome_options.add_argument("--disable-renderer-backgrounding")
+            chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+            chrome_options.add_argument("--disable-ipc-flooding-protection")
+            chrome_options.add_argument("--disable-hang-monitor")
+            chrome_options.add_argument("--disable-prompt-on-repost")
+            chrome_options.add_argument("--disable-sync")
+            chrome_options.add_argument("--force-color-profile=srgb")
+            chrome_options.add_argument("--metrics-recording-only")
+            chrome_options.add_argument("--no-first-run")
+            chrome_options.add_argument("--enable-automation")
+            chrome_options.add_argument("--password-store=basic")
+            chrome_options.add_argument("--use-mock-keychain")
+            # Set window size for consistent rendering
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--start-maximized")
         
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
@@ -201,15 +230,7 @@ class EModalLoginHandler:
             else:
                 print("❌ No local chromedriver.exe found")
                 raise Exception(f"WebDriver Manager failed and no local chromedriver.exe found. WDM error: {wdm_error}")
-        # Execute stealth JavaScript scripts
-        print("🥷 Applying stealth JavaScript...")
-        stealth_scripts = anti_detection.get_stealth_js_scripts()
-        for script in stealth_scripts:
-            try:
-                self.driver.execute_script(script)
-            except Exception as e:
-                print(f"⚠️ Stealth script warning: {e}")
-        print("✅ Stealth JavaScript applied")
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         

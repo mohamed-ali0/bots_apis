@@ -42,7 +42,12 @@ app = Flask(__name__)
 
 # Global session storage
 active_sessions = {}
-session_timeout = 1800  # 30 minutes
+session_timeout = 1800  # 30 minutes (not used for keep-alive sessions)
+MAX_CONCURRENT_SESSIONS = 10  # Maximum Chrome windows allowed
+
+# Persistent sessions with keep-alive and credential mapping
+persistent_sessions = {}  # Maps credentials hash to session_id
+session_refresh_interval = 300  # 5 minutes - refresh session to keep it alive
 
 # Appointment sessions with extended timeout for multi-phase operations
 appointment_sessions = {}
@@ -63,6 +68,8 @@ class BrowserSession:
     created_at: datetime
     last_used: datetime
     keep_alive: bool = False
+    credentials_hash: str = None  # Hash of username+password for matching
+    last_refresh: datetime = None  # Last time session was refreshed
     
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -70,9 +77,21 @@ class BrowserSession:
             return False
         return (datetime.now() - self.last_used).seconds > session_timeout
     
+    def needs_refresh(self) -> bool:
+        """Check if session needs to be refreshed"""
+        if not self.keep_alive:
+            return False
+        if self.last_refresh is None:
+            return True
+        return (datetime.now() - self.last_refresh).seconds > session_refresh_interval
+    
     def update_last_used(self):
         """Update last used timestamp"""
         self.last_used = datetime.now()
+    
+    def update_last_refresh(self):
+        """Update last refresh timestamp"""
+        self.last_refresh = datetime.now()
 
 
 @dataclass
@@ -92,6 +111,251 @@ class AppointmentSession:
     def update_last_used(self):
         """Update last used timestamp"""
         self.last_used = datetime.now()
+
+
+def get_credentials_hash(username: str, password: str) -> str:
+    """Generate a hash for credentials to use as a lookup key"""
+    import hashlib
+    return hashlib.sha256(f"{username}:{password}".encode()).hexdigest()
+
+
+def find_session_by_credentials(username: str, password: str) -> Optional[BrowserSession]:
+    """Find an existing keep-alive session matching the credentials"""
+    cred_hash = get_credentials_hash(username, password)
+    
+    # Check persistent sessions map
+    if cred_hash in persistent_sessions:
+        session_id = persistent_sessions[cred_hash]
+        if session_id in active_sessions:
+            session = active_sessions[session_id]
+            if session.keep_alive and not session.is_expired():
+                logger.info(f"Found existing persistent session: {session_id} for user: {username}")
+                return session
+            else:
+                # Clean up expired or non-keep-alive session
+                del persistent_sessions[cred_hash]
+                if session_id in active_sessions:
+                    try:
+                        active_sessions[session_id].driver.quit()
+                    except:
+                        pass
+                    del active_sessions[session_id]
+    
+    return None
+
+
+def get_lru_session() -> Optional[BrowserSession]:
+    """Get the Least Recently Used session for eviction"""
+    if not active_sessions:
+        return None
+    
+    # Find session with oldest last_used timestamp
+    lru_session = None
+    oldest_time = None
+    
+    for session_id, session in active_sessions.items():
+        if oldest_time is None or session.last_used < oldest_time:
+            oldest_time = session.last_used
+            lru_session = session
+    
+    return lru_session
+
+
+def evict_lru_session() -> bool:
+    """
+    Evict the Least Recently Used session to make room for a new one.
+    Returns True if a session was evicted, False otherwise.
+    """
+    lru_session = get_lru_session()
+    
+    if not lru_session:
+        logger.warning("No LRU session found for eviction")
+        return False
+    
+    try:
+        logger.info(f"🗑️ Evicting LRU session: {lru_session.session_id} (user: {lru_session.username}, last_used: {lru_session.last_used})")
+        
+        # Close the browser
+        try:
+            lru_session.driver.quit()
+            logger.info(f"  ✅ Browser closed for session: {lru_session.session_id}")
+        except Exception as e:
+            logger.warning(f"  ⚠️ Error closing browser: {e}")
+        
+        # Remove from persistent_sessions mapping
+        if lru_session.credentials_hash and lru_session.credentials_hash in persistent_sessions:
+            del persistent_sessions[lru_session.credentials_hash]
+            logger.info(f"  ✅ Removed from persistent_sessions")
+        
+        # Remove from active_sessions
+        if lru_session.session_id in active_sessions:
+            del active_sessions[lru_session.session_id]
+            logger.info(f"  ✅ Removed from active_sessions")
+        
+        logger.info(f"✅ LRU session evicted successfully. Active sessions: {len(active_sessions)}/{MAX_CONCURRENT_SESSIONS}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error evicting LRU session: {e}")
+        return False
+
+
+def ensure_session_capacity() -> bool:
+    """
+    Ensure there's capacity for a new session.
+    If at limit (10 sessions), evict LRU session.
+    Returns True if capacity is available, False otherwise.
+    """
+    current_count = len(active_sessions)
+    
+    if current_count < MAX_CONCURRENT_SESSIONS:
+        logger.info(f"✅ Session capacity available: {current_count}/{MAX_CONCURRENT_SESSIONS}")
+        return True
+    
+    logger.warning(f"⚠️ Session limit reached: {current_count}/{MAX_CONCURRENT_SESSIONS}. Evicting LRU session...")
+    return evict_lru_session()
+
+
+def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
+    """
+    Get existing session by session_id OR create new persistent session.
+    
+    Args:
+        data: Request JSON data
+        request_id: Unique request identifier for logging
+    
+    Returns:
+        Tuple of (driver, username, session_id, is_new_session) or (None, None, None, None) on error
+        If error, also returns error response tuple (response, status_code)
+    """
+    session_id = data.get('session_id', None)
+    
+    # If session_id provided, try to use existing session
+    if session_id:
+        logger.info(f"[{request_id}] Using provided session_id: {session_id}")
+        
+        if session_id in active_sessions:
+            browser_session = active_sessions[session_id]
+            browser_session.update_last_used()
+            logger.info(f"[{request_id}] ✅ Found existing session for user: {browser_session.username}")
+            return (browser_session.driver, browser_session.username, session_id, False)
+        else:
+            logger.warning(f"[{request_id}] ⚠️ Session ID not found or expired: {session_id}")
+            logger.info(f"[{request_id}] Creating new session instead...")
+            # Fall through to create new session
+    
+    # Create new persistent session
+    username = data.get('username')
+    password = data.get('password')
+    captcha_api_key = data.get('captcha_api_key')
+    
+    if not all([username, password, captcha_api_key]):
+        error_response = jsonify({
+            "success": False,
+            "error": "Missing required fields: username, password, captcha_api_key (or valid session_id)"
+        }), 400
+        return (None, None, None, None, error_response)
+    
+    logger.info(f"[{request_id}] Creating new persistent session for user: {username}")
+    
+    # Check if session already exists for these credentials
+    existing_session = find_session_by_credentials(username, password)
+    
+    if existing_session:
+        existing_session.update_last_used()
+        logger.info(f"[{request_id}] ✅ Found existing session for credentials: {existing_session.session_id}")
+        return (existing_session.driver, existing_session.username, existing_session.session_id, False)
+    
+    # Ensure capacity (evict LRU if needed)
+    if not ensure_session_capacity():
+        error_response = jsonify({
+            "success": False,
+            "error": "Failed to allocate session capacity"
+        }), 500
+        return (None, None, None, None, error_response)
+    
+    # Create new session
+    new_session_id = f"session_{int(time.time())}_{hash(username)}"
+    cred_hash = get_credentials_hash(username, password)
+    
+    # Authenticate
+    handler = EModalLoginHandler(
+        username=username,
+        password=password,
+        captcha_api_key=captcha_api_key
+    )
+    
+    if not handler.login():
+        error_response = jsonify({
+            "success": False,
+            "error": "Authentication failed",
+            "details": handler.get_error_details()
+        }), 401
+        return (None, None, None, None, error_response)
+    
+    # Create browser session with keep_alive=True (persistent)
+    browser_session = BrowserSession(
+        session_id=new_session_id,
+        driver=handler.driver,
+        username=username,
+        created_at=datetime.now(),
+        last_used=datetime.now(),
+        keep_alive=True,  # All sessions are persistent by default
+        credentials_hash=cred_hash,
+        last_refresh=datetime.now()
+    )
+    
+    active_sessions[new_session_id] = browser_session
+    persistent_sessions[cred_hash] = new_session_id
+    
+    logger.info(f"[{request_id}] ✅ Created new persistent session: {new_session_id} for user: {username}")
+    logger.info(f"[{request_id}] 📊 Active sessions: {len(active_sessions)}/{MAX_CONCURRENT_SESSIONS}")
+    
+    return (handler.driver, username, new_session_id, True)
+
+
+def refresh_session(session: BrowserSession) -> bool:
+    """Refresh a session to keep it authenticated"""
+    try:
+        logger.info(f"Refreshing session: {session.session_id}")
+        # Navigate to containers page to verify session is still valid
+        session.driver.get("https://termops.emodal.com/trucker/web/")
+        time.sleep(2)
+        
+        # Check if we're still logged in (check for username or known element)
+        try:
+            session.driver.find_element(By.XPATH, "//button[contains(@class,'user')]")
+            session.update_last_refresh()
+            logger.info(f"✅ Session refreshed: {session.session_id}")
+            return True
+        except:
+            logger.warning(f"Session appears to have been logged out: {session.session_id}")
+            return False
+    except Exception as e:
+        logger.error(f"Error refreshing session {session.session_id}: {e}")
+        return False
+
+
+def periodic_session_refresh():
+    """Background task to periodically refresh keep-alive sessions"""
+    while True:
+        try:
+            time.sleep(60)  # Check every minute
+            
+            for session_id, session in list(active_sessions.items()):
+                if session.keep_alive and session.needs_refresh():
+                    if not refresh_session(session):
+                        # Session is dead, clean it up
+                        logger.warning(f"Removing dead session: {session_id}")
+                        if session.credentials_hash and session.credentials_hash in persistent_sessions:
+                            del persistent_sessions[session.credentials_hash]
+                        try:
+                            session.driver.quit()
+                        except:
+                            pass
+                        del active_sessions[session_id]
+        except Exception as e:
+            logger.error(f"Error in periodic session refresh: {e}")
 
 
 def cleanup_expired_appointment_sessions():
@@ -3561,8 +3825,122 @@ def health_check():
         "service": "E-Modal Business Operations API",
         "version": "1.0.0",
         "active_sessions": len(active_sessions),
+        "max_sessions": MAX_CONCURRENT_SESSIONS,
+        "session_capacity": f"{len(active_sessions)}/{MAX_CONCURRENT_SESSIONS}",
+        "persistent_sessions": len(persistent_sessions),
         "timestamp": datetime.now().isoformat()
     })
+
+
+@app.route('/get_session', methods=['POST'])
+def get_or_create_session():
+    """
+    Get existing session or create new keep-alive session
+    
+    Request JSON:
+        - username: E-Modal username
+        - password: E-Modal password
+        - captcha_api_key: 2captcha API key
+    
+    Response:
+        - session_id: Session ID to use in subsequent requests
+        - is_new: Whether this is a newly created session
+        - username: Associated username
+        - created_at: Session creation timestamp
+        - expires_at: null (keep-alive sessions don't expire)
+    """
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        captcha_api_key = data.get('captcha_api_key')
+        
+        if not all([username, password, captcha_api_key]):
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields: username, password, captcha_api_key"
+            }), 400
+        
+        logger.info(f"Session request for user: {username}")
+        
+        # Check if session already exists for these credentials
+        existing_session = find_session_by_credentials(username, password)
+        
+        if existing_session:
+            existing_session.update_last_used()
+            return jsonify({
+                "success": True,
+                "session_id": existing_session.session_id,
+                "is_new": False,
+                "username": existing_session.username,
+                "created_at": existing_session.created_at.isoformat(),
+                "expires_at": None,  # Keep-alive sessions don't expire
+                "message": "Using existing persistent session"
+            })
+        
+        # Create new session
+        logger.info(f"Creating new persistent session for user: {username}")
+        
+        # Ensure we have capacity (evict LRU if at limit)
+        if not ensure_session_capacity():
+            return jsonify({
+                "success": False,
+                "error": "Failed to allocate session capacity"
+            }), 500
+        
+        session_id = f"session_{int(time.time())}_{hash(username)}"
+        cred_hash = get_credentials_hash(username, password)
+        
+        # Authenticate
+        handler = EModalLoginHandler(
+            username=username,
+            password=password,
+            captcha_api_key=captcha_api_key
+        )
+        
+        if not handler.login():
+            return jsonify({
+                "success": False,
+                "error": "Authentication failed",
+                "details": handler.get_error_details()
+            }), 401
+        
+        # Create browser session with keep_alive=True
+        browser_session = BrowserSession(
+            session_id=session_id,
+            driver=handler.driver,
+            username=username,
+            created_at=datetime.now(),
+            last_used=datetime.now(),
+            keep_alive=True,
+            credentials_hash=cred_hash,
+            last_refresh=datetime.now()
+        )
+        
+        active_sessions[session_id] = browser_session
+        persistent_sessions[cred_hash] = session_id
+        
+        logger.info(f"✅ Created persistent session: {session_id} for user: {username}")
+        logger.info(f"📊 Active sessions: {len(active_sessions)}/{MAX_CONCURRENT_SESSIONS}")
+        
+        return jsonify({
+            "success": True,
+            "session_id": session_id,
+            "is_new": True,
+            "username": username,
+            "created_at": browser_session.created_at.isoformat(),
+            "expires_at": None,  # Keep-alive sessions don't expire
+            "message": "New persistent session created"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in get_or_create_session: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
 @app.route('/get_containers', methods=['POST'])
@@ -3572,10 +3950,12 @@ def get_containers():
     
     Expected JSON:
     {
+        "session_id": "session_XXX"  (optional) - Use existing session, skip login
+        OR
         "username": "your_username",
         "password": "your_password", 
         "captcha_api_key": "your_2captcha_key",
-        "keep_browser_alive": true/false,
+        
         "infinite_scrolling": true/false  (default: true) - Load all containers
         "target_count": 500  (optional) - Stop when this many containers loaded
         "target_container_id": "MSDU5772413"  (optional) - Stop when this container found
@@ -3585,7 +3965,7 @@ def get_containers():
     Note: Only one of infinite_scrolling, target_count, or target_container_id should be used at a time.
     Priority: target_container_id > target_count > infinite_scrolling
     
-    Returns Excel file with container data
+    Returns Excel file with container data (and session_id in response)
     """
     
     request_id = f"containers_{int(time.time())}"
@@ -3595,19 +3975,14 @@ def get_containers():
             return jsonify({"success": False, "error": "Request must be JSON"}), 400
         
         data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
-        captcha_api_key = data.get('captcha_api_key')
-        keep_alive = data.get('keep_browser_alive', False)
-        return_url = data.get('return_url', False)
-        debug_mode = data.get('debug', False)  # Default: no debug (Excel only)
-        capture_screens = debug_mode  # Only capture if debug mode is enabled
-        screens_label = data.get('screens_label', username)
         
         # Work mode selection (priority order)
         target_container_id = data.get('target_container_id', None)
         target_count = data.get('target_count', None)
         infinite_scrolling = data.get('infinite_scrolling', True)  # Default: enabled
+        debug_mode = data.get('debug', False)  # Default: no debug (Excel only)
+        capture_screens = debug_mode  # Only capture if debug mode is enabled
+        return_url = data.get('return_url', False)
         
         # Determine the work mode
         work_mode = "all"  # default
@@ -3618,14 +3993,6 @@ def get_containers():
             work_mode = "target_count"
             infinite_scrolling = False
         
-        if not all([username, password, captcha_api_key]):
-            return jsonify({
-                "success": False,
-                "error": "Missing required fields: username, password, captcha_api_key"
-            }), 400
-        
-        logger.info(f"[{request_id}] Container request for user: {username}")
-        logger.info(f"[{request_id}] Keep alive: {keep_alive}")
         logger.info(f"[{request_id}] Work mode: {work_mode}")
         if target_container_id:
             logger.info(f"[{request_id}] Target container: {target_container_id}")
@@ -3635,24 +4002,29 @@ def get_containers():
             logger.info(f"[{request_id}] Infinite scrolling: {infinite_scrolling}")
         logger.info(f"[{request_id}] Debug mode: {debug_mode}")
         
-        # Create authenticated session
-        try:
-            session = create_browser_session(username, password, captcha_api_key, keep_alive)
-            
-            if keep_alive:
-                active_sessions[session.session_id] = session
-                logger.info(f"[{request_id}] Session stored for reuse: {session.session_id}")
-            
-        except Exception as login_error:
-            logger.error(f"[{request_id}] Login failed: {str(login_error)}")
-            return jsonify({
-                "success": False,
-                "error": f"Authentication failed: {str(login_error)}"
-            }), 401
+        # Get or create browser session
+        result = get_or_create_browser_session(data, request_id)
+        
+        if len(result) == 5:  # Error case
+            _, _, _, _, error_response = result
+            return error_response
+        
+        driver, username, session_id, is_new_session = result
+        
+        logger.info(f"[{request_id}] Using session: {session_id} (new={is_new_session})")
+        screens_label = data.get('screens_label', username)
+        
+        # Create session object for EModalBusinessOperations
+        class SessionWrapper:
+            def __init__(self, driver, session_id):
+                self.driver = driver
+                self.session_id = session_id
+        
+        session_wrapper = SessionWrapper(driver, session_id)
         
         # Perform business operations
         try:
-            operations = EModalBusinessOperations(session)
+            operations = EModalBusinessOperations(session_wrapper)
             operations.screens_enabled = bool(capture_screens)
             operations.screens_label = screens_label
             print(f"📸 Screenshots enabled: {operations.screens_enabled}")
@@ -3675,8 +4047,7 @@ def get_containers():
             # Step 1: Navigate to containers
             nav_result = operations.navigate_to_containers()
             if not nav_result["success"]:
-                if not keep_alive:
-                    session.driver.quit()
+                # Session remains active (persistent by default)
                 return jsonify({
                     "success": False,
                     "error": f"Navigation failed: {nav_result['error']}"
@@ -3729,9 +4100,9 @@ def get_containers():
                 bundle_name = None
                 try:
                     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    bundle_name = f"{session.session_id}_{ts}_FAILED.zip"
+                    bundle_name = f"{session_id}_{ts}_FAILED.zip"
                     bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                    session_root = session.session_id
+                    session_root = session_id
                     
                     with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                         # Include screenshots
@@ -3761,8 +4132,7 @@ def get_containers():
                 except Exception as bundle_e:
                     print(f"⚠️ Failed to create error bundle: {bundle_e}")
                 
-                if not keep_alive:
-                    session.driver.quit()
+                # Session remains active (persistent by default)
                 return jsonify({
                     "success": False,
                     "error": f"Download failed: {download_result['error']}",
@@ -3774,7 +4144,7 @@ def get_containers():
             final_name = os.path.basename(src_path)
             # If not already under our DOWNLOADS_DIR, move into a session folder
             if not os.path.abspath(src_path).startswith(os.path.abspath(DOWNLOADS_DIR)):
-                session_folder = os.path.join(DOWNLOADS_DIR, session.session_id)
+                session_folder = os.path.join(DOWNLOADS_DIR, session_id)
                 try:
                     os.makedirs(session_folder, exist_ok=True)
                 except Exception:
@@ -3788,16 +4158,8 @@ def get_containers():
                 dest_path = src_path
             logger.info(f"[{request_id}] Success! File: {final_name}")
 
-            # Close or keep session
-            if not keep_alive:
-                try:
-                    session.driver.quit()
-                except Exception:
-                    pass
-                logger.info(f"[{request_id}] Browser session closed")
-            else:
-                session.update_last_used()
-                logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
+            # Session is automatically kept alive (persistent by default)
+            logger.info(f"[{request_id}] Session remains active: {session_id}")
 
             # Build bundle based on debug mode
             bundle_name = None
@@ -3805,18 +4167,18 @@ def get_containers():
             excel_url = None
             
             # Always prepare Excel file URL
-            excel_url = f"http://{request.host}/files/{session.session_id}/{final_name}"
+            excel_url = f"http://{request.host}/files/{session_id}/{final_name}"
             
             if debug_mode:
                 # Debug mode: Build ZIP with screenshots + debug files + Excel
                 try:
                     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    bundle_name = f"{session.session_id}_{ts}_DEBUG.zip"
+                    bundle_name = f"{session_id}_{ts}_DEBUG.zip"
                     bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                    session_root = session.session_id  # top-level folder inside zip
+                    session_root = session_id  # top-level folder inside zip
                     with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                         # Include session downloads folder (Excel + debug files)
-                        session_dl_dir = os.path.join(DOWNLOADS_DIR, session.session_id)
+                        session_dl_dir = os.path.join(DOWNLOADS_DIR, session_id)
                         if os.path.isdir(session_dl_dir):
                             for root, _, files in os.walk(session_dl_dir):
                                 for f in files:
@@ -3862,6 +4224,8 @@ def get_containers():
             # Build response
             response_data = {
                 "success": True,
+                "session_id": session_id,  # NEW: Return session_id for reuse
+                "is_new_session": is_new_session,  # NEW: Indicate if session was created
                 "file_url": excel_url,
                 "file_name": final_name,
                 "file_size": os.path.getsize(dest_path)
@@ -3898,13 +4262,13 @@ def get_containers():
             bundle_name = None
             try:
                 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                bundle_name = f"{session.session_id}_{ts}_FAILED.zip"
+                bundle_name = f"{session_id}_{ts}_FAILED.zip"
                 bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                session_root = session.session_id
+                session_root = session_id
                 
                 with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                     # Include any partial downloads
-                    session_dl_dir = os.path.join(DOWNLOADS_DIR, session.session_id)
+                    session_dl_dir = os.path.join(DOWNLOADS_DIR, session_id)
                     if os.path.isdir(session_dl_dir):
                         for root, _, files in os.walk(session_dl_dir):
                             for f in files:
@@ -3941,11 +4305,7 @@ def get_containers():
             except Exception as bundle_e:
                 print(f"⚠️ Failed to create error bundle: {bundle_e}")
             
-            if not keep_alive:
-                try:
-                    session.driver.quit()
-                except:
-                    pass
+            # Session remains active (persistent by default)
             
             # Return error with bundle URL if available
             response_data = {
@@ -4942,10 +5302,15 @@ if __name__ == '__main__':
     print("=" * 50)
     print("🔗 Starting server on http://0.0.0.0:5010")
     print("🗑️ Starting background cleanup task (runs every hour)")
+    print("🔄 Starting session refresh task (checks every minute)")
     
     # Start background cleanup thread
     cleanup_thread = threading.Thread(target=periodic_cleanup_task, daemon=True)
     cleanup_thread.start()
+    
+    # Start background session refresh thread
+    refresh_thread = threading.Thread(target=periodic_session_refresh, daemon=True)
+    refresh_thread.start()
     
     # Run initial cleanup on startup
     print("🗑️ Running initial cleanup...")
