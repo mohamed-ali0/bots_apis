@@ -42,23 +42,23 @@ def choose_server():
     print("\n" + "="*70)
     print(" Server Selection")
     print("="*70)
-    print("  1. Local server (http://127.0.0.1:5000)")
+    print("  1. Local server (http://127.0.0.1:5010)")
     print("  2. Remote server 1 (http://89.117.63.196:5010)")
     print("  3. Remote server 2 (http://37.60.243.201:5010)")
     print("  4. Custom URL")
-    print("  5. Auto-test mode (Remote server 2)")
+    print("  5. Auto-test mode (Remote server 2 - Port 5010)")
     print("="*70)
     
     choice = input("\nEnter your choice (1-5) [default: 5]: ").strip() or "5"
     
     if choice == "1":
-        API_BASE_URL = "http://127.0.0.1:5000"
+        API_BASE_URL = "http://127.0.0.1:5010"
     elif choice == "2":
         API_BASE_URL = "http://89.117.63.196:5010"
     elif choice == "3":
         API_BASE_URL = "http://37.60.243.201:5010"
     elif choice == "4":
-        custom_url = input("Enter custom URL (e.g., http://localhost:5000): ").strip()
+        custom_url = input("Enter custom URL (e.g., http://localhost:5010): ").strip()
         API_BASE_URL = custom_url
     else:  # Auto-test mode
         API_BASE_URL = "http://37.60.243.201:5010"
@@ -396,9 +396,137 @@ def test_check_appointments_with_credentials(username: str, password: str, captc
         print(f"\n❌ Test failed!")
 
 
+def test_get_booking_number_with_session(session_id: str, container_id: str):
+    """Test /get_booking_number with existing session"""
+    print_header(f"Test 5a: /get_booking_number - Using Existing Session")
+    
+    payload = {
+        "session_id": session_id,
+        "container_id": container_id,
+        "debug": False
+    }
+    
+    result = make_request("/get_booking_number", payload, f"Get booking number for {container_id}")
+    
+    if result["success"]:
+        data = result["data"]
+        print(f"\n📊 Results:")
+        print(f"   Session ID: {data.get('session_id')}")
+        print(f"   Is New Session: {data.get('is_new_session')}")
+        print(f"   Container ID: {data.get('container_id')}")
+        print(f"   Booking Number: {data.get('booking_number') or 'Not available'}")
+        if data.get('message'):
+            print(f"   Message: {data.get('message')}")
+        print(f"   Time: {result['time']:.2f}s")
+        
+        if not data.get('is_new_session'):
+            print(f"   ✅ SUCCESS: Session was reused!")
+        else:
+            print(f"   ⚠️  WARNING: New session was created (expected reuse)")
+    else:
+        print(f"\n❌ Test failed!")
+
+
+def test_get_booking_number_with_credentials(username: str, password: str, captcha_key: str, container_id: str):
+    """Test /get_booking_number with credentials"""
+    print_header(f"Test 5b: /get_booking_number - Using Credentials")
+    
+    payload = {
+        "username": username,
+        "password": password,
+        "captcha_api_key": captcha_key,
+        "container_id": container_id,
+        "debug": False
+    }
+    
+    result = make_request("/get_booking_number", payload, f"Get booking number for {container_id}")
+    
+    if result["success"]:
+        data = result["data"]
+        print(f"\n📊 Results:")
+        print(f"   Session ID: {data.get('session_id')}")
+        print(f"   Is New Session: {data.get('is_new_session')}")
+        print(f"   Container ID: {data.get('container_id')}")
+        print(f"   Booking Number: {data.get('booking_number') or 'Not available'}")
+        if data.get('message'):
+            print(f"   Message: {data.get('message')}")
+        print(f"   Time: {result['time']:.2f}s")
+        
+        if not data.get('is_new_session'):
+            print(f"   ✅ SUCCESS: Existing session was reused!")
+        else:
+            print(f"   ⚠️  New session created")
+    else:
+        print(f"\n❌ Test failed!")
+
+
+def test_get_appointments_with_session(session_id: str, mode: str = "count", target: int = 10):
+    """Test /get_appointments with existing session"""
+    print_header(f"Test 6a: /get_appointments - Using Existing Session (Mode: {mode})")
+    
+    payload = {
+        "session_id": session_id,
+        "debug": False
+    }
+    
+    if mode == "infinite":
+        payload["infinite_scrolling"] = True
+    elif mode == "count":
+        payload["target_count"] = target
+    
+    result = make_request("/get_appointments", payload, f"Get appointments (mode: {mode}, target: {target})")
+    
+    if result["success"]:
+        data = result["data"]
+        print(f"\n📊 Results:")
+        print(f"   Session ID: {data.get('session_id')}")
+        print(f"   Is New Session: {data.get('is_new_session')}")
+        print(f"   Selected Count: {data.get('selected_count')}")
+        print(f"   File URL: {data.get('file_url')}")
+        print(f"   Time: {result['time']:.2f}s")
+        
+        if not data.get('is_new_session'):
+            print(f"   ✅ SUCCESS: Session was reused!")
+        else:
+            print(f"   ⚠️  WARNING: New session was created (expected reuse)")
+    else:
+        print(f"\n❌ Test failed!")
+
+
+def test_get_appointments_with_credentials(username: str, password: str, captcha_key: str, target: int = 10):
+    """Test /get_appointments with credentials"""
+    print_header(f"Test 6b: /get_appointments - Using Credentials")
+    
+    payload = {
+        "username": username,
+        "password": password,
+        "captcha_api_key": captcha_key,
+        "target_count": target,
+        "debug": False
+    }
+    
+    result = make_request("/get_appointments", payload, f"Get {target} appointments using credentials")
+    
+    if result["success"]:
+        data = result["data"]
+        print(f"\n📊 Results:")
+        print(f"   Session ID: {data.get('session_id')}")
+        print(f"   Is New Session: {data.get('is_new_session')}")
+        print(f"   Selected Count: {data.get('selected_count')}")
+        print(f"   File URL: {data.get('file_url')}")
+        print(f"   Time: {result['time']:.2f}s")
+        
+        if not data.get('is_new_session'):
+            print(f"   ✅ SUCCESS: Existing session was reused!")
+        else:
+            print(f"   ⚠️  New session created")
+    else:
+        print(f"\n❌ Test failed!")
+
+
 def test_make_appointment_preview():
     """Preview /make_appointment test (without actually running it)"""
-    print_header("Test 5: /make_appointment - Preview Only")
+    print_header("Test 7: /make_appointment - Preview Only")
     
     print("""
 ⚠️  WARNING: /make_appointment ACTUALLY SUBMITS appointments!
@@ -473,14 +601,26 @@ def run_mode_create_session():
     input()
     test_get_timeline_with_session(SESSION_ID, TEST_CONTAINER_ID)
     
-    # Step 5: Test check_appointments with session (OPTIONAL - takes time)
+    # Step 5: Test get_booking_number with session
+    print("\n⏸️  Press Enter to test /get_booking_number with session...")
+    input()
+    test_get_booking_number_with_session(SESSION_ID, TEST_CONTAINER_ID)
+    
+    # Step 6: Test get_appointments with session (OPTIONAL - takes time)
+    print("\n⏸️  Test /get_appointments with session? (takes ~30s for 10 appointments) [y/N]:")
+    if input().strip().lower() == 'y':
+        test_get_appointments_with_session(SESSION_ID, mode="count", target=10)
+    else:
+        print("   ⏭️  Skipped /get_appointments")
+    
+    # Step 7: Test check_appointments with session (OPTIONAL - takes time)
     print("\n⏸️  Test /check_appointments with session? (takes ~60s) [y/N]:")
     if input().strip().lower() == 'y':
         test_check_appointments_with_session(SESSION_ID)
     else:
         print("   ⏭️  Skipped /check_appointments")
     
-    # Step 6: Preview make_appointment
+    # Step 8: Preview make_appointment
     test_make_appointment_preview()
     
     # Final health check
@@ -521,7 +661,19 @@ If you ran MODE 1 first, the system should automatically reuse that session!
     input()
     test_get_timeline_with_credentials(DEFAULT_USERNAME, DEFAULT_PASSWORD, DEFAULT_CAPTCHA_KEY, TEST_CONTAINER_ID)
     
-    # Step 4: Test check_appointments with credentials (OPTIONAL - takes time)
+    # Step 4: Test get_booking_number with credentials
+    print("\n⏸️  Press Enter to test /get_booking_number with credentials...")
+    input()
+    test_get_booking_number_with_credentials(DEFAULT_USERNAME, DEFAULT_PASSWORD, DEFAULT_CAPTCHA_KEY, TEST_CONTAINER_ID)
+    
+    # Step 5: Test get_appointments with credentials (OPTIONAL - takes time)
+    print("\n⏸️  Test /get_appointments with credentials? (takes ~30s for 10 appointments) [y/N]:")
+    if input().strip().lower() == 'y':
+        test_get_appointments_with_credentials(DEFAULT_USERNAME, DEFAULT_PASSWORD, DEFAULT_CAPTCHA_KEY, target=10)
+    else:
+        print("   ⏭️  Skipped /get_appointments")
+    
+    # Step 6: Test check_appointments with credentials (OPTIONAL - takes time)
     print("\n⏸️  Test /check_appointments with credentials? (takes ~60s) [y/N]:")
     if input().strip().lower() == 'y':
         test_check_appointments_with_credentials(DEFAULT_USERNAME, DEFAULT_PASSWORD, DEFAULT_CAPTCHA_KEY)
@@ -552,6 +704,8 @@ Endpoints tested:
   ✅ /get_session
   ✅ /get_containers
   ✅ /get_container_timeline
+  ✅ /get_booking_number (NEW!)
+  ✅ /get_appointments (NEW!)
   ✅ /check_appointments
   ℹ️  /make_appointment (preview only - no actual submission)
     """)
@@ -590,6 +744,10 @@ Endpoints tested:
         if SESSION_ID:
             test_get_containers_with_session(SESSION_ID, mode="count")
             test_get_timeline_with_session(SESSION_ID, TEST_CONTAINER_ID)
+            test_get_booking_number_with_session(SESSION_ID, TEST_CONTAINER_ID)
+            print("\n⏸️  Test /get_appointments (10 appointments)? [y/N]:")
+            if input().strip().lower() == 'y':
+                test_get_appointments_with_session(SESSION_ID, mode="count", target=10)
         health_check()
     
     print("\n" + "="*70)

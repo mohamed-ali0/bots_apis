@@ -1957,6 +1957,187 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
+    def navigate_to_myappointments(self) -> Dict[str, Any]:
+        """Navigate to myappointments page"""
+        try:
+            print("\n🚗 Navigating to My Appointments page...")
+            self.driver.get("https://truckerportal.emodal.com/myappointments")
+            time.sleep(5)  # Wait for page load
+            self._capture_screenshot("myappointments_page")
+            print("✅ Navigated to My Appointments page")
+            return {"success": True}
+        except Exception as e:
+            print(f"❌ Navigation failed: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def scroll_and_select_appointment_checkboxes(self, mode: str, target_value: Any = None) -> Dict[str, Any]:
+        """
+        Scroll through appointments and select all checkboxes.
+        
+        Args:
+            mode: "infinite", "count", or "id"
+            target_value: Number (for count) or appointment ID (for id mode)
+        
+        Returns:
+            Dict with success status and selected_count
+        """
+        try:
+            print(f"\n📜 Starting appointment checkbox selection (mode: {mode})")
+            
+            selected_count = 0
+            scroll_cycles = 0
+            no_new_content_count = 0
+            max_no_new_content = 6  # Stop after 6 cycles with no new content
+            
+            while True:
+                scroll_cycles += 1
+                print(f"\n🔄 Scroll cycle {scroll_cycles}")
+                
+                # Find all checkboxes
+                try:
+                    checkboxes = self.driver.find_elements(
+                        By.XPATH,
+                        "//input[@type='checkbox' and contains(@class, 'mat-checkbox-input')]"
+                    )
+                    print(f"  📊 Found {len(checkboxes)} total checkboxes")
+                except Exception as e:
+                    print(f"  ⚠️ Error finding checkboxes: {e}")
+                    checkboxes = []
+                
+                # Select unchecked checkboxes
+                newly_selected = 0
+                for checkbox in checkboxes:
+                    try:
+                        # Check if already selected
+                        is_checked = checkbox.get_attribute('aria-checked') == 'true'
+                        
+                        if not is_checked:
+                            # Scroll into view
+                            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
+                            time.sleep(0.3)
+                            
+                            # Click the checkbox (or its parent mat-checkbox element)
+                            try:
+                                checkbox.click()
+                            except:
+                                # If direct click fails, try clicking the parent mat-checkbox
+                                parent = checkbox.find_element(By.XPATH, "./ancestor::mat-checkbox")
+                                parent.click()
+                            
+                            time.sleep(0.2)
+                            newly_selected += 1
+                            selected_count += 1
+                            
+                            print(f"    ✅ Selected checkbox {selected_count}")
+                            
+                            # Check if we've reached target count
+                            if mode == "count" and target_value and selected_count >= target_value:
+                                print(f"  🎯 Target count reached: {selected_count} >= {target_value}")
+                                return {"success": True, "selected_count": selected_count}
+                                
+                    except Exception as e:
+                        print(f"    ⚠️ Error selecting checkbox: {e}")
+                        continue
+                
+                if newly_selected > 0:
+                    print(f"  ✅ Selected {newly_selected} new checkboxes (total: {selected_count})")
+                    no_new_content_count = 0
+                else:
+                    print(f"  ⏳ No new checkboxes selected")
+                    no_new_content_count += 1
+                
+                # Check if we should stop
+                if no_new_content_count >= max_no_new_content:
+                    print(f"  🛑 No new checkboxes for {max_no_new_content} cycles, stopping")
+                    break
+                
+                # For infinite mode, continue until no new content
+                if mode == "infinite":
+                    # Scroll down
+                    print(f"  📜 Scrolling down...")
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(3)  # Wait for content to load
+                    
+                # For count mode, scroll and continue
+                elif mode == "count":
+                    if selected_count >= target_value:
+                        break
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(3)
+                
+                # For id mode (search for specific appointment)
+                elif mode == "id":
+                    # TODO: Implement ID-based search if needed
+                    # For now, treat similar to infinite
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(3)
+            
+            print(f"\n✅ Checkbox selection completed")
+            print(f"  Total selected: {selected_count}")
+            print(f"  Scroll cycles: {scroll_cycles}")
+            
+            return {
+                "success": True,
+                "selected_count": selected_count,
+                "scroll_cycles": scroll_cycles
+            }
+            
+        except Exception as e:
+            print(f"❌ Checkbox selection failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}
+    
+    def click_excel_download_button(self) -> Dict[str, Any]:
+        """Click the Excel download button and wait for download"""
+        try:
+            print("\n📥 Clicking Excel download button...")
+            self._capture_screenshot("before_excel_click")
+            
+            # Wait 5 seconds as requested
+            print("  ⏳ Waiting 5 seconds before clicking...")
+            time.sleep(5)
+            
+            # Find the Excel download button (mat-icon with svgicon="xls")
+            try:
+                excel_button = self.driver.find_element(
+                    By.XPATH,
+                    "//mat-icon[@svgicon='xls' or contains(@class, 'svg-xls-icon')]"
+                )
+                print("  ✅ Found Excel download button")
+            except:
+                # Fallback: look for any Excel-related button
+                excel_button = self.driver.find_element(
+                    By.XPATH,
+                    "//mat-icon[contains(@mattooltip, 'Excel') or @svgicon='xls']"
+                )
+                print("  ✅ Found Excel download button (fallback)")
+            
+            # Scroll into view
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", excel_button)
+            time.sleep(0.5)
+            
+            # Click the button
+            try:
+                excel_button.click()
+            except:
+                # Fallback: JavaScript click
+                self.driver.execute_script("arguments[0].click();", excel_button)
+            
+            print("  ✅ Excel download button clicked")
+            self._capture_screenshot("after_excel_click")
+            
+            # Wait for download to start
+            time.sleep(3)
+            
+            return {"success": True}
+            
+        except Exception as e:
+            print(f"  ❌ Error clicking Excel button: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}
+    
     def scrape_containers_to_excel(self) -> Dict[str, Any]:
         """Extract container data using Ctrl+A Ctrl+C behavior"""
         try:
@@ -3374,6 +3555,114 @@ class EModalBusinessOperations:
             
         except Exception as e:
             print(f"  ❌ Error capturing Pregate screenshot: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": str(e)}
+
+    def get_booking_number(self, container_id: str) -> Dict[str, Any]:
+        """
+        Extract booking number from expanded container row.
+        
+        Args:
+            container_id: Container ID to search for
+            
+        Returns:
+            Dict with success status and booking_number (or None if not found)
+        """
+        try:
+            print(f"\n📋 Extracting booking number for container: {container_id}")
+            
+            # Find the expanded row (should already be expanded)
+            try:
+                expanded_row = self.driver.find_element(
+                    By.XPATH,
+                    f"//tr[contains(@class, 'expanded')]"
+                )
+                print("  ✅ Found expanded row")
+            except Exception:
+                print("  ⚠️ No expanded row found, attempting to find by container ID")
+                # Try to find the detail section directly
+                try:
+                    expanded_row = self.driver.find_element(
+                        By.XPATH,
+                        f"//tr[.//td[contains(text(), '{container_id}')]]/following-sibling::tr[contains(@class, 'detail')]"
+                    )
+                    print("  ✅ Found detail row for container")
+                except Exception as e:
+                    return {"success": False, "error": f"Could not find expanded row: {str(e)}"}
+            
+            # Look for "Booking #" label and its corresponding value
+            try:
+                # Method 1: Find by label text "Booking #"
+                booking_label = expanded_row.find_element(
+                    By.XPATH,
+                    ".//div[contains(@class, 'field-label') and contains(text(), 'Booking #')]"
+                )
+                print("  ✅ Found 'Booking #' label")
+                
+                # The value should be in a sibling or parent's sibling with class 'field-data'
+                try:
+                    # Try finding the field-data in the same parent
+                    booking_value_elem = booking_label.find_element(
+                        By.XPATH,
+                        "..//div[contains(@class, 'field-data')]"
+                    )
+                except:
+                    # Try finding as a following sibling
+                    booking_value_elem = booking_label.find_element(
+                        By.XPATH,
+                        "following-sibling::div[contains(@class, 'field-data')]"
+                    )
+                
+                booking_number = booking_value_elem.text.strip()
+                
+                if booking_number and booking_number != "N/A":
+                    print(f"  ✅ Booking number found: {booking_number}")
+                    return {
+                        "success": True,
+                        "booking_number": booking_number,
+                        "container_id": container_id
+                    }
+                else:
+                    print("  ℹ️ Booking number field exists but is empty or N/A")
+                    return {
+                        "success": True,
+                        "booking_number": None,
+                        "container_id": container_id,
+                        "message": "Booking number not available"
+                    }
+                    
+            except Exception as e:
+                print(f"  ℹ️ Booking # field not found: {str(e)}")
+                # Try Method 2: Look for any field-data with btn-link class (clickable booking numbers)
+                try:
+                    booking_value_elem = expanded_row.find_element(
+                        By.XPATH,
+                        ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link') and @style='cursor: pointer;']"
+                    )
+                    booking_number = booking_value_elem.text.strip()
+                    
+                    if booking_number:
+                        print(f"  ✅ Booking number found (method 2): {booking_number}")
+                        return {
+                            "success": True,
+                            "booking_number": booking_number,
+                            "container_id": container_id
+                        }
+                except:
+                    pass
+                
+                # Booking number doesn't exist for this container
+                print("  ℹ️ Booking number field does not exist for this container")
+                return {
+                    "success": True,
+                    "booking_number": None,
+                    "container_id": container_id,
+                    "message": "Booking number field not found"
+                }
+                
+        except Exception as e:
+            print(f"  ❌ Error extracting booking number: {e}")
             import traceback
             traceback.print_exc()
             return {"success": False, "error": str(e)}
@@ -5285,6 +5574,391 @@ def get_container_timeline():
             return jsonify({"success": False, "error": f"Operation failed: {op_e}"}), 500
 
     except Exception as e:
+        return jsonify({"success": False, "error": f"Unexpected error: {e}"}), 500
+
+
+@app.route('/get_booking_number', methods=['POST'])
+def get_booking_number():
+    """
+    Navigate to containers page, search for a container, expand its row, and extract booking number.
+    
+    Inputs:
+        - session_id (optional): Use existing session, skip login
+        OR
+        - username, password, captcha_api_key (required if no session_id)
+        - container_id (required): Container ID to search for
+        - debug (optional, default: false): If true, returns debug bundle with screenshots
+    
+    Returns: JSON with container_id, booking_number (or null), session_id, and optional debug_bundle_url
+    """
+    request_id = f"booking_{int(time.time())}"
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+
+        data = request.get_json()
+        container_id = data.get('container_id') or data.get('container')
+        debug_mode = data.get('debug', False)
+        
+        # Only capture screenshots in debug mode
+        capture_screens = debug_mode
+
+        if not container_id:
+            return jsonify({
+                "success": False,
+                "error": "Missing required field: container_id"
+            }), 400
+
+        logger.info(f"[{request_id}] Booking number request for container: {container_id}")
+
+        # Get or create browser session
+        result = get_or_create_browser_session(data, request_id)
+        
+        if len(result) == 5:  # Error case
+            _, _, _, _, error_response = result
+            return error_response
+        
+        driver, username, session_id, is_new_session = result
+        
+        logger.info(f"[{request_id}] Using session: {session_id} (new={is_new_session})")
+        screens_label = data.get('screens_label', username)
+        
+        # Create session wrapper for EModalBusinessOperations
+        class SessionWrapper:
+            def __init__(self, driver, session_id):
+                self.driver = driver
+                self.session_id = session_id
+        
+        session_wrapper = SessionWrapper(driver, session_id)
+
+        try:
+            operations = EModalBusinessOperations(session_wrapper)
+            operations.screens_enabled = bool(capture_screens)
+            operations.screens_label = screens_label
+
+            # Ensure app context
+            ctx = operations.ensure_app_context(30)
+            if not ctx.get("success"):
+                try:
+                    driver.get("https://ecp2.emodal.com/containers")
+                    operations._wait_for_app_ready(15)
+                except Exception:
+                    pass
+
+            # Navigate to containers
+            nav = operations.navigate_to_containers()
+            if not nav["success"]:
+                return jsonify({"success": False, "error": f"Navigation failed: {nav['error']}"}), 500
+
+            # Progressive search during scrolling
+            sr = operations.search_container_with_scrolling(container_id)
+            if not sr["success"]:
+                return jsonify({"success": False, "error": f"Search failed: {sr['error']}"}), 500
+            
+            # Expand container row
+            ex = operations.expand_container_row(container_id)
+            if not ex["success"]:
+                return jsonify({"success": False, "error": f"Expand failed: {ex['error']}"}), 500
+
+            # Extract booking number
+            booking_result = operations.get_booking_number(container_id)
+            
+            if not booking_result.get("success"):
+                return jsonify({
+                    "success": False,
+                    "error": f"Booking number extraction failed: {booking_result.get('error')}"
+                }), 500
+            
+            booking_number = booking_result.get("booking_number")
+            message = booking_result.get("message", "")
+            
+            print(f"✅ Booking number: {booking_number if booking_number else 'Not available'}")
+            
+            # Build response based on debug mode
+            if debug_mode:
+                # Debug mode: Create ZIP with screenshots
+                bundle_name = None
+                bundle_path = None
+                try:
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bundle_name = f"{session_id}_{ts}_BOOKING.zip"
+                    bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+                    session_root = session_id
+                    
+                    with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        # Add all screenshots from session
+                        session_sc_dir = operations.screens_dir
+                        if os.path.isdir(session_sc_dir):
+                            for root, _, files in os.walk(session_sc_dir):
+                                for f in files:
+                                    fp = os.path.join(root, f)
+                                    rel = os.path.relpath(fp, session_sc_dir)
+                                    arc = os.path.join(session_root, 'screenshots', rel)
+                                    zf.write(fp, arc)
+                    
+                    # Print public download URL
+                    if bundle_path and os.path.exists(bundle_path):
+                        public_url = f"http://{request.host}/files/{bundle_name}"
+                        print(f"\n{'='*70}")
+                        print(f"🐛 DEBUG BUNDLE READY")
+                        print(f"{'='*70}")
+                        print(f"🌐 Bundle URL: {public_url}")
+                        print(f"📂 File: {bundle_name}")
+                        print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
+                        print(f"{'='*70}\n")
+                    
+                except Exception as be:
+                    print(f"⚠️ Bundle creation failed: {be}")
+                
+                logger.info(f"[{request_id}] Session kept alive: {session_id}")
+                
+                # Return debug response
+                response_data = {
+                    "success": True,
+                    "session_id": session_id,
+                    "is_new_session": is_new_session,
+                    "container_id": container_id,
+                    "booking_number": booking_number,
+                    "debug_bundle_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
+                }
+                
+                if message:
+                    response_data["message"] = message
+                
+                return jsonify(response_data)
+            
+            else:
+                # Normal mode: Return only booking number (fast)
+                logger.info(f"[{request_id}] Session kept alive: {session_id}")
+                
+                response_data = {
+                    "success": True,
+                    "session_id": session_id,
+                    "is_new_session": is_new_session,
+                    "container_id": container_id,
+                    "booking_number": booking_number
+                }
+                
+                if message:
+                    response_data["message"] = message
+                
+                return jsonify(response_data)
+
+        except Exception as op_e:
+            return jsonify({"success": False, "error": f"Operation failed: {op_e}"}), 500
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Unexpected error: {e}"}), 500
+
+
+@app.route('/get_appointments', methods=['POST'])
+def get_appointments():
+    """
+    Navigate to myappointments page, scroll through appointments, select all checkboxes, and download Excel.
+    
+    Inputs:
+        - session_id (optional): Use existing session, skip login
+        OR
+        - username, password, captcha_api_key (required if no session_id)
+        - infinite_scrolling (optional): If true, scroll until no new content
+        - target_count (optional): Number of appointments to select
+        - target_appointment_id (optional): Scroll until specific appointment found
+        - debug (optional, default: false): If true, returns debug bundle with screenshots
+    
+    Returns: JSON with session_id, selected_count, file_url (Excel download link), and optional debug_bundle_url
+    """
+    request_id = f"appointments_{int(time.time())}"
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+
+        data = request.get_json()
+        debug_mode = data.get('debug', False)
+        
+        # Determine scrolling mode
+        infinite_scrolling = data.get('infinite_scrolling', False)
+        target_count = data.get('target_count')
+        target_appointment_id = data.get('target_appointment_id')
+        
+        mode = "infinite"
+        target_value = None
+        
+        if target_count:
+            mode = "count"
+            target_value = target_count
+        elif target_appointment_id:
+            mode = "id"
+            target_value = target_appointment_id
+        
+        # Only capture screenshots in debug mode
+        capture_screens = debug_mode
+
+        logger.info(f"[{request_id}] Get appointments request (mode: {mode})")
+
+        # Get or create browser session
+        result = get_or_create_browser_session(data, request_id)
+        
+        if len(result) == 5:  # Error case
+            _, _, _, _, error_response = result
+            return error_response
+        
+        driver, username, session_id, is_new_session = result
+        
+        logger.info(f"[{request_id}] Using session: {session_id} (new={is_new_session})")
+        screens_label = data.get('screens_label', username)
+        
+        # Create session wrapper for EModalBusinessOperations
+        class SessionWrapper:
+            def __init__(self, driver, session_id):
+                self.driver = driver
+                self.session_id = session_id
+        
+        session_wrapper = SessionWrapper(driver, session_id)
+
+        try:
+            operations = EModalBusinessOperations(session_wrapper)
+            operations.screens_enabled = bool(capture_screens)
+            operations.screens_label = screens_label
+
+            # Navigate to myappointments page
+            nav = operations.navigate_to_myappointments()
+            if not nav["success"]:
+                return jsonify({"success": False, "error": f"Navigation failed: {nav['error']}"}), 500
+
+            # Scroll and select checkboxes
+            select_result = operations.scroll_and_select_appointment_checkboxes(mode, target_value)
+            if not select_result["success"]:
+                return jsonify({"success": False, "error": f"Checkbox selection failed: {select_result['error']}"}), 500
+            
+            selected_count = select_result.get("selected_count", 0)
+            print(f"✅ Selected {selected_count} appointments")
+            
+            # Click Excel download button
+            download_result = operations.click_excel_download_button()
+            if not download_result["success"]:
+                return jsonify({"success": False, "error": f"Excel download failed: {download_result['error']}"}), 500
+            
+            # Wait for file to download
+            time.sleep(5)
+            
+            # Find the downloaded file in the downloads folder
+            download_folder = operations.screens_dir.replace("screenshots", "downloads")
+            if not os.path.exists(download_folder):
+                download_folder = DOWNLOADS_DIR
+            
+            # Look for most recent Excel file
+            excel_files = []
+            for root, dirs, files in os.walk(download_folder):
+                for file in files:
+                    if file.endswith(('.xlsx', '.xls')):
+                        full_path = os.path.join(root, file)
+                        excel_files.append((full_path, os.path.getmtime(full_path)))
+            
+            if excel_files:
+                # Sort by modification time, newest first
+                excel_files.sort(key=lambda x: x[1], reverse=True)
+                excel_file = excel_files[0][0]
+                excel_filename = os.path.basename(excel_file)
+                
+                # Move to downloads folder with session ID prefix if not already there
+                if not excel_filename.startswith(session_id):
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    new_filename = f"{session_id}_{ts}_appointments.xlsx"
+                    new_path = os.path.join(DOWNLOADS_DIR, new_filename)
+                    
+                    try:
+                        import shutil
+                        shutil.move(excel_file, new_path)
+                        excel_file = new_path
+                        excel_filename = new_filename
+                        print(f"✅ Excel file moved to: {new_filename}")
+                    except Exception as e:
+                        print(f"⚠️ Could not move Excel file: {e}")
+                
+                # Create public URL
+                excel_url = f"/files/{excel_filename}"
+                print(f"✅ Excel file ready: {excel_url}")
+            else:
+                print("⚠️ Excel file not found in downloads folder")
+                excel_url = None
+                excel_filename = None
+            
+            # Build response based on debug mode
+            if debug_mode:
+                # Debug mode: Create ZIP with screenshots and Excel file
+                bundle_name = None
+                bundle_path = None
+                try:
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    bundle_name = f"{session_id}_{ts}_APPOINTMENTS.zip"
+                    bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+                    session_root = session_id
+                    
+                    with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        # Add all screenshots from session
+                        session_sc_dir = operations.screens_dir
+                        if os.path.isdir(session_sc_dir):
+                            for root, _, files in os.walk(session_sc_dir):
+                                for f in files:
+                                    fp = os.path.join(root, f)
+                                    rel = os.path.relpath(fp, session_sc_dir)
+                                    arc = os.path.join(session_root, 'screenshots', rel)
+                                    zf.write(fp, arc)
+                        
+                        # Add Excel file if found
+                        if excel_file and os.path.exists(excel_file):
+                            zf.write(excel_file, os.path.join(session_root, excel_filename))
+                    
+                    # Print public download URL
+                    if bundle_path and os.path.exists(bundle_path):
+                        public_url = f"http://{request.host}/files/{bundle_name}"
+                        print(f"\n{'='*70}")
+                        print(f"🐛 DEBUG BUNDLE READY")
+                        print(f"{'='*70}")
+                        print(f"🌐 Bundle URL: {public_url}")
+                        print(f"📂 File: {bundle_name}")
+                        print(f"📊 Size: {os.path.getsize(bundle_path)} bytes")
+                        print(f"{'='*70}\n")
+                    
+                except Exception as be:
+                    print(f"⚠️ Bundle creation failed: {be}")
+                
+                logger.info(f"[{request_id}] Session kept alive: {session_id}")
+                
+                # Return debug response
+                response_data = {
+                    "success": True,
+                    "session_id": session_id,
+                    "is_new_session": is_new_session,
+                    "selected_count": selected_count,
+                    "file_url": excel_url,
+                    "debug_bundle_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
+                }
+                
+                return jsonify(response_data)
+            
+            else:
+                # Normal mode: Return only Excel URL
+                logger.info(f"[{request_id}] Session kept alive: {session_id}")
+                
+                response_data = {
+                    "success": True,
+                    "session_id": session_id,
+                    "is_new_session": is_new_session,
+                    "selected_count": selected_count,
+                    "file_url": excel_url
+                }
+                
+                return jsonify(response_data)
+
+        except Exception as op_e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Operation failed: {op_e}"}), 500
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "error": f"Unexpected error: {e}"}), 500
 
 
