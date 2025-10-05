@@ -1,61 +1,21 @@
-# Core Web Framework
 Flask==2.3.3
+selenium==4.15.0
+requests==2.31.0
+webdriver-manager==4.0.1
 Werkzeug==2.3.7
 
-# Browser Automation
-selenium==4.15.0
-webdriver-manager==4.0.1
-
-# HTTP Requests
-requests==2.31.0
+# Linux-compatible packages
+python-dotenv==1.0.0
 urllib3==2.0.7
 
-# Environment Variables
-python-dotenv==1.0.0
-
-# Audio Processing (for reCAPTCHA)
+# Audio processing for reCAPTCHA
 pydub==0.25.1
 
-# Image Processing & Screenshots
+# Screenshots and image annotations
 Pillow==10.4.0
-numpy==1.24.3
 
-# Linux Virtual Display (Xvfb for headless servers)
-pyvirtualdisplay==3.0
-
-# Excel File Creation & Manipulation
-pandas==2.1.3
-openpyxl==3.1.2
-
-# Clipboard Operations (cross-platform)
-pyperclip==1.8.2
-
-# ============================================================================
-# LINUX SYSTEM DEPENDENCIES (run before pip install)
-# ============================================================================
+# Additional system dependencies for Linux:
 # sudo apt-get update
 # sudo apt-get install -y wget unzip xvfb
 # sudo apt-get install -y google-chrome-stable chromium-browser
 # sudo apt-get install -y ffmpeg
-#
-# For Ubuntu/Debian, you may also need:
-# sudo apt-get install -y python3-tk
-# sudo apt-get install -y xclip xsel  # For clipboard operations
-#
-# ============================================================================
-# INSTALLATION INSTRUCTIONS
-# ============================================================================
-# Windows:
-#   pip install -r requirements.txt
-#
-# Linux:
-#   Install system dependencies first (see above)
-#   pip install -r requirements.txt
-#
-# ============================================================================
-# USAGE NOTES
-# ============================================================================
-# - Flask API runs on port 5010 by default
-# - Use Xvfb on Linux servers without displays
-# - Chrome/Chromium required for Selenium automation
-# - FFmpeg required for audio processing (reCAPTCHA)

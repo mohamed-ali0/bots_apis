@@ -416,5 +416,4 @@ class RecaptchaHandler:
             time.sleep(1)
         
         return False
-    
 
