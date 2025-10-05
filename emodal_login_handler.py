@@ -197,9 +197,39 @@ class EModalLoginHandler:
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
         print("📦 Auto-downloading matching ChromeDriver version...")
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        print("✅ ChromeDriver initialized successfully")
+        
+        # Try webdriver-manager first, with fallback to local chromedriver
+        try:
+            # Clear any corrupted ChromeDriver cache
+            try:
+                import shutil
+                cache_dir = os.path.expanduser("~/.wdm")
+                if os.path.exists(cache_dir):
+                    print("🧹 Clearing ChromeDriver cache...")
+                    shutil.rmtree(cache_dir, ignore_errors=True)
+            except Exception:
+                pass
+            
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            print("✅ ChromeDriver initialized successfully with webdriver-manager")
+        except Exception as wdm_error:
+            print(f"⚠️ WebDriver Manager failed: {wdm_error}")
+            print("🔄 Trying local chromedriver.exe...")
+            
+            # Fallback to local chromedriver.exe
+            local_chromedriver = os.path.join(os.getcwd(), "chromedriver.exe")
+            if os.path.exists(local_chromedriver):
+                try:
+                    service = Service(local_chromedriver)
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    print("✅ ChromeDriver initialized successfully with local chromedriver.exe")
+                except Exception as local_error:
+                    print(f"❌ Local chromedriver.exe also failed: {local_error}")
+                    raise Exception(f"Both webdriver-manager and local chromedriver failed. WDM error: {wdm_error}, Local error: {local_error}")
+            else:
+                print("❌ No local chromedriver.exe found")
+                raise Exception(f"WebDriver Manager failed and no local chromedriver.exe found. WDM error: {wdm_error}")
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
