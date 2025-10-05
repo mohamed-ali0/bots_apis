@@ -154,21 +154,47 @@ class EModalLoginHandler:
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
         
-        # Critical options for Linux servers
+        # ============================================================================
+        # ANTI-DETECTION: Critical options to avoid automation detection
+        # ============================================================================
+        
+        # 1. Hide automation flags
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        # Configure download behavior (important for Linux)
+        # 2. Realistic user agent (looks like normal Chrome user)
+        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+        
+        # 3. Disable webdriver detection
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        
+        # 4. Language and locale (appear as US user)
+        chrome_options.add_argument("--lang=en-US")
+        chrome_options.add_argument("--accept-lang=en-US,en;q=0.9")
+        
+        # 5. Disable automation indicators
+        chrome_options.add_argument("--disable-infobars")
+        chrome_options.add_argument("--disable-notifications")
+        
+        # Configure download behavior + anti-detection preferences
         prefs = {
-            "download.default_directory": "/tmp",  # Will be overridden per-session
+            # Downloads
+            "download.default_directory": "/tmp",
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
             "safebrowsing.enabled": False,
             "profile.default_content_settings.popups": 0,
-            "profile.content_settings.exceptions.automatic_downloads.*.setting": 1
+            "profile.content_settings.exceptions.automatic_downloads.*.setting": 1,
+            
+            # Anti-detection: Make browser appear more human
+            "credentials_enable_service": False,
+            "profile.password_manager_enabled": False,
+            "profile.default_content_setting_values.notifications": 2,
+            "intl.accept_languages": "en-US,en",
+            "enable_do_not_track": False
         }
         chrome_options.add_experimental_option("prefs", prefs)
         
@@ -230,7 +256,91 @@ class EModalLoginHandler:
             else:
                 print("❌ No local chromedriver.exe found")
                 raise Exception(f"WebDriver Manager failed and no local chromedriver.exe found. WDM error: {wdm_error}")
+        
+        # ============================================================================
+        # ADVANCED ANTI-DETECTION: JavaScript stealth techniques
+        # ============================================================================
+        print("🛡️  Applying advanced anti-detection measures...")
+        
+        # 1. Override navigator.webdriver property
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        # 2. Mock Chrome runtime (makes it look like normal Chrome, not automated)
+        self.driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+            'source': '''
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                
+                // Mock Chrome runtime
+                window.chrome = {
+                    runtime: {}
+                };
+                
+                // Mock plugins and mimeTypes
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+                
+                // Mock permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+                
+                // Mask automation in iframe contentWindow
+                try {
+                    Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+                        get: function() {
+                            return window;
+                        }
+                    });
+                } catch (e) {}
+                
+                // Override toString to hide modifications
+                const originalToString = Function.prototype.toString;
+                Function.prototype.toString = function() {
+                    if (this === window.navigator.permissions.query) {
+                        return 'function query() { [native code] }';
+                    }
+                    return originalToString.call(this);
+                };
+            '''
+        })
+        
+        # 3. Disable automation flags via CDP (Chrome DevTools Protocol)
+        self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            "acceptLanguage": "en-US,en;q=0.9",
+            "platform": "Win32"
+        })
+        
+        # 4. Add realistic viewport and screen properties
+        self.driver.execute_script("""
+            Object.defineProperty(window, 'outerWidth', {get: () => 1920});
+            Object.defineProperty(window, 'outerHeight', {get: () => 1080});
+            Object.defineProperty(window, 'devicePixelRatio', {get: () => 1});
+        """)
+        
+        # 5. Add realistic connection info
+        self.driver.execute_script("""
+            Object.defineProperty(navigator, 'connection', {
+                get: () => ({
+                    effectiveType: '4g',
+                    rtt: 50,
+                    downlink: 10,
+                    saveData: false
+                })
+            });
+        """)
+        
+        print("✅ Anti-detection measures applied successfully")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
@@ -267,23 +377,59 @@ class EModalLoginHandler:
                 error_message=f"Network error during page load: {str(e)}"
             )
     
+    def _human_type(self, element, text: str):
+        """Type text with human-like delays (anti-detection)"""
+        import random
+        
+        for char in text:
+            element.send_keys(char)
+            # Random delay between 50-150ms per character (realistic typing speed)
+            time.sleep(random.uniform(0.05, 0.15))
+    
+    def _human_delay(self, min_seconds: float = 0.5, max_seconds: float = 1.5):
+        """Add random human-like delay (anti-detection)"""
+        import random
+        time.sleep(random.uniform(min_seconds, max_seconds))
+    
     def _fill_credentials(self, username: str, password: str) -> LoginResult:
-        """Fill username and password fields"""
+        """Fill username and password fields with human-like behavior (anti-detection)"""
         try:
+            # Small delay before interacting (human reads the page first)
+            self._human_delay(0.5, 1.0)
+            
             # Find and fill username
             username_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Username"))
             )
+            
+            # Human-like behavior: click field first, then type
+            username_field.click()
+            self._human_delay(0.2, 0.4)
+            
             username_field.clear()
-            username_field.send_keys(username)
+            self._human_delay(0.1, 0.3)
+            
+            # Type username with human-like speed
+            self._human_type(username_field, username)
+            self._human_delay(0.3, 0.7)
             
             # Find and fill password
             password_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Password"))
             )
-            password_field.clear()
-            password_field.send_keys(password)
             
+            # Human-like behavior: click field, then type
+            password_field.click()
+            self._human_delay(0.2, 0.4)
+            
+            password_field.clear()
+            self._human_delay(0.1, 0.3)
+            
+            # Type password with human-like speed
+            self._human_type(password_field, password)
+            self._human_delay(0.5, 1.0)
+            
+            print("✅ Credentials filled with human-like behavior")
             return LoginResult(success=True)
             
         except TimeoutException:
@@ -390,20 +536,42 @@ class EModalLoginHandler:
                 error_message=f"Unexpected reCAPTCHA error: {str(e)}"
             )
     
+    def _human_move_to_element(self, element):
+        """Simulate human-like mouse movement to element (anti-detection)"""
+        try:
+            from selenium.webdriver.common.action_chains import ActionChains
+            
+            # Move mouse to element with slight pause (human-like)
+            actions = ActionChains(self.driver)
+            actions.move_to_element(element)
+            actions.pause(0.3)  # Pause at element
+            actions.perform()
+            
+            self._human_delay(0.2, 0.5)
+        except Exception as e:
+            print(f"⚠️  Mouse movement skipped: {e}")
+    
     def _click_login_button(self, login_button) -> LoginResult:
-        """Click the pre-located LOGIN button"""
+        """Click the pre-located LOGIN button with human-like behavior (anti-detection)"""
         try:
             # Ensure page focus
             self.driver.execute_script("window.focus();")
             self.driver.execute_script("document.body.focus();")
             
-            # Final scroll to button
-            self.driver.execute_script("arguments[0].scrollIntoView(true);", login_button)
-            time.sleep(0.5)
+            # Human behavior: scroll to button smoothly
+            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", login_button)
+            self._human_delay(0.5, 1.0)
+            
+            # Human behavior: move mouse to button
+            self._human_move_to_element(login_button)
+            
+            # Human behavior: slight pause before clicking (reading/thinking)
+            self._human_delay(0.3, 0.7)
             
             # Click button
             login_button.click()
             
+            print("✅ Login button clicked with human-like behavior")
             return LoginResult(success=True)
             
         except Exception as e:
