@@ -463,122 +463,6 @@ class EModalLoginHandler:
             print(f"  ❌ Download error: {e}")
             raise e
     
-    def _aggressive_recaptcha_handling(self) -> LoginResult:
-        """
-        Aggressive reCAPTCHA handling that tries multiple approaches
-        to find and click reCAPTCHA even if not initially detected
-        """
-        try:
-            print("🔍 Aggressive reCAPTCHA detection...")
-            
-            # Method 1: Look for any iframe that might contain reCAPTCHA
-            all_iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
-            print(f"  📋 Found {len(all_iframes)} iframes on page")
-            
-            for i, iframe in enumerate(all_iframes):
-                try:
-                    src = iframe.get_attribute("src") or ""
-                    name = iframe.get_attribute("name") or ""
-                    iframe_id = iframe.get_attribute("id") or ""
-                    
-                    print(f"  🔍 Iframe {i+1}: src='{src[:50]}...', name='{name}', id='{iframe_id}'")
-                    
-                    # Check if this iframe might be reCAPTCHA
-                    if any(term in src.lower() or term in name.lower() or term in iframe_id.lower() 
-                           for term in ['recaptcha', 'captcha', 'challenge']):
-                        print(f"  🎯 Potential reCAPTCHA iframe found: {src}")
-                        
-                        # Try to switch to this iframe and look for checkbox
-                        try:
-                            self.driver.switch_to.frame(iframe)
-                            
-                            # Look for checkbox elements
-                            checkbox_selectors = [
-                                "//div[@id='recaptcha-anchor']",
-                                "//span[@id='recaptcha-anchor']",
-                                "//div[contains(@class, 'recaptcha')]",
-                                "//span[contains(@class, 'recaptcha')]",
-                                "//div[@role='checkbox']",
-                                "//span[@role='checkbox']",
-                                "//input[@type='checkbox']"
-                            ]
-                            
-                            for selector in checkbox_selectors:
-                                try:
-                                    checkbox = self.driver.find_element(By.XPATH, selector)
-                                    if checkbox.is_displayed():
-                                        print(f"    ✅ Found checkbox: {selector}")
-                                        checkbox.click()
-                                        print("    ✅ Checkbox clicked")
-                                        
-                                        # Switch back to main content
-                                        self.driver.switch_to.default_content()
-                                        
-                                        # Wait a bit for reCAPTCHA to process
-                                        time.sleep(3)
-                                        
-                                        return LoginResult(
-                                            success=True,
-                                            recaptcha_method="aggressive_detection"
-                                        )
-                                except:
-                                    continue
-                            
-                            # Switch back to main content
-                            self.driver.switch_to.default_content()
-                            
-                        except Exception as iframe_e:
-                            print(f"    ⚠️ Iframe {i+1} error: {iframe_e}")
-                            self.driver.switch_to.default_content()
-                            continue
-                            
-                except Exception as e:
-                    print(f"  ⚠️ Error checking iframe {i+1}: {e}")
-                    continue
-            
-            # Method 2: Look for any clickable elements that might be reCAPTCHA
-            print("  🔍 Looking for clickable reCAPTCHA elements...")
-            clickable_selectors = [
-                "//div[contains(@class, 'recaptcha')]",
-                "//span[contains(@class, 'recaptcha')]",
-                "//div[contains(@id, 'recaptcha')]",
-                "//span[contains(@id, 'recaptcha')]",
-                "//div[@role='checkbox']",
-                "//span[@role='checkbox']"
-            ]
-            
-            for selector in clickable_selectors:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, selector)
-                    for element in elements:
-                        if element.is_displayed() and element.is_enabled():
-                            print(f"  🎯 Found clickable element: {selector}")
-                            element.click()
-                            print("  ✅ Element clicked")
-                            time.sleep(3)
-                            
-                            return LoginResult(
-                                success=True,
-                                recaptcha_method="aggressive_clicking"
-                            )
-                except Exception as e:
-                    print(f"  ⚠️ Error with selector {selector}: {e}")
-                    continue
-            
-            print("  ❌ No reCAPTCHA elements found with aggressive approach")
-            return LoginResult(
-                success=False,
-                error_type=LoginErrorType.RECAPTCHA_FAILED,
-                error_message="reCAPTCHA not found with aggressive detection"
-            )
-            
-        except Exception as e:
-            print(f"  ❌ Aggressive reCAPTCHA handling failed: {e}")
-            return LoginResult(
-                success=False,
-                error_type=LoginErrorType.RECAPTCHA_FAILED,
-                error_message=f"Aggressive reCAPTCHA handling failed: {str(e)}"
-            )
     
     def _human_like_click(self, element) -> None:
         """Simulate human-like clicking with mouse movement"""
@@ -963,14 +847,8 @@ class EModalLoginHandler:
             print("🔒 Handling reCAPTCHA...")
             recaptcha_result = self._handle_recaptcha()
             if not recaptcha_result.success:
-                print("⚠️ reCAPTCHA handling failed, trying aggressive approach...")
-                # Try aggressive reCAPTCHA detection and clicking
-                aggressive_result = self._aggressive_recaptcha_handling()
-                if not aggressive_result.success:
-                    return recaptcha_result
-                print(f"✅ reCAPTCHA handled with aggressive approach: {aggressive_result.recaptcha_method}")
-            else:
-                print(f"✅ reCAPTCHA handled: {recaptcha_result.recaptcha_method}")
+                return recaptcha_result
+            print(f"✅ reCAPTCHA handled: {recaptcha_result.recaptcha_method}")
             
             # Human-like pause after reCAPTCHA
             self._human_like_pause()

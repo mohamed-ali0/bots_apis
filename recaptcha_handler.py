@@ -155,71 +155,18 @@ class RecaptchaHandler:
             raise RecaptchaError("WebDriver not set")
         
         try:
-            # Step 1: Find and click reCAPTCHA checkbox with multiple methods
-            print("👆 Looking for reCAPTCHA checkbox...")
-            
-            # Try multiple iframe selectors
-            iframe_selectors = [
-                "//iframe[contains(@src, 'recaptcha/api2/anchor')]",
-                "//iframe[contains(@src, 'recaptcha')]",
-                "//iframe[contains(@name, 'recaptcha')]",
-                "//iframe[contains(@id, 'recaptcha')]"
-            ]
-            
-            anchor_iframe = None
-            for selector in iframe_selectors:
-                try:
-                    anchor_iframe = self.wait.until(
-                        EC.presence_of_element_located((By.XPATH, selector))
-                    )
-                    print(f"  ✅ Found reCAPTCHA iframe: {selector}")
-                    break
-                except:
-                    continue
-            
-            if not anchor_iframe:
-                return {
-                    "success": False,
-                    "error": "reCAPTCHA iframe not found"
-                }
-            
-            # Switch to iframe
+            # Step 1: Click reCAPTCHA checkbox
+            print("👆 Clicking reCAPTCHA checkbox...")
+            anchor_iframe = self.wait.until(
+                EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/anchor')]"))
+            )
             self.driver.switch_to.frame(anchor_iframe)
-            print("  🔄 Switched to reCAPTCHA iframe")
             
-            # Try multiple checkbox selectors
-            checkbox_selectors = [
-                "//div[@id='recaptcha-anchor']",
-                "//span[@id='recaptcha-anchor']",
-                "//div[contains(@class, 'recaptcha-anchor')]",
-                "//span[contains(@class, 'recaptcha-anchor')]",
-                "//div[@role='checkbox']",
-                "//span[@role='checkbox']"
-            ]
-            
-            checkbox = None
-            for selector in checkbox_selectors:
-                try:
-                    checkbox = self.wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
-                    print(f"  ✅ Found reCAPTCHA checkbox: {selector}")
-                    break
-                except:
-                    continue
-            
-            if not checkbox:
-                self.driver.switch_to.default_content()
-                return {
-                    "success": False,
-                    "error": "reCAPTCHA checkbox not found"
-                }
-            
-            # Click the checkbox
+            checkbox = self.wait.until(EC.element_to_be_clickable((By.ID, "recaptcha-anchor")))
             checkbox.click()
             print("  ✅ Checkbox clicked")
             
-            # Switch back to main content
             self.driver.switch_to.default_content()
-            print("  🔄 Switched back to main content")
             
             # Step 2: Check if challenge appears or if trusted
             print("🔍 Checking for challenge or trusted status...")
@@ -260,11 +207,11 @@ class RecaptchaHandler:
                     "message": "No challenge required"
                 }
             
-            # Step 4: Try audio challenge first, fallback to visual if needed
-            print("🎧 Attempting audio challenge...")
+            # Step 4: Switch to audio challenge
+            print("🎧 Switching to audio challenge...")
             self.driver.switch_to.frame(challenge_iframe)
             
-            # Try to find and click audio button
+            # Find and click audio button
             audio_button_selectors = [
                 "#recaptcha-audio-button",
                 "button[id*='audio']",
@@ -274,36 +221,122 @@ class RecaptchaHandler:
             audio_button = None
             for selector in audio_button_selectors:
                 try:
-                    audio_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if audio_button.is_displayed():
+                    audio_button = self.wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+                    break
+                except:
+                    continue
+            
+            if not audio_button:
+                raise RecaptchaError("Audio button not found")
+            
+            audio_button.click()
+            print("  ✅ Audio challenge selected")
+            time.sleep(1)
+            
+            # Step 5: Click play button and get audio
+            print("▶️ Getting audio challenge...")
+            play_button_selectors = [
+                ".rc-audiochallenge-play-button",
+                "button[aria-label*='play']",
+                "button[title*='play']"
+            ]
+            
+            play_button = None
+            for selector in play_button_selectors:
+                try:
+                    play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if play_button.is_displayed():
                         break
                 except:
                     continue
             
-            if audio_button:
-                try:
-                    audio_button.click()
-                    print("  ✅ Audio challenge selected")
-                    time.sleep(1)
-                    
-                    # Try to solve audio challenge
-                    audio_result = self._solve_audio_challenge()
-                    if audio_result["success"]:
-                        return audio_result
-                    else:
-                        print("  ⚠️ Audio challenge failed, falling back to visual...")
-                        # Fallback to visual challenge
-                        return self._solve_visual_challenge()
-                        
-                except Exception as audio_e:
-                    print(f"  ⚠️ Audio challenge error: {audio_e}")
-                    print("  🔄 Falling back to visual challenge...")
-                    return self._solve_visual_challenge()
-            else:
-                print("  ⚠️ Audio button not found, trying visual challenge...")
-                return self._solve_visual_challenge()
+            if not play_button:
+                raise RecaptchaError("Play button not found")
             
-            # This code is now handled by _solve_audio_challenge method
+            play_button.click()
+            print("  ✅ Audio playing")
+            time.sleep(2)
+            
+            # Step 6: Extract audio URL
+            print("🎵 Extracting audio URL...")
+            audio_url = None
+            
+            # Look for audio element
+            try:
+                audio_element = self.driver.find_element(By.TAG_NAME, "audio")
+                audio_url = audio_element.get_attribute("src")
+            except:
+                # Look in page source
+                page_source = self.driver.page_source
+                audio_patterns = [
+                    r'src="([^"]*payload[^"]*)"',
+                    r'(https://[^\s]*payload[^\s]*)'
+                ]
+                
+                for pattern in audio_patterns:
+                    matches = re.findall(pattern, page_source)
+                    if matches:
+                        audio_url = matches[0]
+                        break
+            
+            if not audio_url:
+                raise RecaptchaError("Could not extract audio URL")
+            
+            print(f"  🎵 Audio URL found: {audio_url[:50]}...")
+            
+            # Step 7: Solve with 2captcha
+            transcribed_text = self.solve_audio_with_2captcha(audio_url)
+            
+            # Step 8: Input transcribed text
+            print("📝 Entering transcribed text...")
+            text_input_selectors = [
+                "input[id*='audio']",
+                "input[type='text']",
+                ".rc-audiochallenge-input-label input"
+            ]
+            
+            text_input = None
+            for selector in text_input_selectors:
+                try:
+                    text_input = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if text_input.is_displayed():
+                        break
+                except:
+                    continue
+            
+            if not text_input:
+                raise RecaptchaError("Text input field not found")
+            
+            text_input.clear()
+            text_input.send_keys(transcribed_text)
+            print("  ✅ Text entered")
+            
+            # Step 9: Click verify button
+            print("✅ Clicking VERIFY...")
+            verify_button_selectors = [
+                "#recaptcha-verify-button",
+                "button[id*='verify']",
+                ".rc-audiochallenge-verify-button"
+            ]
+            
+            verify_button = None
+            for selector in verify_button_selectors:
+                try:
+                    verify_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if verify_button.is_displayed():
+                        break
+                except:
+                    continue
+            
+            if verify_button:
+                verify_button.click()
+                print("  ✅ VERIFY clicked")
+                time.sleep(2)
+            
+            # Switch back to main content
+            self.driver.switch_to.default_content()
+            
+            # Step 10: Verify solution
             print("⏳ Verifying solution...")
             time.sleep(2)
             
@@ -336,7 +369,7 @@ class RecaptchaHandler:
     
     def is_recaptcha_present(self):
         """
-        Check if reCAPTCHA is present on the page with comprehensive detection
+        Check if reCAPTCHA is present on the page
         
         Returns:
             bool: True if reCAPTCHA is found
@@ -345,54 +378,9 @@ class RecaptchaHandler:
             return False
         
         try:
-            # Multiple detection methods for reCAPTCHA
-            detection_methods = [
-                # Method 1: iframe with recaptcha in src
-                "//iframe[contains(@src, 'recaptcha')]",
-                # Method 2: iframe with recaptcha in name or id
-                "//iframe[contains(@name, 'recaptcha') or contains(@id, 'recaptcha')]",
-                # Method 3: div with recaptcha class
-                "//div[contains(@class, 'recaptcha')]",
-                # Method 4: any element with recaptcha in class or id
-                "//*[contains(@class, 'recaptcha') or contains(@id, 'recaptcha')]",
-                # Method 5: checkbox with recaptcha
-                "//input[@type='checkbox' and contains(@class, 'recaptcha')]",
-                # Method 6: any element containing 'recaptcha' in text
-                "//*[contains(text(), 'recaptcha') or contains(text(), 'reCAPTCHA')]"
-            ]
-            
-            for method in detection_methods:
-                try:
-                    elements = self.driver.find_elements(By.XPATH, method)
-                    if elements:
-                        print(f"  ✅ reCAPTCHA detected using: {method}")
-                        return True
-                except:
-                    continue
-            
-            # Additional check: look for common reCAPTCHA patterns in page source
-            try:
-                page_source = self.driver.page_source.lower()
-                recaptcha_indicators = [
-                    'recaptcha',
-                    'g-recaptcha',
-                    'data-sitekey',
-                    'recaptcha-checkbox',
-                    'recaptcha-anchor'
-                ]
-                
-                for indicator in recaptcha_indicators:
-                    if indicator in page_source:
-                        print(f"  ✅ reCAPTCHA detected in page source: {indicator}")
-                        return True
-            except:
-                pass
-            
-            print("  ❌ No reCAPTCHA detected")
-            return False
-            
-        except Exception as e:
-            print(f"  ⚠️ reCAPTCHA detection error: {e}")
+            recaptcha_elements = self.driver.find_elements(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
+            return len(recaptcha_elements) > 0
+        except:
             return False
     
     def wait_for_solved(self, timeout=10):
@@ -429,268 +417,4 @@ class RecaptchaHandler:
         
         return False
     
-    def _solve_audio_challenge(self):
-        """
-        Solve audio reCAPTCHA challenge using 2captcha service
-        
-        Returns:
-            dict: Result with success status and details
-        """
-        try:
-            print("🎧 Solving audio challenge...")
-            
-            # Click play button and get audio
-            print("▶️ Getting audio challenge...")
-            play_button_selectors = [
-                ".rc-audiochallenge-play-button",
-                "button[aria-label*='play']",
-                "button[title*='play']"
-            ]
-            
-            play_button = None
-            for selector in play_button_selectors:
-                try:
-                    play_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if play_button.is_displayed():
-                        break
-                except:
-                    continue
-            
-            if not play_button:
-                return {"success": False, "error": "Play button not found"}
-            
-            play_button.click()
-            print("  ✅ Audio playing")
-            time.sleep(2)
-            
-            # Extract audio URL
-            print("🎵 Extracting audio URL...")
-            audio_url = None
-            
-            # Look for audio element
-            try:
-                audio_element = self.driver.find_element(By.TAG_NAME, "audio")
-                audio_url = audio_element.get_attribute("src")
-            except:
-                # Look in page source
-                page_source = self.driver.page_source
-                audio_patterns = [
-                    r'src="([^"]*payload[^"]*)"',
-                    r'(https://[^\s]*payload[^\s]*)'
-                ]
-                
-                for pattern in audio_patterns:
-                    matches = re.findall(pattern, page_source)
-                    if matches:
-                        audio_url = matches[0]
-                        break
-            
-            if not audio_url:
-                return {"success": False, "error": "Could not extract audio URL"}
-            
-            print(f"  🎵 Audio URL found: {audio_url[:50]}...")
-            
-            # Solve with 2captcha
-            transcribed_text = self.solve_audio_with_2captcha(audio_url)
-            
-            # Input transcribed text
-            print("📝 Entering transcribed text...")
-            text_input_selectors = [
-                "input[id*='audio']",
-                "input[type='text']",
-                ".rc-audiochallenge-input-label input"
-            ]
-            
-            text_input = None
-            for selector in text_input_selectors:
-                try:
-                    text_input = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if text_input.is_displayed():
-                        break
-                except:
-                    continue
-            
-            if not text_input:
-                return {"success": False, "error": "Text input field not found"}
-            
-            text_input.clear()
-            text_input.send_keys(transcribed_text)
-            print("  ✅ Text entered")
-            
-            # Click verify button
-            print("✅ Clicking VERIFY...")
-            verify_button_selectors = [
-                "#recaptcha-verify-button",
-                "button[id*='verify']",
-                ".rc-audiochallenge-verify-button"
-            ]
-            
-            verify_button = None
-            for selector in verify_button_selectors:
-                try:
-                    verify_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if verify_button.is_displayed():
-                        break
-                except:
-                    continue
-            
-            if verify_button:
-                verify_button.click()
-                print("  ✅ VERIFY clicked")
-                time.sleep(2)
-            
-            # Switch back to main content
-            self.driver.switch_to.default_content()
-            
-            # Verify solution
-            print("⏳ Verifying solution...")
-            time.sleep(2)
-            
-            if self.wait_for_solved():
-                return {
-                    "success": True,
-                    "method": "audio_2captcha",
-                    "message": "Audio challenge solved successfully"
-                }
-            else:
-                return {"success": False, "error": "Audio solution verification failed"}
-                
-        except Exception as e:
-            return {"success": False, "error": f"Audio challenge error: {str(e)}"}
-    
-    def _solve_visual_challenge(self):
-        """
-        Solve visual reCAPTCHA challenge by clicking images on screen
-        (No solution injection - just manual clicking)
-        
-        Returns:
-            dict: Result with success status and details
-        """
-        try:
-            print("🖼️ Solving visual challenge...")
-            
-            # Look for visual challenge elements
-            print("🔍 Looking for visual challenge...")
-            
-            # Common visual challenge patterns
-            visual_selectors = [
-                ".rc-imageselect-challenge",
-                ".rc-imageselect",
-                "[class*='imageselect']",
-                "[class*='challenge']"
-            ]
-            
-            challenge_container = None
-            for selector in visual_selectors:
-                try:
-                    challenge_container = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if challenge_container.is_displayed():
-                        print(f"  ✅ Found visual challenge: {selector}")
-                        break
-                except:
-                    continue
-            
-            if not challenge_container:
-                return {"success": False, "error": "Visual challenge container not found"}
-            
-            # Look for instruction text
-            instruction_selectors = [
-                ".rc-imageselect-desc-text",
-                ".rc-imageselect-desc",
-                "[class*='instruction']",
-                "[class*='desc']"
-            ]
-            
-            instruction_text = ""
-            for selector in instruction_selectors:
-                try:
-                    instruction_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    instruction_text = instruction_element.text.strip()
-                    if instruction_text:
-                        print(f"  📝 Instruction: {instruction_text}")
-                        break
-                except:
-                    continue
-            
-            # Look for image grid
-            image_selectors = [
-                ".rc-imageselect-tile",
-                ".rc-image-tile-wrapper",
-                "[class*='tile']",
-                "img[class*='tile']"
-            ]
-            
-            images = []
-            for selector in image_selectors:
-                try:
-                    images = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    if images:
-                        print(f"  🖼️ Found {len(images)} images to analyze")
-                        break
-                except:
-                    continue
-            
-            if not images:
-                return {"success": False, "error": "No images found in visual challenge"}
-            
-            # For now, we'll click a few random images as a basic approach
-            # In a real implementation, you'd want to analyze the instruction
-            # and click the appropriate images based on the challenge type
-            print("  🎯 Clicking images based on instruction...")
-            
-            # Simple approach: click first few images (this is a basic fallback)
-            # In production, you'd want to implement proper image recognition
-            images_to_click = min(3, len(images))  # Click up to 3 images
-            
-            for i in range(images_to_click):
-                try:
-                    if i < len(images):
-                        images[i].click()
-                        print(f"    ✅ Clicked image {i+1}")
-                        time.sleep(0.5)  # Small delay between clicks
-                except Exception as click_e:
-                    print(f"    ⚠️ Could not click image {i+1}: {click_e}")
-            
-            # Look for verify button
-            verify_selectors = [
-                "#recaptcha-verify-button",
-                "button[id*='verify']",
-                ".rc-imageselect-verify-button",
-                "button[class*='verify']"
-            ]
-            
-            verify_button = None
-            for selector in verify_selectors:
-                try:
-                    verify_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if verify_button.is_displayed():
-                        break
-                except:
-                    continue
-            
-            if verify_button:
-                verify_button.click()
-                print("  ✅ VERIFY clicked")
-                time.sleep(2)
-            else:
-                print("  ⚠️ Verify button not found, trying to proceed...")
-            
-            # Switch back to main content
-            self.driver.switch_to.default_content()
-            
-            # Verify solution
-            print("⏳ Verifying visual solution...")
-            time.sleep(3)
-            
-            if self.wait_for_solved():
-                return {
-                    "success": True,
-                    "method": "visual_manual",
-                    "message": "Visual challenge solved by clicking images"
-                }
-            else:
-                return {"success": False, "error": "Visual solution verification failed"}
-                
-        except Exception as e:
-            return {"success": False, "error": f"Visual challenge error: {str(e)}"}
 
