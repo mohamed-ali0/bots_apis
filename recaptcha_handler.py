@@ -167,15 +167,23 @@ class RecaptchaHandler:
                     )
                     self.driver.switch_to.frame(anchor_iframe)
                     
+                    # Wait for checkbox to be fully loaded and clickable
                     checkbox = self.wait.until(EC.element_to_be_clickable((By.ID, "recaptcha-anchor")))
-                    checkbox.click()
-                    print(f"  ✅ Checkbox clicked (attempt {attempt + 1}/{max_checkbox_attempts})")
+                    
+                    # Small delay to ensure iframe is fully rendered (anti-detection + stability)
+                    time.sleep(0.5)
+                    
+                    # Click using JavaScript instead of Selenium click (more reliable for reCAPTCHA)
+                    # This avoids mouse movement simulation which can interfere with reCAPTCHA
+                    self.driver.execute_script("arguments[0].click();", checkbox)
+                    print(f"  ✅ Checkbox clicked via JavaScript (attempt {attempt + 1}/{max_checkbox_attempts})")
                     
                     self.driver.switch_to.default_content()
                     
-                    # Wait and check for loading wheel or success
-                    print("🔍 Checking checkbox response...")
-                    time.sleep(3)
+                    # Wait for reCAPTCHA to process the click
+                    # Increased from 3s to 4s for better reliability
+                    print("🔍 Waiting for reCAPTCHA response...")
+                    time.sleep(4)
                     
                     # Check if we got stuck on loading wheel (aria-checked="false" + no challenge iframe)
                     try:
@@ -184,6 +192,10 @@ class RecaptchaHandler:
                         
                         checkbox = self.driver.find_element(By.ID, "recaptcha-anchor")
                         aria_checked = checkbox.get_attribute("aria-checked")
+                        
+                        # Also check for spinner/loading state
+                        checkbox_classes = checkbox.get_attribute("class") or ""
+                        is_loading = "recaptcha-checkbox-loading" in checkbox_classes
                         
                         self.driver.switch_to.default_content()
                         
@@ -195,18 +207,45 @@ class RecaptchaHandler:
                         except:
                             pass
                         
+                        # Debug output
+                        print(f"  📊 State: aria-checked={aria_checked}, loading={is_loading}, challenge={challenge_exists}")
+                        
                         # If checkbox still not checked and no challenge iframe, we're stuck on loading wheel
                         if aria_checked != "true" and not challenge_exists:
+                            # If it's actively loading, give it a bit more time
+                            if is_loading and attempt == 0:
+                                print(f"  ⏳ reCAPTCHA is processing, waiting 2 more seconds...")
+                                time.sleep(2)
+                                # Re-check after extra wait
+                                anchor_iframe = self.driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/anchor')]")
+                                self.driver.switch_to.frame(anchor_iframe)
+                                aria_checked = checkbox.get_attribute("aria-checked")
+                                self.driver.switch_to.default_content()
+                                
+                                # Check challenge again
+                                try:
+                                    self.driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/bframe')]")
+                                    challenge_exists = True
+                                except:
+                                    pass
+                                
+                                if aria_checked == "true" or challenge_exists:
+                                    print(f"  ✅ Success after extra wait!")
+                                    checkbox_success = True
+                                    break
+                            
+                            # Still stuck
                             print(f"  ⚠️ Loading wheel detected - checkbox stuck (attempt {attempt + 1})")
                             if attempt < max_checkbox_attempts - 1:
                                 print("  🔄 Retrying checkbox click...")
-                                time.sleep(2)
+                                time.sleep(3)  # Longer cooldown before retry
                                 continue
                             else:
                                 print("  ❌ Checkbox still stuck after all attempts")
                                 raise RecaptchaError("reCAPTCHA checkbox stuck on loading wheel")
                         else:
                             # Either checkbox is checked or challenge appeared - success!
+                            print(f"  ✅ reCAPTCHA responded successfully!")
                             checkbox_success = True
                             break
                             
