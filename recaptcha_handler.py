@@ -155,18 +155,71 @@ class RecaptchaHandler:
             raise RecaptchaError("WebDriver not set")
         
         try:
-            # Step 1: Click reCAPTCHA checkbox
-            print("👆 Clicking reCAPTCHA checkbox...")
-            anchor_iframe = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/anchor')]"))
-            )
-            self.driver.switch_to.frame(anchor_iframe)
+            # Step 1: Find and click reCAPTCHA checkbox with multiple methods
+            print("👆 Looking for reCAPTCHA checkbox...")
             
-            checkbox = self.wait.until(EC.element_to_be_clickable((By.ID, "recaptcha-anchor")))
+            # Try multiple iframe selectors
+            iframe_selectors = [
+                "//iframe[contains(@src, 'recaptcha/api2/anchor')]",
+                "//iframe[contains(@src, 'recaptcha')]",
+                "//iframe[contains(@name, 'recaptcha')]",
+                "//iframe[contains(@id, 'recaptcha')]"
+            ]
+            
+            anchor_iframe = None
+            for selector in iframe_selectors:
+                try:
+                    anchor_iframe = self.wait.until(
+                        EC.presence_of_element_located((By.XPATH, selector))
+                    )
+                    print(f"  ✅ Found reCAPTCHA iframe: {selector}")
+                    break
+                except:
+                    continue
+            
+            if not anchor_iframe:
+                return {
+                    "success": False,
+                    "error": "reCAPTCHA iframe not found"
+                }
+            
+            # Switch to iframe
+            self.driver.switch_to.frame(anchor_iframe)
+            print("  🔄 Switched to reCAPTCHA iframe")
+            
+            # Try multiple checkbox selectors
+            checkbox_selectors = [
+                "//div[@id='recaptcha-anchor']",
+                "//span[@id='recaptcha-anchor']",
+                "//div[contains(@class, 'recaptcha-anchor')]",
+                "//span[contains(@class, 'recaptcha-anchor')]",
+                "//div[@role='checkbox']",
+                "//span[@role='checkbox']"
+            ]
+            
+            checkbox = None
+            for selector in checkbox_selectors:
+                try:
+                    checkbox = self.wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
+                    print(f"  ✅ Found reCAPTCHA checkbox: {selector}")
+                    break
+                except:
+                    continue
+            
+            if not checkbox:
+                self.driver.switch_to.default_content()
+                return {
+                    "success": False,
+                    "error": "reCAPTCHA checkbox not found"
+                }
+            
+            # Click the checkbox
             checkbox.click()
             print("  ✅ Checkbox clicked")
             
+            # Switch back to main content
             self.driver.switch_to.default_content()
+            print("  🔄 Switched back to main content")
             
             # Step 2: Check if challenge appears or if trusted
             print("🔍 Checking for challenge or trusted status...")
@@ -283,7 +336,7 @@ class RecaptchaHandler:
     
     def is_recaptcha_present(self):
         """
-        Check if reCAPTCHA is present on the page
+        Check if reCAPTCHA is present on the page with comprehensive detection
         
         Returns:
             bool: True if reCAPTCHA is found
@@ -292,9 +345,54 @@ class RecaptchaHandler:
             return False
         
         try:
-            recaptcha_elements = self.driver.find_elements(By.XPATH, "//iframe[contains(@src, 'recaptcha')]")
-            return len(recaptcha_elements) > 0
-        except:
+            # Multiple detection methods for reCAPTCHA
+            detection_methods = [
+                # Method 1: iframe with recaptcha in src
+                "//iframe[contains(@src, 'recaptcha')]",
+                # Method 2: iframe with recaptcha in name or id
+                "//iframe[contains(@name, 'recaptcha') or contains(@id, 'recaptcha')]",
+                # Method 3: div with recaptcha class
+                "//div[contains(@class, 'recaptcha')]",
+                # Method 4: any element with recaptcha in class or id
+                "//*[contains(@class, 'recaptcha') or contains(@id, 'recaptcha')]",
+                # Method 5: checkbox with recaptcha
+                "//input[@type='checkbox' and contains(@class, 'recaptcha')]",
+                # Method 6: any element containing 'recaptcha' in text
+                "//*[contains(text(), 'recaptcha') or contains(text(), 'reCAPTCHA')]"
+            ]
+            
+            for method in detection_methods:
+                try:
+                    elements = self.driver.find_elements(By.XPATH, method)
+                    if elements:
+                        print(f"  ✅ reCAPTCHA detected using: {method}")
+                        return True
+                except:
+                    continue
+            
+            # Additional check: look for common reCAPTCHA patterns in page source
+            try:
+                page_source = self.driver.page_source.lower()
+                recaptcha_indicators = [
+                    'recaptcha',
+                    'g-recaptcha',
+                    'data-sitekey',
+                    'recaptcha-checkbox',
+                    'recaptcha-anchor'
+                ]
+                
+                for indicator in recaptcha_indicators:
+                    if indicator in page_source:
+                        print(f"  ✅ reCAPTCHA detected in page source: {indicator}")
+                        return True
+            except:
+                pass
+            
+            print("  ❌ No reCAPTCHA detected")
+            return False
+            
+        except Exception as e:
+            print(f"  ⚠️ reCAPTCHA detection error: {e}")
             return False
     
     def wait_for_solved(self, timeout=10):
