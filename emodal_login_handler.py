@@ -157,42 +157,9 @@ class EModalLoginHandler:
         # Critical options for Linux servers
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        
-        # Enhanced anti-detection measures to avoid Google blocking
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("--disable-web-security")
-        chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-client-side-phishing-detection")
-        chrome_options.add_argument("--disable-sync")
-        chrome_options.add_argument("--disable-default-apps")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--disable-images")
-        chrome_options.add_argument("--disable-javascript")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--no-first-run")
-        chrome_options.add_argument("--no-default-browser-check")
-        chrome_options.add_argument("--disable-logging")
-        chrome_options.add_argument("--disable-permissions-api")
-        chrome_options.add_argument("--disable-presentation-api")
-        chrome_options.add_argument("--disable-print-preview")
-        chrome_options.add_argument("--disable-speech-api")
-        chrome_options.add_argument("--hide-scrollbars")
-        chrome_options.add_argument("--mute-audio")
-        chrome_options.add_argument("--no-zygote")
-        chrome_options.add_argument("--disable-background-timer-throttling")
-        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
-        chrome_options.add_argument("--disable-renderer-backgrounding")
-        chrome_options.add_argument("--disable-features=TranslateUI")
-        chrome_options.add_argument("--disable-ipc-flooding-protection")
-        
-        # Remove automation indicators
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_experimental_option("detach", True)
         
         # Configure download behavior (important for Linux)
         prefs = {
@@ -230,282 +197,16 @@ class EModalLoginHandler:
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
         print("📦 Auto-downloading matching ChromeDriver version...")
-        
-        # Fix for Windows architecture mismatch (win32 vs win64)
-        service = self._get_correct_chromedriver_service()
+        service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         print("✅ ChromeDriver initialized successfully")
-        
-        # Apply enhanced stealth measures
-        self._apply_stealth_measures()
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
         # Initialize reCAPTCHA handler
         self.recaptcha_handler = RecaptchaHandler(self.captcha_api_key, self.timeout)
-    
-    def _apply_stealth_measures(self) -> None:
-        """Apply comprehensive stealth measures to avoid detection"""
-        try:
-            print("🥷 Applying stealth measures...")
-            
-            # Remove webdriver property
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            # Override automation indicators
-            stealth_script = """
-            // Remove automation indicators
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-            
-            // Override chrome detection
-            window.chrome = {
-                runtime: {},
-                loadTimes: function() {},
-                csi: function() {},
-                app: {}
-            };
-            
-            // Override permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-            );
-            
-            // Override getParameter
-            const getParameter = WebGLRenderingContext.getParameter;
-            WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                if (parameter === 37445) {
-                    return 'Intel Inc.';
-                }
-                if (parameter === 37446) {
-                    return 'Intel Iris OpenGL Engine';
-                }
-                return getParameter(parameter);
-            };
-            
-            // Override toString methods
-            const originalToString = Function.prototype.toString;
-            Function.prototype.toString = function() {
-                if (this === navigator.webdriver) {
-                    return 'function webdriver() { [native code] }';
-                }
-                return originalToString.apply(this, arguments);
-            };
-            """
-            
-            self.driver.execute_script(stealth_script)
-            
-            # Set realistic user agent
-            user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-            ]
-            
-            import random
-            user_agent = random.choice(user_agents)
-            self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                "userAgent": user_agent,
-                "acceptLanguage": "en-US,en;q=0.9",
-                "platform": "Win32"
-            })
-            
-            print("✅ Stealth measures applied successfully")
-            
-        except Exception as e:
-            print(f"⚠️  Stealth measures warning: {e}")
-            # Continue anyway - stealth is best effort
-    
-    def _get_correct_chromedriver_service(self):
-        """
-        Get the correct ChromeDriver service with proper architecture detection
-        Fixes the win32 vs win64 mismatch issue on Windows
-        """
-        try:
-            import platform
-            import os
-            import shutil
-            import requests
-            import zipfile
-            
-            print("🔧 Detecting system architecture...")
-            system = platform.system()
-            machine = platform.machine()
-            
-            print(f"  📊 System: {system}, Architecture: {machine}")
-            
-            if system == 'Windows':
-                # Check if we're on 64-bit Windows
-                is_64bit = machine.endswith('64') or 'AMD64' in machine or 'x86_64' in machine
-                print(f"  🪟 Windows 64-bit: {is_64bit}")
-                
-                if is_64bit:
-                    print("  🎯 Downloading win64 ChromeDriver...")
-                    return self._download_win64_chromedriver()
-                else:
-                    print("  🎯 Using win32 ChromeDriver...")
-                    return Service(ChromeDriverManager().install())
-            else:
-                # Linux/Mac - use standard WebDriver Manager
-                print("  🐧 Using standard WebDriver Manager...")
-                return Service(ChromeDriverManager().install())
-                
-        except Exception as e:
-            print(f"  ⚠️ Architecture detection failed: {e}")
-            print("  🔄 Falling back to standard WebDriver Manager...")
-            return Service(ChromeDriverManager().install())
-    
-    def _download_win64_chromedriver(self):
-        """
-        Download the correct win64 ChromeDriver for Windows 64-bit systems
-        """
-        try:
-            import requests
-            import zipfile
-            import tempfile
-            import shutil
-            
-            # Get Chrome version
-            chrome_version = self._get_chrome_version()
-            print(f"  🔍 Chrome version: {chrome_version}")
-            
-            # Construct download URL for win64
-            download_url = f"https://storage.googleapis.com/chrome-for-testing-public/{chrome_version}/win64/chromedriver-win64.zip"
-            print(f"  🌐 Download URL: {download_url}")
-            
-            # Create temporary directory
-            temp_dir = tempfile.mkdtemp()
-            zip_path = os.path.join(temp_dir, "chromedriver.zip")
-            
-            print("  📥 Downloading ChromeDriver...")
-            response = requests.get(download_url, timeout=30)
-            if response.status_code != 200:
-                raise Exception(f"Download failed: HTTP {response.status_code}")
-            
-            # Save zip file
-            with open(zip_path, 'wb') as f:
-                f.write(response.content)
-            
-            print("  📦 Extracting ChromeDriver...")
-            # Extract zip file
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
-            
-            # Find chromedriver.exe in extracted folder
-            extracted_dir = os.path.join(temp_dir, "chromedriver-win64")
-            chromedriver_path = os.path.join(extracted_dir, "chromedriver.exe")
-            
-            if not os.path.exists(chromedriver_path):
-                raise Exception("ChromeDriver executable not found in extracted files")
-            
-            # Move to current directory
-            final_path = os.path.join(os.getcwd(), "chromedriver.exe")
-            shutil.move(chromedriver_path, final_path)
-            
-            print(f"  ✅ ChromeDriver saved: {final_path}")
-            
-            # Clean up
-            shutil.rmtree(temp_dir)
-            
-            # Verify the file
-            if os.path.exists(final_path):
-                file_size = os.path.getsize(final_path)
-                print(f"  📊 ChromeDriver ready: {file_size} bytes")
-                return Service(final_path)
-            else:
-                raise Exception("ChromeDriver not found after download")
-                
-        except Exception as e:
-            print(f"  ❌ Win64 download failed: {e}")
-            print("  🔄 Falling back to WebDriver Manager...")
-            return Service(ChromeDriverManager().install())
-    
-    def _get_chrome_version(self):
-        """
-        Get the installed Chrome version
-        """
-        try:
-            import subprocess
-            import re
-            
-            # Try different methods to get Chrome version
-            methods = [
-                # Method 1: Check registry (Windows)
-                ['reg', 'query', 'HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon', '/v', 'version'],
-                # Method 2: Check Chrome executable
-                ['powershell', '-Command', '(Get-Item "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe").VersionInfo.FileVersion'],
-                # Method 3: Check Chrome in Program Files (x86)
-                ['powershell', '-Command', '(Get-Item "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe").VersionInfo.FileVersion']
-            ]
-            
-            for method in methods:
-                try:
-                    result = subprocess.run(method, capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        output = result.stdout.strip()
-                        # Extract version number
-                        version_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', output)
-                        if version_match:
-                            version = version_match.group(1)
-                            print(f"  🔍 Found Chrome version: {version}")
-                            return version
-                except Exception:
-                    continue
-            
-            # Fallback: Use a known working version
-            print("  ⚠️ Could not detect Chrome version, using fallback")
-            return "141.0.7390.54"
-            
-        except Exception as e:
-            print(f"  ⚠️ Chrome version detection failed: {e}")
-            return "141.0.7390.54"
-    
-    def _human_like_click(self, element) -> None:
-        """Simulate human-like clicking with mouse movement"""
-        try:
-            from selenium.webdriver.common.action_chains import ActionChains
-            import random
-            
-            # Move to element with slight offset (like human mouse movement)
-            actions = ActionChains(self.driver)
-            actions.move_to_element_with_offset(element, 
-                random.randint(-5, 5), random.randint(-5, 5))
-            actions.pause(random.uniform(0.1, 0.3))
-            actions.click()
-            actions.perform()
-            
-        except Exception:
-            # Fallback to regular click
-            element.click()
-    
-    def _human_like_type(self, element, text: str) -> None:
-        """Simulate human-like typing with variable delays"""
-        try:
-            import random
-            
-            for char in text:
-                element.send_keys(char)
-                # Variable delay between keystrokes (human-like)
-                delay = random.uniform(0.05, 0.25)
-                time.sleep(delay)
-                
-        except Exception:
-            # Fallback to regular typing
-            element.send_keys(text)
-    
-    def _human_like_pause(self) -> None:
-        """Add human-like random pause"""
-        import random
-        pause_time = random.uniform(1.5, 3.0)
-        print(f"⏳ Human-like pause: {pause_time:.1f}s")
-        time.sleep(pause_time)
+        self.recaptcha_handler.set_driver(self.driver)
     
     def _check_vpn_status(self) -> LoginResult:
         """Check if VPN is working (no 403 errors)"""
@@ -537,47 +238,21 @@ class EModalLoginHandler:
             )
     
     def _fill_credentials(self, username: str, password: str) -> LoginResult:
-        """Fill username and password fields with human-like behavior"""
+        """Fill username and password fields"""
         try:
-            import random
-            
-            # Find and fill username with human-like typing
+            # Find and fill username
             username_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Username"))
             )
-            
-            # Human-like click and focus
-            self._human_like_click(username_field)
-            time.sleep(random.uniform(0.5, 1.0))
-            
-            # Clear field with human-like behavior
             username_field.clear()
-            time.sleep(random.uniform(0.2, 0.5))
+            username_field.send_keys(username)
             
-            # Type with human-like delays
-            self._human_like_type(username_field, username)
-            
-            # Small pause between fields
-            time.sleep(random.uniform(0.8, 1.5))
-            
-            # Find and fill password with human-like typing
+            # Find and fill password
             password_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Password"))
             )
-            
-            # Human-like click and focus
-            self._human_like_click(password_field)
-            time.sleep(random.uniform(0.5, 1.0))
-            
-            # Clear field with human-like behavior
             password_field.clear()
-            time.sleep(random.uniform(0.2, 0.5))
-            
-            # Type with human-like delays
-            self._human_like_type(password_field, password)
-            
-            # Final pause before proceeding
-            time.sleep(random.uniform(1.0, 2.0))
+            password_field.send_keys(password)
             
             return LoginResult(success=True)
             
@@ -843,18 +518,12 @@ class EModalLoginHandler:
                 return cred_result
             print("✅ Credentials filled")
             
-            # Human-like pause before reCAPTCHA
-            self._human_like_pause()
-            
             # Step 4: Handle reCAPTCHA FIRST (LOGIN button is disabled until reCAPTCHA solved)
             print("🔒 Handling reCAPTCHA...")
             recaptcha_result = self._handle_recaptcha()
             if not recaptcha_result.success:
                 return recaptcha_result
             print(f"✅ reCAPTCHA handled: {recaptcha_result.recaptcha_method}")
-            
-            # Human-like pause after reCAPTCHA
-            self._human_like_pause()
             
             # Step 5: Now locate enabled LOGIN button (should be enabled after reCAPTCHA)
             print("🔍 Locating now-enabled LOGIN button...")
