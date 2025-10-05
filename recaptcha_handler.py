@@ -155,22 +155,83 @@ class RecaptchaHandler:
             raise RecaptchaError("WebDriver not set")
         
         try:
-            # Step 1: Click reCAPTCHA checkbox
+            # Step 1: Click reCAPTCHA checkbox (with retry for loading wheel issue)
             print("👆 Clicking reCAPTCHA checkbox...")
-            anchor_iframe = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/anchor')]"))
-            )
-            self.driver.switch_to.frame(anchor_iframe)
+            max_checkbox_attempts = 3
+            checkbox_success = False
             
-            checkbox = self.wait.until(EC.element_to_be_clickable((By.ID, "recaptcha-anchor")))
-            checkbox.click()
-            print("  ✅ Checkbox clicked")
+            for attempt in range(max_checkbox_attempts):
+                try:
+                    anchor_iframe = self.wait.until(
+                        EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/anchor')]"))
+                    )
+                    self.driver.switch_to.frame(anchor_iframe)
+                    
+                    checkbox = self.wait.until(EC.element_to_be_clickable((By.ID, "recaptcha-anchor")))
+                    checkbox.click()
+                    print(f"  ✅ Checkbox clicked (attempt {attempt + 1}/{max_checkbox_attempts})")
+                    
+                    self.driver.switch_to.default_content()
+                    
+                    # Wait and check for loading wheel or success
+                    print("🔍 Checking checkbox response...")
+                    time.sleep(3)
+                    
+                    # Check if we got stuck on loading wheel (aria-checked="false" + no challenge iframe)
+                    try:
+                        anchor_iframe = self.driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/anchor')]")
+                        self.driver.switch_to.frame(anchor_iframe)
+                        
+                        checkbox = self.driver.find_element(By.ID, "recaptcha-anchor")
+                        aria_checked = checkbox.get_attribute("aria-checked")
+                        
+                        self.driver.switch_to.default_content()
+                        
+                        # Check if challenge iframe exists
+                        challenge_exists = False
+                        try:
+                            self.driver.find_element(By.XPATH, "//iframe[contains(@src, 'recaptcha/api2/bframe')]")
+                            challenge_exists = True
+                        except:
+                            pass
+                        
+                        # If checkbox still not checked and no challenge iframe, we're stuck on loading wheel
+                        if aria_checked != "true" and not challenge_exists:
+                            print(f"  ⚠️ Loading wheel detected - checkbox stuck (attempt {attempt + 1})")
+                            if attempt < max_checkbox_attempts - 1:
+                                print("  🔄 Retrying checkbox click...")
+                                time.sleep(2)
+                                continue
+                            else:
+                                print("  ❌ Checkbox still stuck after all attempts")
+                                raise RecaptchaError("reCAPTCHA checkbox stuck on loading wheel")
+                        else:
+                            # Either checkbox is checked or challenge appeared - success!
+                            checkbox_success = True
+                            break
+                            
+                    except Exception as check_error:
+                        print(f"  ⚠️ Error checking checkbox state: {check_error}")
+                        # Assume success and continue
+                        checkbox_success = True
+                        break
+                        
+                except Exception as click_error:
+                    print(f"  ❌ Checkbox click failed (attempt {attempt + 1}): {click_error}")
+                    if attempt < max_checkbox_attempts - 1:
+                        print("  🔄 Retrying...")
+                        time.sleep(2)
+                        self.driver.switch_to.default_content()
+                        continue
+                    else:
+                        raise
             
-            self.driver.switch_to.default_content()
+            if not checkbox_success:
+                raise RecaptchaError("Failed to interact with reCAPTCHA checkbox after all attempts")
             
             # Step 2: Check if challenge appears or if trusted
             print("🔍 Checking for challenge or trusted status...")
-            time.sleep(3)
+            time.sleep(2)
             
             # Check if reCAPTCHA is already solved (trusted user)
             try:
