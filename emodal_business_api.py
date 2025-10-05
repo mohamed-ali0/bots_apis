@@ -1044,9 +1044,8 @@ class EModalBusinessOperations:
                 except Exception as e:
                     print(f"  ⚠️ Scroll error: {e}")
                 
-                # Wait a bit before next cycle
-                print(f"  ⏱️ Waiting 5 seconds before next cycle...")
-                time.sleep(5)
+                # Short wait to allow DOM to update (optimized like timeline search)
+                time.sleep(0.7)
             
             print(f"🏁 Infinite scroll completed. Total containers loaded: {previous_count}")
             print(f"📊 Final scroll cycles: {scroll_cycle}")
