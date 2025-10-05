@@ -230,8 +230,54 @@ class EModalLoginHandler:
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
         print("📦 Auto-downloading matching ChromeDriver version...")
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # Fix architecture detection for Windows
+        service = None
+        try:
+            if platform.system() == 'Windows':
+                print("🪟 Detected Windows - using manual ChromeDriver management...")
+                # Clear cache to force fresh download
+                import shutil
+                cache_dir = os.path.expanduser("~/.wdm")
+                if os.path.exists(cache_dir):
+                    try:
+                        shutil.rmtree(cache_dir)
+                        print("  🗑️ Cleared WebDriver Manager cache")
+                    except:
+                        pass
+                
+                # Try to download correct architecture
+                service = Service(ChromeDriverManager().install())
+            else:
+                service = Service(ChromeDriverManager().install())
+        except Exception as e:
+            print(f"⚠️ WebDriver Manager failed: {e}")
+            print("🔄 Trying fallback approaches...")
+            
+            # Fallback 1: Try existing chromedriver.exe
+            try:
+                if os.path.exists("./chromedriver.exe"):
+                    print("  📁 Using local chromedriver.exe")
+                    service = Service("./chromedriver.exe")
+                else:
+                    print("  ❌ Local chromedriver.exe not found")
+            except Exception as fallback_e:
+                print(f"  ⚠️ Local chromedriver failed: {fallback_e}")
+            
+            # Fallback 2: Try system PATH
+            if not service:
+                try:
+                    print("  🔍 Trying system PATH chromedriver...")
+                    service = Service()  # Let Selenium find it in PATH
+                except Exception as path_e:
+                    print(f"  ❌ PATH chromedriver failed: {path_e}")
+                    service = None
+        
+        if service:
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        else:
+            self.driver = webdriver.Chrome(options=chrome_options)
+        
         print("✅ ChromeDriver initialized successfully")
         
         # Apply enhanced stealth measures
