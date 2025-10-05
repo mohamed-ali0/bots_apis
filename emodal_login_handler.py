@@ -230,7 +230,9 @@ class EModalLoginHandler:
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
         print("📦 Auto-downloading matching ChromeDriver version...")
-        service = Service(ChromeDriverManager().install())
+        
+        # Fix for Windows architecture mismatch (win32 vs win64)
+        service = self._get_correct_chromedriver_service()
         self.driver = webdriver.Chrome(service=service, options=chrome_options)
         print("✅ ChromeDriver initialized successfully")
         
@@ -320,6 +322,150 @@ class EModalLoginHandler:
         except Exception as e:
             print(f"⚠️  Stealth measures warning: {e}")
             # Continue anyway - stealth is best effort
+    
+    def _get_correct_chromedriver_service(self):
+        """
+        Get the correct ChromeDriver service with proper architecture detection
+        Fixes the win32 vs win64 mismatch issue on Windows
+        """
+        try:
+            import platform
+            import os
+            import shutil
+            import requests
+            import zipfile
+            
+            print("🔧 Detecting system architecture...")
+            system = platform.system()
+            machine = platform.machine()
+            
+            print(f"  📊 System: {system}, Architecture: {machine}")
+            
+            if system == 'Windows':
+                # Check if we're on 64-bit Windows
+                is_64bit = machine.endswith('64') or 'AMD64' in machine or 'x86_64' in machine
+                print(f"  🪟 Windows 64-bit: {is_64bit}")
+                
+                if is_64bit:
+                    print("  🎯 Downloading win64 ChromeDriver...")
+                    return self._download_win64_chromedriver()
+                else:
+                    print("  🎯 Using win32 ChromeDriver...")
+                    return Service(ChromeDriverManager().install())
+            else:
+                # Linux/Mac - use standard WebDriver Manager
+                print("  🐧 Using standard WebDriver Manager...")
+                return Service(ChromeDriverManager().install())
+                
+        except Exception as e:
+            print(f"  ⚠️ Architecture detection failed: {e}")
+            print("  🔄 Falling back to standard WebDriver Manager...")
+            return Service(ChromeDriverManager().install())
+    
+    def _download_win64_chromedriver(self):
+        """
+        Download the correct win64 ChromeDriver for Windows 64-bit systems
+        """
+        try:
+            import requests
+            import zipfile
+            import tempfile
+            import shutil
+            
+            # Get Chrome version
+            chrome_version = self._get_chrome_version()
+            print(f"  🔍 Chrome version: {chrome_version}")
+            
+            # Construct download URL for win64
+            download_url = f"https://storage.googleapis.com/chrome-for-testing-public/{chrome_version}/win64/chromedriver-win64.zip"
+            print(f"  🌐 Download URL: {download_url}")
+            
+            # Create temporary directory
+            temp_dir = tempfile.mkdtemp()
+            zip_path = os.path.join(temp_dir, "chromedriver.zip")
+            
+            print("  📥 Downloading ChromeDriver...")
+            response = requests.get(download_url, timeout=30)
+            if response.status_code != 200:
+                raise Exception(f"Download failed: HTTP {response.status_code}")
+            
+            # Save zip file
+            with open(zip_path, 'wb') as f:
+                f.write(response.content)
+            
+            print("  📦 Extracting ChromeDriver...")
+            # Extract zip file
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
+            
+            # Find chromedriver.exe in extracted folder
+            extracted_dir = os.path.join(temp_dir, "chromedriver-win64")
+            chromedriver_path = os.path.join(extracted_dir, "chromedriver.exe")
+            
+            if not os.path.exists(chromedriver_path):
+                raise Exception("ChromeDriver executable not found in extracted files")
+            
+            # Move to current directory
+            final_path = os.path.join(os.getcwd(), "chromedriver.exe")
+            shutil.move(chromedriver_path, final_path)
+            
+            print(f"  ✅ ChromeDriver saved: {final_path}")
+            
+            # Clean up
+            shutil.rmtree(temp_dir)
+            
+            # Verify the file
+            if os.path.exists(final_path):
+                file_size = os.path.getsize(final_path)
+                print(f"  📊 ChromeDriver ready: {file_size} bytes")
+                return Service(final_path)
+            else:
+                raise Exception("ChromeDriver not found after download")
+                
+        except Exception as e:
+            print(f"  ❌ Win64 download failed: {e}")
+            print("  🔄 Falling back to WebDriver Manager...")
+            return Service(ChromeDriverManager().install())
+    
+    def _get_chrome_version(self):
+        """
+        Get the installed Chrome version
+        """
+        try:
+            import subprocess
+            import re
+            
+            # Try different methods to get Chrome version
+            methods = [
+                # Method 1: Check registry (Windows)
+                ['reg', 'query', 'HKEY_CURRENT_USER\\Software\\Google\\Chrome\\BLBeacon', '/v', 'version'],
+                # Method 2: Check Chrome executable
+                ['powershell', '-Command', '(Get-Item "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe").VersionInfo.FileVersion'],
+                # Method 3: Check Chrome in Program Files (x86)
+                ['powershell', '-Command', '(Get-Item "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe").VersionInfo.FileVersion']
+            ]
+            
+            for method in methods:
+                try:
+                    result = subprocess.run(method, capture_output=True, text=True, timeout=10)
+                    if result.returncode == 0:
+                        output = result.stdout.strip()
+                        # Extract version number
+                        version_match = re.search(r'(\d+\.\d+\.\d+\.\d+)', output)
+                        if version_match:
+                            version = version_match.group(1)
+                            print(f"  🔍 Found Chrome version: {version}")
+                            return version
+                except Exception:
+                    continue
+            
+            # Fallback: Use a known working version
+            print("  ⚠️ Could not detect Chrome version, using fallback")
+            return "141.0.7390.54"
+            
+        except Exception as e:
+            print(f"  ⚠️ Chrome version detection failed: {e}")
+            return "141.0.7390.54"
     
     def _human_like_click(self, element) -> None:
         """Simulate human-like clicking with mouse movement"""
