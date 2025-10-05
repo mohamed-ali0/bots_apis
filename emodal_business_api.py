@@ -4389,33 +4389,39 @@ def check_appointments():
     Check available appointment times by going through all 3 phases.
     Does NOT submit the appointment - only retrieves available time slots.
     
-    Required fields (always):
-        - username, password, captcha_api_key
+    Required fields:
+        - session_id (optional): Use existing persistent session, skip login
+        OR
+        - username, password, captcha_api_key (required if no session_id)
     
-    Phase 1 fields (required unless continuing from session_id):
+    Phase 1 fields (required unless continuing from appointment_session_id):
         - trucking_company: Trucking company name
         - terminal: Terminal name (e.g., "ITS Long Beach")
         - move_type: Move type (e.g., "DROP EMPTY")
         - container_id: Container number
     
-    Phase 2 fields (required unless continuing from session_id):
+    Phase 2 fields (required unless continuing from appointment_session_id):
         - pin_code: PIN code (optional, can be missing)
         - truck_plate: Truck plate number
         - own_chassis: Boolean (true/false)
     
     Session continuation (if error occurred):
-        - session_id: To continue from where it left off
+        - appointment_session_id: To continue from where it left off (different from session_id)
     
     Returns:
         - success: True/False
+        - session_id: Browser session ID (persistent)
+        - is_new_session: Whether browser session was newly created
+        - appointment_session_id: Appointment workflow session ID
         - available_times: List of appointment time slots
         - debug_bundle_url: ZIP file with screenshots
-        - session_id: For error recovery (kept alive for 10 minutes)
         - current_phase: Current phase number (1-3)
         - message: Error message if missing fields
     """
     request_id = f"check_appt_{int(time.time())}"
     appt_session = None
+    browser_session_id = None
+    is_new_browser_session = False
     
     try:
         cleanup_expired_appointment_sessions()
@@ -4424,72 +4430,74 @@ def check_appointments():
             return jsonify({"success": False, "error": "Request must be JSON"}), 400
         
         data = request.get_json()
-        session_id = data.get('session_id')
+        appointment_session_id = data.get('appointment_session_id')
         
-        # Check if continuing from existing session
-        if session_id and session_id in appointment_sessions:
-            print(f"🔄 Continuing from existing appointment session: {session_id}")
-            appt_session = appointment_sessions[session_id]
+        # Check if continuing from existing appointment workflow session
+        if appointment_session_id and appointment_session_id in appointment_sessions:
+            print(f"🔄 Continuing from existing appointment session: {appointment_session_id}")
+            appt_session = appointment_sessions[appointment_session_id]
             appt_session.update_last_used()
             operations = EModalBusinessOperations(appt_session.browser_session)
             operations.screens_enabled = True
             operations.screens_label = appt_session.browser_session.username
+            browser_session_id = appt_session.browser_session.session_id
+            is_new_browser_session = False
+            username = appt_session.browser_session.username
             
         else:
-            # New session - require authentication
-            username = data.get('username')
-            password = data.get('password')
-            captcha_api_key = data.get('captcha_api_key')
+            # New appointment workflow - get or create browser session
+            result = get_or_create_browser_session(data, request_id)
             
-            if not all([username, password, captcha_api_key]):
+            if len(result) == 5:  # Error case
+                _, _, _, _, error_response = result
+                return error_response
+            
+            driver, username, browser_session_id, is_new_browser_session = result
+            
+            logger.info(f"[{request_id}] Check appointments request for user: {username}, session: {browser_session_id}")
+            
+            # Create wrapper for browser session
+            class SessionWrapper:
+                def __init__(self, driver, session_id, username):
+                    self.driver = driver
+                    self.session_id = session_id
+                    self.username = username
+            
+            browser_session = SessionWrapper(driver, browser_session_id, username)
+            
+            # Create appointment session for workflow tracking
+            appt_session = AppointmentSession(
+                session_id=f"appt_{browser_session_id}_{int(time.time())}",
+                browser_session=browser_session,
+                current_phase=1,
+                created_at=datetime.now(),
+                last_used=datetime.now(),
+                phase_data={}
+            )
+            appointment_sessions[appt_session.session_id] = appt_session
+            logger.info(f"[{request_id}] Appointment workflow session created: {appt_session.session_id}")
+            
+            operations = EModalBusinessOperations(browser_session)
+            operations.screens_enabled = True
+            operations.screens_label = username
+            
+            # Ensure app context
+            print("🕒 Ensuring app context is fully loaded...")
+            ctx = operations.ensure_app_context(30)
+            if not ctx.get("success"):
+                print("⚠️ App readiness not confirmed - proceeding to appointment page...")
+            
+            # Navigate to appointment page (includes 30-second wait)
+            nav_result = operations.navigate_to_appointment()
+            if not nav_result["success"]:
                 return jsonify({
                     "success": False,
-                    "error": "Missing required fields: username, password, captcha_api_key"
-                }), 400
-            
-            logger.info(f"[{request_id}] Check appointments request for user: {username}")
-            
-            # Create authenticated session
-            try:
-                browser_session = create_browser_session(username, password, captcha_api_key, keep_alive=True)
-                # Create appointment session
-                appt_session = AppointmentSession(
-                    session_id=browser_session.session_id,
-                    browser_session=browser_session,
-                    current_phase=1,
-                    created_at=datetime.now(),
-                    last_used=datetime.now(),
-                    phase_data={}
-                )
-                appointment_sessions[appt_session.session_id] = appt_session
-                logger.info(f"[{request_id}] Appointment session created: {appt_session.session_id}")
-                
-                operations = EModalBusinessOperations(browser_session)
-                operations.screens_enabled = True
-                operations.screens_label = username
-                
-                # Ensure app context
-                print("🕒 Ensuring app context is fully loaded...")
-                ctx = operations.ensure_app_context(30)
-                if not ctx.get("success"):
-                    print("⚠️ App readiness not confirmed - proceeding to appointment page...")
-                
-                # Navigate to appointment page (includes 30-second wait)
-                nav_result = operations.navigate_to_appointment()
-                if not nav_result["success"]:
-                    return jsonify({
-                        "success": False,
-                        "error": f"Navigation failed: {nav_result['error']}",
-                        "session_id": appt_session.session_id,
-                        "current_phase": 1
-                    }), 500
-                
-            except Exception as login_error:
-                logger.error(f"[{request_id}] Authentication failed: {str(login_error)}")
-                return jsonify({
-                    "success": False,
-                    "error": f"Authentication failed: {str(login_error)}"
-                }), 401
+                    "error": f"Navigation failed: {nav_result['error']}",
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
+                    "current_phase": 1
+                }), 500
         
         # Execute phases based on current phase
         operations = EModalBusinessOperations(appt_session.browser_session)
@@ -4527,9 +4535,11 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Missing required fields for Phase 1: {', '.join(missing_fields)}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 1,
-                    "message": f"Please provide {', '.join(missing_fields)} and retry with session_id"
+                    "message": f"Please provide {', '.join(missing_fields)} and retry with appointment_session_id"
                 }), 400
             
             # Fill Phase 1
@@ -4538,7 +4548,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Trucking company: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 1
                 }), 500
             
@@ -4547,7 +4559,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Terminal: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 1
                 }), 500
             
@@ -4556,7 +4570,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Move type: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 1
                 }), 500
             
@@ -4565,7 +4581,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 1 failed - Container: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 1
                 }), 500
             
@@ -4589,14 +4607,18 @@ def check_appointments():
                         return jsonify({
                             "success": False,
                             "error": f"Phase 1 failed - Next button (after retry): {result['error']}",
-                            "session_id": appt_session.session_id,
+                            "session_id": browser_session_id,
+                            "is_new_session": is_new_browser_session,
+                            "appointment_session_id": appt_session.session_id,
                             "current_phase": 1
                         }), 500
                 else:
                     return jsonify({
                         "success": False,
                         "error": f"Phase 1 failed - Next button: {result['error']}",
-                        "session_id": appt_session.session_id,
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
                         "current_phase": 1
                     }), 500
             
@@ -4631,7 +4653,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 2 failed - Checkbox: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 2
                 }), 500
             
@@ -4642,7 +4666,9 @@ def check_appointments():
                     return jsonify({
                         "success": False,
                         "error": f"Phase 2 failed - PIN: {result['error']}",
-                        "session_id": appt_session.session_id,
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
                         "current_phase": 2
                     }), 500
             
@@ -4651,9 +4677,11 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": "Missing required field for Phase 2: truck_plate",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 2,
-                    "message": "Please provide truck_plate and retry with session_id"
+                    "message": "Please provide truck_plate and retry with appointment_session_id"
                 }), 400
             
             result = operations.fill_truck_plate(truck_plate)
@@ -4661,7 +4689,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 2 failed - Truck plate: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 2
                 }), 500
             
@@ -4671,7 +4701,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 2 failed - Own chassis: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 2
                 }), 500
             
@@ -4696,14 +4728,18 @@ def check_appointments():
                         return jsonify({
                             "success": False,
                             "error": f"Phase 2 failed - Next button (after retry): {result['error']}",
-                            "session_id": appt_session.session_id,
+                            "session_id": browser_session_id,
+                            "is_new_session": is_new_browser_session,
+                            "appointment_session_id": appt_session.session_id,
                             "current_phase": 2
                         }), 500
                 else:
                     return jsonify({
                         "success": False,
                         "error": f"Phase 2 failed - Next button: {result['error']}",
-                        "session_id": appt_session.session_id,
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
                         "current_phase": 2
                     }), 500
             
@@ -4732,7 +4768,9 @@ def check_appointments():
                 return jsonify({
                     "success": False,
                     "error": f"Phase 3 failed: {result['error']}",
-                    "session_id": appt_session.session_id,
+                    "session_id": browser_session_id,
+                    "is_new_session": is_new_browser_session,
+                    "appointment_session_id": appt_session.session_id,
                     "current_phase": 3
                 }), 500
             
@@ -4771,18 +4809,17 @@ def check_appointments():
         except Exception as be:
             print(f"⚠️ Bundle creation failed: {be}")
         
-        # Clean up appointment session
+        # Clean up appointment workflow session (keep browser session alive)
         if appt_session.session_id in appointment_sessions:
-            try:
-                appt_session.browser_session.driver.quit()
-            except:
-                pass
             del appointment_sessions[appt_session.session_id]
         
-        logger.info(f"[{request_id}] Check appointments completed successfully")
+        logger.info(f"[{request_id}] Check appointments completed successfully (browser session kept alive: {browser_session_id})")
         
         return jsonify({
             "success": True,
+            "session_id": browser_session_id,
+            "is_new_session": is_new_browser_session,
+            "appointment_session_id": appt_session.session_id,
             "available_times": available_times,
             "count": len(available_times),
             "debug_bundle_url": bundle_url,
@@ -4793,12 +4830,18 @@ def check_appointments():
         logger.error(f"[{request_id}] Unexpected error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({
+        response = {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
-            "session_id": appt_session.session_id if appt_session else None,
             "current_phase": appt_session.current_phase if appt_session else 0
-        }), 500
+        }
+        if appt_session:
+            response["appointment_session_id"] = appt_session.session_id
+            try:
+                response["session_id"] = appt_session.browser_session.session_id
+            except:
+                pass
+        return jsonify(response), 500
 
 
 @app.route('/make_appointment', methods=['POST'])
@@ -4807,8 +4850,10 @@ def make_appointment():
     Make an appointment by going through all 3 phases and SUBMITTING.
     ⚠️ WARNING: This ACTUALLY SUBMITS the appointment!
     
-    Required fields (same as /check_appointments):
-        - username, password, captcha_api_key
+    Required fields:
+        - session_id (optional): Use existing persistent session, skip login
+        OR
+        - username, password, captcha_api_key (required if no session_id)
         - trucking_company, terminal, move_type, container_id
         - truck_plate, own_chassis
         - appointment_time: The specific time slot to select
@@ -4816,11 +4861,15 @@ def make_appointment():
     
     Returns:
         - success: True/False
+        - session_id: Browser session ID (persistent)
+        - is_new_session: Whether browser session was newly created
         - appointment_confirmed: True if submitted successfully
         - debug_bundle_url: ZIP file with screenshots
     """
     request_id = f"make_appt_{int(time.time())}"
     appt_session = None
+    browser_session_id = None
+    is_new_browser_session = False
     
     try:
         cleanup_expired_appointment_sessions()
@@ -4829,11 +4878,6 @@ def make_appointment():
             return jsonify({"success": False, "error": "Request must be JSON"}), 400
         
         data = request.get_json()
-        
-        # Required fields
-        username = data.get('username')
-        password = data.get('password')
-        captcha_api_key = data.get('captcha_api_key')
         
         # Phase 1
         trucking_company = data.get('trucking_company')
@@ -4851,9 +4895,6 @@ def make_appointment():
         
         # Validate all required fields
         missing = []
-        if not username: missing.append("username")
-        if not password: missing.append("password")
-        if not captcha_api_key: missing.append("captcha_api_key")
         if not trucking_company: missing.append("trucking_company")
         if not terminal: missing.append("terminal")
         if not move_type: missing.append("move_type")
@@ -4867,16 +4908,33 @@ def make_appointment():
                 "error": f"Missing required fields: {', '.join(missing)}"
             }), 400
         
-        logger.info(f"[{request_id}] Make appointment request for user: {username}")
+        # Get or create browser session
+        result = get_or_create_browser_session(data, request_id)
+        
+        if len(result) == 5:  # Error case
+            _, _, _, _, error_response = result
+            return error_response
+        
+        driver, username, browser_session_id, is_new_browser_session = result
+        
+        logger.info(f"[{request_id}] Make appointment request for user: {username}, session: {browser_session_id}")
         print("\n" + "="*70)
         print("⚠️  MAKE APPOINTMENT - WILL SUBMIT THE APPOINTMENT!")
         print("="*70)
         
-        # Create authenticated session
+        # Create wrapper for browser session
+        class SessionWrapper:
+            def __init__(self, driver, session_id, username):
+                self.driver = driver
+                self.session_id = session_id
+                self.username = username
+        
+        browser_session = SessionWrapper(driver, browser_session_id, username)
+        
+        # Create appointment session for workflow tracking
         try:
-            browser_session = create_browser_session(username, password, captcha_api_key, keep_alive=False)
             appt_session = AppointmentSession(
-                session_id=browser_session.session_id,
+                session_id=f"appt_{browser_session_id}_{int(time.time())}",
                 browser_session=browser_session,
                 current_phase=1,
                 created_at=datetime.now(),
@@ -5025,16 +5083,12 @@ def make_appointment():
         except Exception as be:
             print(f"⚠️ Bundle creation failed: {be}")
         
-        # Clean up session
-        try:
-            browser_session.driver.quit()
-        except:
-            pass
-        
-        logger.info(f"[{request_id}] Appointment submitted successfully")
+        logger.info(f"[{request_id}] Appointment submitted successfully (browser session kept alive: {browser_session_id})")
         
         return jsonify({
             "success": True,
+            "session_id": browser_session_id,
+            "is_new_session": is_new_browser_session,
             "appointment_confirmed": True,
             "debug_bundle_url": bundle_url,
             "appointment_details": {
@@ -5053,17 +5107,15 @@ def make_appointment():
         import traceback
         traceback.print_exc()
         
-        # Clean up on error
-        if appt_session:
-            try:
-                appt_session.browser_session.driver.quit()
-            except:
-                pass
-        
-        return jsonify({
+        response = {
             "success": False,
             "error": f"Unexpected error: {str(e)}"
-        }), 500
+        }
+        if browser_session_id:
+            response["session_id"] = browser_session_id
+            response["is_new_session"] = is_new_browser_session
+        
+        return jsonify(response), 500
 
 
 @app.route('/get_container_timeline', methods=['POST'])
@@ -5072,12 +5124,13 @@ def get_container_timeline():
     Navigate to containers page, search for a container, expand its timeline, and capture Pregate milestone screenshot.
     
     Inputs:
-        - username, password, captcha_api_key (required)
+        - session_id (optional): Use existing session, skip login
+        OR
+        - username, password, captcha_api_key (required if no session_id)
         - container_id (required): Container ID to search for
-        - keep_browser_alive (optional): Keep session alive
         - debug (optional, default: false): If true, captures cropped screenshot of Pregate milestone
     
-    Returns: JSON with container_id and optional pregate_screenshot_url (when debug=true)
+    Returns: JSON with container_id, session_id, and optional pregate_screenshot_url (when debug=true)
     """
     request_id = f"timeline_{int(time.time())}"
     try:
@@ -5085,35 +5138,42 @@ def get_container_timeline():
             return jsonify({"success": False, "error": "Request must be JSON"}), 400
 
         data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
-        captcha_api_key = data.get('captcha_api_key')
         container_id = data.get('container_id') or data.get('container')
-        keep_alive = data.get('keep_browser_alive', False)
         debug_mode = data.get('debug', False)
         
         # Only capture screenshots in debug mode
         capture_screens = debug_mode
-        screens_label = data.get('screens_label', username)
 
-        if not all([username, password, captcha_api_key, container_id]):
+        if not container_id:
             return jsonify({
                 "success": False,
-                "error": "Missing required fields: username, password, captcha_api_key, container_id"
+                "error": "Missing required field: container_id"
             }), 400
 
-        logger.info(f"[{request_id}] Timeline request for user: {username}, container: {container_id}")
+        logger.info(f"[{request_id}] Timeline request for container: {container_id}")
 
-        # Session/login
-        try:
-            session = create_browser_session(username, password, captcha_api_key, keep_alive)
-            if keep_alive:
-                active_sessions[session.session_id] = session
-        except Exception as login_error:
-            return jsonify({"success": False, "error": f"Authentication failed: {str(login_error)}"}), 401
+        # Get or create browser session
+        result = get_or_create_browser_session(data, request_id)
+        
+        if len(result) == 5:  # Error case
+            _, _, _, _, error_response = result
+            return error_response
+        
+        driver, username, session_id, is_new_session = result
+        
+        logger.info(f"[{request_id}] Using session: {session_id} (new={is_new_session})")
+        screens_label = data.get('screens_label', username)
+        
+        # Create session wrapper for EModalBusinessOperations
+        class SessionWrapper:
+            def __init__(self, driver, session_id):
+                self.driver = driver
+                self.session_id = session_id
+        
+        session_wrapper = SessionWrapper(driver, session_id)
 
         try:
-            operations = EModalBusinessOperations(session)
+            operations = EModalBusinessOperations(session_wrapper)
             operations.screens_enabled = bool(capture_screens)
             operations.screens_label = screens_label
 
@@ -5129,28 +5189,20 @@ def get_container_timeline():
             # Navigate to containers
             nav = operations.navigate_to_containers()
             if not nav["success"]:
-                if not keep_alive:
-                    session.driver.quit()
                 return jsonify({"success": False, "error": f"Navigation failed: {nav['error']}"}), 500
 
             # Progressive search during scrolling (more efficient for infinite lists)
             sr = operations.search_container_with_scrolling(container_id)
             if not sr["success"]:
-                if not keep_alive:
-                    session.driver.quit()
                 return jsonify({"success": False, "error": f"Search failed: {sr['error']}"}), 500
             ex = operations.expand_container_row(container_id)
             if not ex["success"]:
-                if not keep_alive:
-                    session.driver.quit()
                 return jsonify({"success": False, "error": f"Expand failed: {ex['error']}"}), 500
 
             # Check Pregate status (DOM check + optional image processing)
             pregate_status_result = operations.check_pregate_status()
             
             if not pregate_status_result.get("success"):
-                if not keep_alive:
-                    session.driver.quit()
                 return jsonify({
                     "success": False,
                     "error": f"Pregate status check failed: {pregate_status_result.get('error')}"
@@ -5168,9 +5220,9 @@ def get_container_timeline():
                 bundle_path = None
                 try:
                     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    bundle_name = f"{session.session_id}_{ts}_PREGATE.zip"
+                    bundle_name = f"{session_id}_{ts}_PREGATE.zip"
                     bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-                    session_root = session.session_id
+                    session_root = session_id
                     
                     with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
                         # Add all screenshots from session (includes Pregate image if captured)
@@ -5197,20 +5249,13 @@ def get_container_timeline():
                 except Exception as be:
                     print(f"⚠️ Bundle creation failed: {be}")
                 
-                # Close or keep session
-                if not keep_alive:
-                    try:
-                        session.driver.quit()
-                    except Exception:
-                        pass
-                    logger.info(f"[{request_id}] Browser session closed")
-                else:
-                    session.update_last_used()
-                    logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
+                logger.info(f"[{request_id}] Session kept alive: {session_id}")
                 
                 # Return debug response with screenshot
                 response_data = {
                     "success": True,
+                    "session_id": session_id,
+                    "is_new_session": is_new_session,
                     "container_id": container_id,
                     "passed_pregate": passed_pregate,
                     "detection_method": detection_method,
@@ -5225,29 +5270,18 @@ def get_container_timeline():
             
             else:
                 # Normal mode: Return only Pregate status (fast)
-                if not keep_alive:
-                    try:
-                        session.driver.quit()
-                    except Exception:
-                        pass
-                    logger.info(f"[{request_id}] Browser session closed")
-                else:
-                    session.update_last_used()
-                    logger.info(f"[{request_id}] Browser session kept alive: {session.session_id}")
+                logger.info(f"[{request_id}] Session kept alive: {session_id}")
                 
                 return jsonify({
                     "success": True,
+                    "session_id": session_id,
+                    "is_new_session": is_new_session,
                     "container_id": container_id,
                     "passed_pregate": passed_pregate,
                     "detection_method": detection_method
                 })
 
         except Exception as op_e:
-            if not keep_alive:
-                try:
-                    session.driver.quit()
-                except Exception:
-                    pass
             return jsonify({"success": False, "error": f"Operation failed: {op_e}"}), 500
 
     except Exception as e:
