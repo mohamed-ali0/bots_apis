@@ -231,27 +231,16 @@ class EModalLoginHandler:
         print("🚀 Initializing Chrome WebDriver...")
         print("📦 Auto-downloading matching ChromeDriver version...")
         
-        # Fix architecture detection for Windows
+        # Automatic ChromeDriver architecture fix for Windows
         service = None
         try:
             if platform.system() == 'Windows':
-                print("🪟 Detected Windows - using manual ChromeDriver management...")
-                # Clear cache to force fresh download
-                import shutil
-                cache_dir = os.path.expanduser("~/.wdm")
-                if os.path.exists(cache_dir):
-                    try:
-                        shutil.rmtree(cache_dir)
-                        print("  🗑️ Cleared WebDriver Manager cache")
-                    except:
-                        pass
-                
-                # Try to download correct architecture
-                service = Service(ChromeDriverManager().install())
+                print("🪟 Detected Windows - applying automatic architecture fix...")
+                service = self._get_correct_chromedriver_windows()
             else:
                 service = Service(ChromeDriverManager().install())
         except Exception as e:
-            print(f"⚠️ WebDriver Manager failed: {e}")
+            print(f"⚠️ ChromeDriver setup failed: {e}")
             print("🔄 Trying fallback approaches...")
             
             # Fallback 1: Try existing chromedriver.exe
@@ -366,6 +355,113 @@ class EModalLoginHandler:
         except Exception as e:
             print(f"⚠️  Stealth measures warning: {e}")
             # Continue anyway - stealth is best effort
+    
+    def _get_correct_chromedriver_windows(self):
+        """
+        Automatically download and setup correct ChromeDriver for Windows
+        Handles win32 vs win64 architecture issues automatically
+        """
+        try:
+            print("🔧 Applying automatic ChromeDriver architecture fix...")
+            
+            # Step 1: Clear WebDriver Manager cache
+            import shutil
+            cache_dir = os.path.expanduser("~/.wdm")
+            if os.path.exists(cache_dir):
+                try:
+                    shutil.rmtree(cache_dir)
+                    print("  🗑️ Cleared WebDriver Manager cache")
+                except Exception as cache_e:
+                    print(f"  ⚠️ Cache clear warning: {cache_e}")
+            
+            # Step 2: Check if we already have a working chromedriver.exe
+            if os.path.exists("./chromedriver.exe"):
+                try:
+                    # Test if the existing file works
+                    test_service = Service("./chromedriver.exe")
+                    print("  ✅ Found working local chromedriver.exe")
+                    return test_service
+                except Exception as test_e:
+                    print(f"  ⚠️ Local chromedriver test failed: {test_e}")
+                    # Remove the bad file
+                    try:
+                        os.remove("./chromedriver.exe")
+                        print("  🗑️ Removed incompatible chromedriver.exe")
+                    except:
+                        pass
+            
+            # Step 3: Download correct win64 ChromeDriver
+            print("  📥 Downloading correct win64 ChromeDriver...")
+            return self._download_win64_chromedriver()
+            
+        except Exception as e:
+            print(f"  ❌ Automatic fix failed: {e}")
+            # Fallback to WebDriver Manager
+            print("  🔄 Falling back to WebDriver Manager...")
+            return Service(ChromeDriverManager().install())
+    
+    def _download_win64_chromedriver(self):
+        """
+        Download the correct win64 ChromeDriver automatically
+        """
+        try:
+            import requests
+            import zipfile
+            
+            # Use a known working ChromeDriver version
+            driver_version = "141.0.7390.54"
+            download_url = f"https://storage.googleapis.com/chrome-for-testing-public/{driver_version}/win64/chromedriver-win64.zip"
+            
+            print(f"  🌐 Downloading ChromeDriver {driver_version} (win64)...")
+            print(f"  🔗 URL: {download_url}")
+            
+            # Download the file
+            response = requests.get(download_url, timeout=30)
+            if response.status_code != 200:
+                raise Exception(f"Download failed: HTTP {response.status_code}")
+            
+            # Save to temporary file
+            temp_zip = "chromedriver_temp.zip"
+            with open(temp_zip, 'wb') as f:
+                f.write(response.content)
+            
+            print("  📦 Extracting ChromeDriver...")
+            
+            # Extract zip file
+            with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
+                zip_ref.extractall(".")
+            
+            # Find the chromedriver.exe in the extracted folder
+            extracted_dir = "chromedriver-win64"
+            chromedriver_path = os.path.join(extracted_dir, "chromedriver.exe")
+            
+            if os.path.exists(chromedriver_path):
+                # Move to current directory
+                shutil.move(chromedriver_path, "chromedriver.exe")
+                print("  ✅ ChromeDriver extracted successfully")
+                
+                # Clean up
+                os.remove(temp_zip)
+                if os.path.exists(extracted_dir):
+                    shutil.rmtree(extracted_dir)
+                
+                # Verify the file
+                if os.path.exists("chromedriver.exe"):
+                    file_size = os.path.getsize("chromedriver.exe")
+                    print(f"  📊 ChromeDriver ready: {file_size} bytes")
+                    
+                    # Test the service
+                    service = Service("./chromedriver.exe")
+                    print("  ✅ ChromeDriver service created successfully")
+                    return service
+                else:
+                    raise Exception("ChromeDriver not found after extraction")
+            else:
+                raise Exception("ChromeDriver executable not found in extracted files")
+                
+        except Exception as e:
+            print(f"  ❌ Download error: {e}")
+            raise e
     
     def _human_like_click(self, element) -> None:
         """Simulate human-like clicking with mouse movement"""
