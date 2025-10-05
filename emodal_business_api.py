@@ -782,6 +782,46 @@ class EModalBusinessOperations:
             except Exception as e:
                 print(f"  ⚠️ Mouse positioning failed: {e}")
             
+            # Helper function to quickly find target container (if specified)
+            def try_find_target_container():
+                """Quick XPath search for target container (like timeline/booking does)"""
+                if not target_container_id:
+                    return False
+                try:
+                    el = self.driver.find_element(By.XPATH, f"//*[contains(text(), '{target_container_id}')]")
+                    if el and el.is_displayed():
+                        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                        time.sleep(0.3)
+                        print(f"✅ Target container {target_container_id} found on page!")
+                        return True
+                except Exception:
+                    pass
+                return False
+            
+            # PRE-SCROLL CHECK: Try to find target container before scrolling (FAST!)
+            if target_container_id:
+                print(f"🔍 Pre-scroll check: Looking for {target_container_id}...")
+                if try_find_target_container():
+                    print(f"  🎯 Container found BEFORE scrolling (fast path!)")
+                    self._capture_screenshot("after_infinite_scroll")
+                    # Count containers for return value
+                    try:
+                        searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
+                        page_text = searchres.text
+                        import re
+                        lines = page_text.split('\n')
+                        container_count = sum(1 for line in lines if re.search(r'\b[A-Z]{4}\d{6,7}[A-Z]?\b', line))
+                    except:
+                        container_count = 0
+                    return {
+                        "success": True,
+                        "total_containers": container_count,
+                        "scroll_cycles": 0,
+                        "found_target_container": target_container_id,
+                        "stopped_reason": f"Container {target_container_id} found (pre-scroll)",
+                        "fast_path": True
+                    }
+            
             # Track previous content count
             previous_count = 0
             no_new_content_count = 0
@@ -830,6 +870,19 @@ class EModalBusinessOperations:
                     print(f"  ⚠️ Error counting containers: {e}")
                     current_count = previous_count
                 
+                # EARLY EXIT: Check if target container is now visible (FAST PATH during scroll)
+                if target_container_id and try_find_target_container():
+                    print(f"  🎯 Target container found during scroll cycle {scroll_cycle} (early exit!)")
+                    self._capture_screenshot("after_infinite_scroll")
+                    return {
+                        "success": True,
+                        "total_containers": current_count,
+                        "scroll_cycles": scroll_cycle,
+                        "found_target_container": target_container_id,
+                        "stopped_reason": f"Container {target_container_id} found (during scroll)",
+                        "fast_path": True
+                    }
+                
                 # Check if we got new content
                 if current_count > previous_count:
                     print(f"  ✅ New content loaded! {previous_count} → {current_count} containers")
@@ -849,27 +902,6 @@ class EModalBusinessOperations:
                         "scroll_cycles": scroll_cycle,
                         "stopped_reason": f"Target count {target_count} reached"
                     }
-                
-                # Check if we've found target container ID
-                if target_container_id:
-                    try:
-                        searchres = self.driver.find_element(By.XPATH, "//div[@id='searchres']")
-                        page_text = searchres.text
-                        # Clean the target ID (remove trailing letter)
-                        import re
-                        clean_target = re.sub(r'[A-Z]$', '', target_container_id)
-                        if clean_target in page_text or target_container_id in page_text:
-                            print(f"  🎯 Target container found: {target_container_id}")
-                            self._capture_screenshot("after_infinite_scroll")
-                            return {
-                                "success": True,
-                                "total_containers": current_count,
-                                "scroll_cycles": scroll_cycle,
-                                "found_target_container": target_container_id,
-                                "stopped_reason": f"Container {target_container_id} found"
-                            }
-                    except Exception as e:
-                        print(f"  ⚠️ Error checking for target container: {e}")
                 
                 # Scroll down with multiple methods (targeting scrollable container)
                 print("  📜 Scrolling down...")
@@ -1962,7 +1994,8 @@ class EModalBusinessOperations:
         try:
             print("\n🚗 Navigating to My Appointments page...")
             self.driver.get("https://truckerportal.emodal.com/myappointments")
-            time.sleep(5)  # Wait for page load
+            print("⏳ Waiting 30 seconds for page to fully load...")
+            time.sleep(30)  # Wait for page to fully load before starting operations
             self._capture_screenshot("myappointments_page")
             print("✅ Navigated to My Appointments page")
             return {"success": True}

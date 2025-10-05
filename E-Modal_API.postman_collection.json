@@ -1,0 +1,762 @@
+{
+	"info": {
+		"_postman_id": "emodal-business-api-2025",
+		"name": "E-Modal Business API",
+		"description": "Complete API collection for E-Modal Business Operations with persistent session management",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health & Session",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Check API health and see active sessions"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Session",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.success && jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"        console.log(\"Session ID saved: \" + jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_session",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_session"
+							]
+						},
+						"description": "Create a new persistent session. Session ID is automatically saved to environment."
+					},
+					"response": []
+				},
+				{
+					"name": "Manual Cleanup",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"max_age_hours\": 24\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/cleanup",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"cleanup"
+							]
+						},
+						"description": "Manually trigger cleanup of old files"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Containers",
+			"item": [
+				{
+					"name": "Get Containers - Infinite (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": true,\n    \"debug\": false,\n    \"return_url\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_containers",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_containers"
+							]
+						},
+						"description": "Get all containers using infinite scrolling with existing session"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Containers - Count (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": false,\n    \"target_count\": 50,\n    \"debug\": false,\n    \"return_url\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_containers",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_containers"
+							]
+						},
+						"description": "Get specific number of containers with existing session"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Containers - Until ID (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": false,\n    \"target_container_id\": \"{{test_container_id}}\",\n    \"debug\": false,\n    \"return_url\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_containers",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_containers"
+							]
+						},
+						"description": "Get containers until specific ID is found (optimized with early exit)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Containers - With Credentials",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"        console.log(\"Session ID saved: \" + jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\",\n    \"infinite_scrolling\": false,\n    \"target_count\": 30,\n    \"debug\": false,\n    \"return_url\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_containers",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_containers"
+							]
+						},
+						"description": "Get containers with credentials (auto-creates session). Session ID is saved to environment."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Containers - Debug Mode",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": false,\n    \"target_count\": 20,\n    \"debug\": true,\n    \"return_url\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_containers",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_containers"
+							]
+						},
+						"description": "Get containers with debug bundle (screenshots + files)"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Container Details",
+			"item": [
+				{
+					"name": "Get Container Timeline (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_container_timeline",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_container_timeline"
+							]
+						},
+						"description": "Get container timeline with Pregate milestone detection"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Container Timeline (Credentials)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_container_timeline",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_container_timeline"
+							]
+						},
+						"description": "Get container timeline with credentials (auto-creates session)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Booking Number (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_booking_number",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_booking_number"
+							]
+						},
+						"description": "Get booking number for a container using existing session"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Booking Number (Credentials)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_booking_number",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_booking_number"
+							]
+						},
+						"description": "Get booking number with credentials (auto-creates session)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Booking Number - Debug",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"debug\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_booking_number",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_booking_number"
+							]
+						},
+						"description": "Get booking number with debug bundle"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Appointments",
+			"item": [
+				{
+					"name": "Get Appointments - Infinite (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": true,\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_appointments"
+							]
+						},
+						"description": "Get all appointments using infinite scrolling"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Appointments - Count (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": false,\n    \"target_count\": 20,\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_appointments"
+							]
+						},
+						"description": "Get specific number of appointments"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Appointments - Until ID (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": false,\n    \"target_appointment_id\": \"{{test_appointment_id}}\",\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_appointments"
+							]
+						},
+						"description": "Get appointments until specific ID is found"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Appointments (Credentials)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\",\n    \"infinite_scrolling\": false,\n    \"target_count\": 15,\n    \"debug\": false\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_appointments"
+							]
+						},
+						"description": "Get appointments with credentials (auto-creates session)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Appointments - Debug",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"infinite_scrolling\": false,\n    \"target_count\": 10,\n    \"debug\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/get_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"get_appointments"
+							]
+						},
+						"description": "Get appointments with debug bundle"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Appointment Booking",
+			"item": [
+				{
+					"name": "Check Appointments (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"trucking_company\": \"{{trucking_company}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"move_type\": \"{{move_type}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"pin_code\": \"{{pin_code}}\",\n    \"truck_plate\": \"{{truck_plate}}\",\n    \"own_chassis\": {{own_chassis}}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/check_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"check_appointments"
+							]
+						},
+						"description": "Check available appointment times (never submits)"
+					},
+					"response": []
+				},
+				{
+					"name": "Check Appointments (Credentials)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\",\n    \"trucking_company\": \"{{trucking_company}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"move_type\": \"{{move_type}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"pin_code\": \"{{pin_code}}\",\n    \"truck_plate\": \"{{truck_plate}}\",\n    \"own_chassis\": {{own_chassis}}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/check_appointments",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"check_appointments"
+							]
+						},
+						"description": "Check available appointments with credentials"
+					},
+					"response": []
+				},
+				{
+					"name": "Make Appointment (Session)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"trucking_company\": \"{{trucking_company}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"move_type\": \"{{move_type}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"pin_code\": \"{{pin_code}}\",\n    \"truck_plate\": \"{{truck_plate}}\",\n    \"own_chassis\": {{own_chassis}},\n    \"appointment_time\": \"{{appointment_time}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/make_appointment",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"make_appointment"
+							]
+						},
+						"description": "⚠️ WARNING: This WILL submit the appointment booking!"
+					},
+					"response": []
+				},
+				{
+					"name": "Make Appointment (Credentials)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    if (jsonData.session_id) {",
+									"        pm.environment.set(\"session_id\", jsonData.session_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\",\n    \"captcha_api_key\": \"{{captcha_api_key}}\",\n    \"trucking_company\": \"{{trucking_company}}\",\n    \"terminal\": \"{{terminal}}\",\n    \"move_type\": \"{{move_type}}\",\n    \"container_id\": \"{{test_container_id}}\",\n    \"pin_code\": \"{{pin_code}}\",\n    \"truck_plate\": \"{{truck_plate}}\",\n    \"own_chassis\": {{own_chassis}},\n    \"appointment_time\": \"{{appointment_time}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/make_appointment",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"make_appointment"
+							]
+						},
+						"description": "⚠️ WARNING: This WILL submit the appointment booking with credentials!"
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://37.60.243.201:5010",
+			"type": "string"
+		}
+	]
+}
+
