@@ -329,18 +329,56 @@ def refresh_session(session: BrowserSession) -> bool:
     """Refresh a session to keep it authenticated"""
     try:
         logger.info(f"Refreshing session: {session.session_id}")
+        
+        # Try to get current URL first
+        try:
+            current_url = session.driver.current_url
+            logger.info(f"  Current URL: {current_url}")
+        except:
+            logger.warning(f"  Could not get current URL")
+        
         # Navigate to containers page to verify session is still valid
         session.driver.get("https://termops.emodal.com/trucker/web/")
-        time.sleep(2)
+        time.sleep(3)  # Give page time to load
         
-        # Check if we're still logged in (check for username or known element)
+        # Check if we're still logged in (multiple ways to verify)
         try:
-            session.driver.find_element(By.XPATH, "//button[contains(@class,'user')]")
-            session.update_last_refresh()
-            logger.info(f"✅ Session refreshed: {session.session_id}")
-            return True
-        except:
-            logger.warning(f"Session appears to have been logged out: {session.session_id}")
+            # Try multiple selectors to verify logged in state
+            logged_in = False
+            
+            # Method 1: Look for user button
+            try:
+                session.driver.find_element(By.XPATH, "//button[contains(@class,'user')]")
+                logged_in = True
+                logger.info(f"  ✅ Found user button")
+            except:
+                pass
+            
+            # Method 2: Look for mat-toolbar with user info
+            if not logged_in:
+                try:
+                    session.driver.find_element(By.XPATH, "//mat-toolbar")
+                    logged_in = True
+                    logger.info(f"  ✅ Found mat-toolbar")
+                except:
+                    pass
+            
+            # Method 3: Check URL - if redirected to login, we're logged out
+            if not logged_in:
+                current_url = session.driver.current_url
+                if 'login' not in current_url.lower():
+                    logged_in = True
+                    logger.info(f"  ✅ Not on login page")
+            
+            if logged_in:
+                session.update_last_refresh()
+                logger.info(f"✅ Session refreshed: {session.session_id}")
+                return True
+            else:
+                logger.warning(f"Session appears to have been logged out: {session.session_id}")
+                return False
+        except Exception as check_error:
+            logger.warning(f"Error checking login status: {check_error}")
             return False
     except Exception as e:
         logger.error(f"Error refreshing session {session.session_id}: {e}")

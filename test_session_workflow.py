@@ -196,7 +196,8 @@ def test_mode_all():
     payload = {
         "session_id": SESSION_ID,  # Use existing session
         "infinite_scrolling": True,
-        "debug": False  # Excel only (no debug bundle)
+        "debug": False,  # Excel only (no debug bundle)
+        "return_url": True  # Return JSON with URL instead of file download
     }
     
     try:
@@ -253,7 +254,8 @@ def test_mode_count():
     payload = {
         "session_id": SESSION_ID,  # Use existing session
         "target_count": count,
-        "debug": False
+        "debug": False,
+        "return_url": True  # Return JSON with URL instead of file download
     }
     
     try:
@@ -304,7 +306,8 @@ def test_mode_find():
     payload = {
         "session_id": SESSION_ID,  # Use existing session
         "target_container_id": container_id,
-        "debug": False
+        "debug": False,
+        "return_url": True  # Return JSON with URL instead of file download
     }
     
     try:
