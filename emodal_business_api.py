@@ -2123,20 +2123,59 @@ class EModalBusinessOperations:
             print("  ⏳ Waiting 5 seconds before clicking...")
             time.sleep(5)
             
-            # Find the Excel download button (mat-icon with svgicon="xls")
-            try:
-                excel_button = self.driver.find_element(
-                    By.XPATH,
-                    "//mat-icon[@svgicon='xls' or contains(@class, 'svg-xls-icon')]"
-                )
-                print("  ✅ Found Excel download button")
-            except:
-                # Fallback: look for any Excel-related button
-                excel_button = self.driver.find_element(
-                    By.XPATH,
-                    "//mat-icon[contains(@mattooltip, 'Excel') or @svgicon='xls']"
-                )
-                print("  ✅ Found Excel download button (fallback)")
+            # Scroll to top to ensure toolbar is visible
+            print("  📜 Scrolling to top to reveal toolbar...")
+            self.driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(1)
+            
+            # Try multiple selectors for the Excel download button
+            excel_button = None
+            selectors = [
+                ("//mat-icon[@svgicon='xls']", "svgicon='xls'"),
+                ("//mat-icon[contains(@class, 'svg-xls-icon')]", "class contains svg-xls-icon"),
+                ("//mat-icon[contains(@class, 'xls')]", "class contains xls"),
+                ("//*[name()='svg' and contains(@class, 'xls')]", "svg with xls class"),
+                ("//button[contains(@class, 'excel') or contains(@aria-label, 'Excel')]//mat-icon", "button with excel"),
+                ("//*[@mattooltip='Excel']", "mattooltip='Excel'"),
+                ("//mat-icon[@role='img']/*[name()='svg']", "mat-icon with svg child"),
+            ]
+            
+            for xpath, description in selectors:
+                try:
+                    print(f"  🔍 Trying selector: {description}")
+                    buttons = self.driver.find_elements(By.XPATH, xpath)
+                    for btn in buttons:
+                        if btn.is_displayed():
+                            excel_button = btn
+                            print(f"  ✅ Found Excel download button using: {description}")
+                            break
+                    if excel_button:
+                        break
+                except Exception as e:
+                    print(f"    ⚠️ Selector failed: {e}")
+                    continue
+            
+            if not excel_button:
+                # Last resort: look for any visible mat-icon in toolbar area
+                print("  🔍 Last resort: Looking for any mat-icon in toolbar...")
+                try:
+                    toolbar_icons = self.driver.find_elements(By.XPATH, "//mat-toolbar//mat-icon | //div[contains(@class, 'toolbar')]//mat-icon")
+                    for icon in toolbar_icons:
+                        if icon.is_displayed():
+                            # Check if it looks like an Excel icon (has svg child)
+                            try:
+                                icon.find_element(By.XPATH, ".//*[name()='svg']")
+                                excel_button = icon
+                                print(f"  ✅ Found potential Excel icon in toolbar")
+                                break
+                            except:
+                                continue
+                except:
+                    pass
+            
+            if not excel_button:
+                self._capture_screenshot("excel_button_not_found")
+                return {"success": False, "error": "Excel download button not found after trying all selectors"}
             
             # Scroll into view
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", excel_button)
@@ -2145,11 +2184,12 @@ class EModalBusinessOperations:
             # Click the button
             try:
                 excel_button.click()
+                print("  ✅ Excel download button clicked (regular click)")
             except:
                 # Fallback: JavaScript click
                 self.driver.execute_script("arguments[0].click();", excel_button)
+                print("  ✅ Excel download button clicked (JavaScript click)")
             
-            print("  ✅ Excel download button clicked")
             self._capture_screenshot("after_excel_click")
             
             # Wait for download to start
@@ -2159,6 +2199,7 @@ class EModalBusinessOperations:
             
         except Exception as e:
             print(f"  ❌ Error clicking Excel button: {e}")
+            self._capture_screenshot("excel_click_error")
             import traceback
             traceback.print_exc()
             return {"success": False, "error": str(e)}
@@ -3596,14 +3637,16 @@ class EModalBusinessOperations:
         """
         try:
             print(f"\n📋 Extracting booking number for container: {container_id}")
+            self._capture_screenshot("before_booking_extraction")
             
             # Find the expanded row (should already be expanded)
+            expanded_row = None
             try:
                 expanded_row = self.driver.find_element(
                     By.XPATH,
                     f"//tr[contains(@class, 'expanded')]"
                 )
-                print("  ✅ Found expanded row")
+                print("  ✅ Found expanded row with class 'expanded'")
             except Exception:
                 print("  ⚠️ No expanded row found, attempting to find by container ID")
                 # Try to find the detail section directly
@@ -3613,8 +3656,25 @@ class EModalBusinessOperations:
                         f"//tr[.//td[contains(text(), '{container_id}')]]/following-sibling::tr[contains(@class, 'detail')]"
                     )
                     print("  ✅ Found detail row for container")
-                except Exception as e:
-                    return {"success": False, "error": f"Could not find expanded row: {str(e)}"}
+                except Exception:
+                    # Try finding the entire expanded section by looking for the container text
+                    try:
+                        # Look for any element containing the container ID, then find the booking section
+                        container_elem = self.driver.find_element(
+                            By.XPATH,
+                            f"//*[contains(text(), '{container_id}')]"
+                        )
+                        # Scroll it into view
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", container_elem)
+                        time.sleep(0.5)
+                        # Now try to find the booking section in the visible area
+                        expanded_row = self.driver.find_element(
+                            By.XPATH,
+                            "//body"  # Use body as fallback to search entire page
+                        )
+                        print("  ✅ Using full page search for booking number")
+                    except Exception as e:
+                        return {"success": False, "error": f"Could not find expanded row: {str(e)}"}
             
             # Look for "Booking #" label and its corresponding value
             # The structure is: label div with "Booking #" text, followed by field-data div right under it
@@ -3694,8 +3754,67 @@ class EModalBusinessOperations:
                 except Exception as e2:
                     print(f"  ℹ️ Method 2 failed: {str(e2)}")
                 
+                # Try Method 3: Direct text search near "Booking #" label
+                try:
+                    print("  🔍 Trying method 3: Direct search for Booking # text...")
+                    # Find all elements containing "Booking #"
+                    booking_labels = expanded_row.find_elements(
+                        By.XPATH,
+                        ".//*[contains(text(), 'Booking #')]"
+                    )
+                    
+                    for label in booking_labels:
+                        print(f"    Found label element: {label.tag_name}")
+                        # Get parent and look for any nearby text that looks like a booking number
+                        parent = label.find_element(By.XPATH, "..")
+                        parent_text = parent.text.strip()
+                        print(f"    Parent text: '{parent_text}'")
+                        
+                        # Try to extract booking number from parent text
+                        lines = parent_text.split('\n')
+                        for i, line in enumerate(lines):
+                            if 'Booking #' in line and i + 1 < len(lines):
+                                potential_booking = lines[i + 1].strip()
+                                if potential_booking and potential_booking != "N/A" and len(potential_booking) > 3:
+                                    print(f"  ✅ Booking number found (method 3): {potential_booking}")
+                                    return {
+                                        "success": True,
+                                        "booking_number": potential_booking,
+                                        "container_id": container_id
+                                    }
+                except Exception as e3:
+                    print(f"  ℹ️ Method 3 failed: {str(e3)}")
+                
+                # Try Method 4: Look for clickable blue text (booking numbers are often styled as links)
+                try:
+                    print("  🔍 Trying method 4: Looking for blue/clickable text near Booking #...")
+                    # Find the booking label first
+                    booking_section = expanded_row.find_element(
+                        By.XPATH,
+                        ".//*[contains(text(), 'Booking #')]/.."
+                    )
+                    # Look for any clickable or styled text nearby
+                    clickable_elements = booking_section.find_elements(
+                        By.XPATH,
+                        ".//*[@style or contains(@class, 'link') or contains(@class, 'btn')]"
+                    )
+                    
+                    for elem in clickable_elements:
+                        text = elem.text.strip()
+                        # Booking numbers typically have letters and numbers
+                        if text and len(text) > 5 and any(c.isalpha() for c in text) and any(c.isdigit() for c in text):
+                            print(f"  ✅ Booking number found (method 4): {text}")
+                            return {
+                                "success": True,
+                                "booking_number": text,
+                                "container_id": container_id
+                            }
+                except Exception as e4:
+                    print(f"  ℹ️ Method 4 failed: {str(e4)}")
+                
                 # Booking number doesn't exist for this container
                 print("  ℹ️ Booking number field does not exist for this container")
+                self._capture_screenshot("booking_not_found")
                 return {
                     "success": True,
                     "booking_number": None,
