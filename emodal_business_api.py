@@ -279,17 +279,14 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
     cred_hash = get_credentials_hash(username, password)
     
     # Authenticate
-    handler = EModalLoginHandler(
-        username=username,
-        password=password,
-        captcha_api_key=captcha_api_key
-    )
+    handler = EModalLoginHandler(captcha_api_key=captcha_api_key)
     
-    if not handler.login():
+    login_result = handler.login(username, password)
+    if not login_result.success:
         error_response = jsonify({
             "success": False,
             "error": "Authentication failed",
-            "details": handler.get_error_details()
+            "details": str(login_result.error_type) if login_result.error_type else "Unknown error"
         }), 401
         return (None, None, None, None, error_response)
     
@@ -3892,17 +3889,14 @@ def get_or_create_session():
         cred_hash = get_credentials_hash(username, password)
         
         # Authenticate
-        handler = EModalLoginHandler(
-            username=username,
-            password=password,
-            captcha_api_key=captcha_api_key
-        )
+        handler = EModalLoginHandler(captcha_api_key=captcha_api_key)
         
-        if not handler.login():
+        login_result = handler.login(username, password)
+        if not login_result.success:
             return jsonify({
                 "success": False,
                 "error": "Authentication failed",
-                "details": handler.get_error_details()
+                "details": str(login_result.error_type) if login_result.error_type else "Unknown error"
             }), 401
         
         # Create browser session with keep_alive=True
