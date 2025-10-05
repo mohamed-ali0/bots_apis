@@ -278,11 +278,25 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
     new_session_id = f"session_{int(time.time())}_{hash(username)}"
     cred_hash = get_credentials_hash(username, password)
     
-    # Authenticate
-    handler = EModalLoginHandler(captcha_api_key=captcha_api_key)
+    # Create unique temp profile directory for this session
+    temp_profile_dir = tempfile.mkdtemp(prefix=f"emodal_session_{new_session_id}_")
+    logger.info(f"[{request_id}] Created temp profile: {temp_profile_dir}")
+    
+    # Authenticate with unique profile
+    handler = EModalLoginHandler(
+        captcha_api_key=captcha_api_key,
+        use_vpn_profile=False,  # Don't use default profile (causes conflicts)
+        auto_close=False,  # Keep browser open for persistent session
+        user_data_dir=temp_profile_dir
+    )
     
     login_result = handler.login(username, password)
     if not login_result.success:
+        # Clean up temp profile on failure
+        try:
+            shutil.rmtree(temp_profile_dir, ignore_errors=True)
+        except:
+            pass
         error_response = jsonify({
             "success": False,
             "error": "Authentication failed",
@@ -3888,11 +3902,25 @@ def get_or_create_session():
         session_id = f"session_{int(time.time())}_{hash(username)}"
         cred_hash = get_credentials_hash(username, password)
         
-        # Authenticate
-        handler = EModalLoginHandler(captcha_api_key=captcha_api_key)
+        # Create unique temp profile directory for this session
+        temp_profile_dir = tempfile.mkdtemp(prefix=f"emodal_session_{session_id}_")
+        logger.info(f"Created temp profile: {temp_profile_dir}")
+        
+        # Authenticate with unique profile
+        handler = EModalLoginHandler(
+            captcha_api_key=captcha_api_key,
+            use_vpn_profile=False,  # Don't use default profile (causes conflicts)
+            auto_close=False,  # Keep browser open for persistent session
+            user_data_dir=temp_profile_dir
+        )
         
         login_result = handler.login(username, password)
         if not login_result.success:
+            # Clean up temp profile on failure
+            try:
+                shutil.rmtree(temp_profile_dir, ignore_errors=True)
+            except:
+                pass
             return jsonify({
                 "success": False,
                 "error": "Authentication failed",
