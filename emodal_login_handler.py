@@ -162,6 +162,14 @@ class EModalLoginHandler:
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
         
+        # Proxy configuration with authentication
+        proxy_username = "mo3li_mo0ef"
+        proxy_password = "MMMM_15718_mmmm"
+        proxy_host = "dc.oxylabs.io:8001"
+        proxy_server = f"http://{proxy_username}:{proxy_password}@{proxy_host}"
+        chrome_options.add_argument(f"--proxy-server={proxy_server}")
+        print(f"🌐 Using authenticated proxy: {proxy_host}")
+        
         # Critical options for Linux servers
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -215,7 +223,12 @@ class EModalLoginHandler:
                 uc_options = uc.ChromeOptions()
                 
                 # Only add safe arguments (avoid excludeSwitches and other incompatible options)
+                proxy_username = "mo3li_mo0ef"
+                proxy_password = "MMMM_15718_mmmm"
+                proxy_host = "dc.oxylabs.io:8001"
+                proxy_server = f"http://{proxy_username}:{proxy_password}@{proxy_host}"
                 safe_args = [
+                    f"--proxy-server={proxy_server}",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
@@ -223,6 +236,7 @@ class EModalLoginHandler:
                     "--window-size=1920,1080",
                     "--start-maximized",
                 ]
+                print(f"🌐 Using authenticated proxy: {proxy_host}")
                 
                 for arg in safe_args:
                     if arg:  # Skip None values
