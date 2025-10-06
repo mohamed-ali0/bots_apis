@@ -219,7 +219,7 @@ class EModalLoginHandler:
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
-                    f"--user-data-dir={self.user_data_dir}" if self.user_data_dir else None,
+                    f"--user-data-dir={self.custom_user_data_dir}" if self.custom_user_data_dir else None,
                     "--window-size=1920,1080",
                     "--start-maximized",
                 ]
