@@ -210,22 +210,40 @@ class EModalLoginHandler:
             try:
                 print("🔒 Using undetected-chromedriver for anti-bot detection...")
                 
-                # Convert Options to uc.ChromeOptions
+                # Create minimal options for undetected Chrome
+                # Undetected Chrome handles most anti-detection automatically
                 uc_options = uc.ChromeOptions()
                 
-                # Copy all arguments from chrome_options
-                for arg in chrome_options.arguments:
-                    uc_options.add_argument(arg)
+                # Only add safe arguments (avoid excludeSwitches and other incompatible options)
+                safe_args = [
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    f"--user-data-dir={self.user_data_dir}" if self.user_data_dir else None,
+                    "--window-size=1920,1080",
+                    "--start-maximized",
+                ]
                 
-                # Copy experimental options
-                for key, value in chrome_options.experimental_options.items():
-                    uc_options.add_experimental_option(key, value)
+                for arg in safe_args:
+                    if arg:  # Skip None values
+                        uc_options.add_argument(arg)
+                
+                # Add download preferences (compatible with UC)
+                prefs = {
+                    "download.default_directory": download_dir,
+                    "download.prompt_for_download": False,
+                    "download.directory_upgrade": True,
+                    "safebrowsing.enabled": False,
+                    "profile.default_content_settings.popups": 0,
+                }
+                uc_options.add_experimental_option("prefs", prefs)
                 
                 # Initialize undetected Chrome
                 self.driver = uc.Chrome(
                     options=uc_options,
                     use_subprocess=True,
                     version_main=None,  # Auto-detect Chrome version
+                    headless=False,  # UC doesn't work well with headless
                 )
                 print("✅ Undetected ChromeDriver initialized successfully")
                 
