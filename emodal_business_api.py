@@ -70,6 +70,7 @@ class BrowserSession:
     keep_alive: bool = False
     credentials_hash: str = None  # Hash of username+password for matching
     last_refresh: datetime = None  # Last time session was refreshed
+    in_use: bool = False  # Flag to prevent refresh during active operations
     
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -80,6 +81,8 @@ class BrowserSession:
     def needs_refresh(self) -> bool:
         """Check if session needs to be refreshed"""
         if not self.keep_alive:
+            return False
+        if self.in_use:  # Don't refresh while operation is running
             return False
         if self.last_refresh is None:
             return True
@@ -92,6 +95,15 @@ class BrowserSession:
     def update_last_refresh(self):
         """Update last refresh timestamp"""
         self.last_refresh = datetime.now()
+    
+    def mark_in_use(self):
+        """Mark session as in use (operation running)"""
+        self.in_use = True
+        self.update_last_used()
+    
+    def mark_not_in_use(self):
+        """Mark session as not in use (operation completed)"""
+        self.in_use = False
 
 
 @dataclass
@@ -237,6 +249,7 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
         if session_id in active_sessions:
             browser_session = active_sessions[session_id]
             browser_session.update_last_used()
+            browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
             logger.info(f"[{request_id}] ✅ Found existing session for user: {browser_session.username}")
             return (browser_session.driver, browser_session.username, session_id, False)
         else:
@@ -263,6 +276,7 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
     
     if existing_session:
         existing_session.update_last_used()
+        existing_session.mark_in_use()  # Mark as in use to prevent refresh during operation
         logger.info(f"[{request_id}] ✅ Found existing session for credentials: {existing_session.session_id}")
         return (existing_session.driver, existing_session.username, existing_session.session_id, False)
     
@@ -318,6 +332,8 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
     
     active_sessions[new_session_id] = browser_session
     persistent_sessions[cred_hash] = new_session_id
+    
+    browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
     
     logger.info(f"[{request_id}] ✅ Created new persistent session: {new_session_id} for user: {username}")
     logger.info(f"[{request_id}] 📊 Active sessions: {len(active_sessions)}/{MAX_CONCURRENT_SESSIONS}")
@@ -4404,6 +4420,13 @@ def health_check():
         "persistent_sessions": len(persistent_sessions),
         "timestamp": datetime.now().isoformat()
     })
+
+
+def release_session_after_operation(session_id: str):
+    """Mark session as not in use after operation completes"""
+    if session_id and session_id in active_sessions:
+        active_sessions[session_id].mark_not_in_use()
+        logger.info(f"🔓 Session {session_id} marked as not in use")
 
 
 @app.route('/get_session', methods=['POST'])
