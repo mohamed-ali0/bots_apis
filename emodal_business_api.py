@@ -6100,6 +6100,27 @@ def get_appointments():
             selected_count = select_result.get("selected_count", 0)
             print(f"✅ Selected {selected_count} appointments")
             
+            # Set up session-specific download directory
+            download_dir = os.path.join(DOWNLOADS_DIR, session_id)
+            try:
+                os.makedirs(download_dir, exist_ok=True)
+            except Exception as mkdir_e:
+                print(f"⚠️ Could not create download directory: {mkdir_e}")
+            
+            # CRITICAL: Use absolute path for Linux compatibility
+            download_dir_abs = os.path.abspath(download_dir)
+            print(f"📁 Download directory: {download_dir_abs}")
+            
+            # Configure active Chrome session to allow downloads into our dir via DevTools
+            try:
+                operations.driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+                    "behavior": "allow",
+                    "downloadPath": download_dir_abs
+                })
+                print("✅ Download behavior configured for session directory")
+            except Exception as cdp_e:
+                print(f"⚠️ Could not configure download behavior: {cdp_e}")
+            
             # Click Excel download button
             download_result = operations.click_excel_download_button()
             if not download_result["success"]:
@@ -6108,18 +6129,23 @@ def get_appointments():
             # Wait for file to download
             time.sleep(5)
             
-            # Find the downloaded file in the downloads folder
-            download_folder = operations.screens_dir.replace("screenshots", "downloads")
-            if not os.path.exists(download_folder):
-                download_folder = DOWNLOADS_DIR
+            # Find the downloaded file in the session-specific downloads folder
+            download_folder = download_dir
             
-            # Look for most recent Excel file
+            # Look for the most recent Excel file downloaded after clicking the button
+            # We'll look for files created in the last 30 seconds to ensure it's the appointments file
+            current_time = time.time()
             excel_files = []
+            
             for root, dirs, files in os.walk(download_folder):
                 for file in files:
                     if file.endswith(('.xlsx', '.xls')):
                         full_path = os.path.join(root, file)
-                        excel_files.append((full_path, os.path.getmtime(full_path)))
+                        file_mtime = os.path.getmtime(full_path)
+                        
+                        # Only consider files created in the last 30 seconds
+                        if current_time - file_mtime <= 30:
+                            excel_files.append((full_path, file_mtime))
             
             if excel_files:
                 # Sort by modification time, newest first
@@ -6127,28 +6153,46 @@ def get_appointments():
                 excel_file = excel_files[0][0]
                 excel_filename = os.path.basename(excel_file)
                 
-                # Move to downloads folder with session ID prefix if not already there
-                if not excel_filename.startswith(session_id):
-                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    new_filename = f"{session_id}_{ts}_appointments.xlsx"
-                    new_path = os.path.join(DOWNLOADS_DIR, new_filename)
-                    
-                    try:
-                        import shutil
-                        shutil.move(excel_file, new_path)
-                        excel_file = new_path
-                        excel_filename = new_filename
-                        print(f"✅ Excel file moved to: {new_filename}")
-                    except Exception as e:
-                        print(f"⚠️ Could not move Excel file: {e}")
+                # Create a unique filename for appointments (already in session directory)
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                new_filename = f"{session_id}_{ts}_appointments.xlsx"
+                new_path = os.path.join(download_dir, new_filename)
+                
+                try:
+                    import shutil
+                    shutil.move(excel_file, new_path)
+                    excel_file = new_path
+                    excel_filename = new_filename
+                    print(f"✅ Appointments Excel file saved as: {new_filename}")
+                except Exception as e:
+                    print(f"⚠️ Could not rename Excel file: {e}")
+                    # File is already in the right directory, just use current name
+                    excel_filename = os.path.basename(excel_file)
                 
                 # Create full public URL
                 excel_url = f"http://{request.host}/files/{excel_filename}"
-                print(f"✅ Excel file ready: {excel_url}")
+                print(f"✅ Appointments Excel file ready: {excel_url}")
             else:
-                print("⚠️ Excel file not found in downloads folder")
-                excel_url = None
-                excel_filename = None
+                print("⚠️ Appointments Excel file not found in downloads folder")
+                # Create debug bundle if requested
+                if debug_mode:
+                    debug_zip_filename = create_debug_bundle(operations, session_id, request_id)
+                    debug_bundle_url = f"http://{request.host}/files/{debug_zip_filename}"
+                    
+                    return jsonify({
+                        "success": False,
+                        "error": "Excel file not found after download",
+                        "session_id": session_id,
+                        "is_new_session": is_new_session,
+                        "debug_bundle_url": debug_bundle_url
+                    }), 500
+                else:
+                    return jsonify({
+                        "success": False,
+                        "error": "Excel file not found after download",
+                        "session_id": session_id,
+                        "is_new_session": is_new_session
+                    }), 500
             
             # Build response based on debug mode
             if debug_mode:
