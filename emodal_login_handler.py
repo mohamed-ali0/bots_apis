@@ -31,6 +31,14 @@ from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
+# Selenium Wire for proxy authentication
+try:
+    from seleniumwire import webdriver as wire_webdriver
+    SELENIUM_WIRE_AVAILABLE = True
+except ImportError:
+    SELENIUM_WIRE_AVAILABLE = False
+    wire_webdriver = None
+
 # Undetected ChromeDriver for anti-bot detection
 try:
     import undetected_chromedriver as uc
@@ -162,24 +170,22 @@ class EModalLoginHandler:
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
         
-        # Proxy configuration with authentication
-        # Using seleniumwire or proxy extension for auth
-        from selenium.webdriver.common.proxy import Proxy, ProxyType
-        
+        # Proxy configuration with authentication (for Selenium Wire)
         proxy_username = "mo3li_moQef"
         proxy_password = "MMMM_15718_mmmm"
         proxy_host = "dc.oxylabs.io"
         proxy_port = "8001"
         
-        # Set proxy with authentication
-        proxy_auth = f"{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}"
-        chrome_options.add_argument(f"--proxy-server=http://{proxy_host}:{proxy_port}")
+        # Store proxy config for Selenium Wire
+        self.seleniumwire_options = {
+            'proxy': {
+                'http': f'http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}',
+                'https': f'http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}',
+                'no_proxy': 'localhost,127.0.0.1'
+            }
+        }
         
-        # Store credentials for later use (will be injected via CDP)
-        self.proxy_username = proxy_username
-        self.proxy_password = proxy_password
-        
-        print(f"🌐 Using authenticated proxy: {proxy_host}:{proxy_port}")
+        print(f"🌐 Proxy configured: {proxy_host}:{proxy_port}")
         print(f"👤 Proxy user: {proxy_username}")
         
         # Critical options for Linux servers
@@ -307,19 +313,19 @@ class EModalLoginHandler:
                     pass
                 
                 service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 
-                # Inject proxy authentication via CDP
-                if hasattr(self, 'proxy_username') and hasattr(self, 'proxy_password'):
-                    self.driver.execute_cdp_cmd('Network.enable', {})
-                    self.driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
-                        'headers': {
-                            'Proxy-Authorization': f'Basic {__import__("base64").b64encode(f"{self.proxy_username}:{self.proxy_password}".encode()).decode()}'
-                        }
-                    })
-                    print("✅ Proxy authentication injected")
-                
-                print("✅ ChromeDriver initialized successfully with webdriver-manager")
+                # Use Selenium Wire if available for proxy authentication
+                if SELENIUM_WIRE_AVAILABLE and hasattr(self, 'seleniumwire_options'):
+                    print("🔧 Using Selenium Wire for proxy authentication...")
+                    self.driver = wire_webdriver.Chrome(
+                        service=service,
+                        options=chrome_options,
+                        seleniumwire_options=self.seleniumwire_options
+                    )
+                    print("✅ Selenium Wire ChromeDriver initialized with authenticated proxy")
+                else:
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    print("✅ ChromeDriver initialized (proxy auth not available)")
             except Exception as wdm_error:
                 print(f"⚠️ WebDriver Manager failed: {wdm_error}")
                 print("🔄 Trying local chromedriver.exe...")
@@ -329,19 +335,19 @@ class EModalLoginHandler:
                 if os.path.exists(local_chromedriver):
                     try:
                         service = Service(local_chromedriver)
-                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
                         
-                        # Inject proxy authentication via CDP
-                        if hasattr(self, 'proxy_username') and hasattr(self, 'proxy_password'):
-                            self.driver.execute_cdp_cmd('Network.enable', {})
-                            self.driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
-                                'headers': {
-                                    'Proxy-Authorization': f'Basic {__import__("base64").b64encode(f"{self.proxy_username}:{self.proxy_password}".encode()).decode()}'
-                                }
-                            })
-                            print("✅ Proxy authentication injected")
-                        
-                        print("✅ ChromeDriver initialized successfully with local chromedriver.exe")
+                        # Use Selenium Wire if available for proxy authentication
+                        if SELENIUM_WIRE_AVAILABLE and hasattr(self, 'seleniumwire_options'):
+                            print("🔧 Using Selenium Wire for proxy authentication...")
+                            self.driver = wire_webdriver.Chrome(
+                                service=service,
+                                options=chrome_options,
+                                seleniumwire_options=self.seleniumwire_options
+                            )
+                            print("✅ Selenium Wire ChromeDriver initialized with authenticated proxy")
+                        else:
+                            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                            print("✅ ChromeDriver initialized (proxy auth not available)")
                     except Exception as local_error:
                         print(f"❌ Local chromedriver.exe also failed: {local_error}")
                         raise Exception(f"Both webdriver-manager and local chromedriver failed. WDM error: {wdm_error}, Local error: {local_error}")
