@@ -6355,12 +6355,36 @@ def manual_cleanup():
 @app.route('/files/<path:filename>', methods=['GET'])
 def serve_download(filename):
     """Serve downloaded Excel files from the downloads directory"""
+    # First try the main downloads directory
     safe_path = os.path.join(DOWNLOADS_DIR, filename)
     if not os.path.abspath(safe_path).startswith(os.path.abspath(DOWNLOADS_DIR)):
         return jsonify({"success": False, "error": "Invalid path"}), 400
-    if not os.path.exists(safe_path):
-        return jsonify({"success": False, "error": "File not found"}), 404
-    return send_file(safe_path, as_attachment=True)
+    
+    if os.path.exists(safe_path):
+        return send_file(safe_path, as_attachment=True)
+    
+    # If not found in main directory, search in session subdirectories
+    # Look for files that match the pattern: session_id_timestamp_appointments.xlsx
+    if filename.endswith('_appointments.xlsx') and '_' in filename:
+        # Extract session_id from filename (everything before the last two underscores)
+        parts = filename.split('_')
+        if len(parts) >= 3:
+            session_id = '_'.join(parts[:-2])  # Everything except last two parts (timestamp and appointments.xlsx)
+            session_dir = os.path.join(DOWNLOADS_DIR, session_id)
+            
+            if os.path.exists(session_dir):
+                session_file_path = os.path.join(session_dir, filename)
+                if os.path.exists(session_file_path):
+                    return send_file(session_file_path, as_attachment=True)
+    
+    # If still not found, search all subdirectories for the file
+    for root, dirs, files in os.walk(DOWNLOADS_DIR):
+        if filename in files:
+            file_path = os.path.join(root, filename)
+            if os.path.abspath(file_path).startswith(os.path.abspath(DOWNLOADS_DIR)):
+                return send_file(file_path, as_attachment=True)
+    
+    return jsonify({"success": False, "error": "File not found"}), 404
 
 
 if __name__ == '__main__':
