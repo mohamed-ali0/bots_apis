@@ -481,12 +481,23 @@ class EModalBusinessOperations:
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
             self.driver.save_screenshot(raw_path)
             print(f"📸 Screenshot saved: {os.path.basename(raw_path)}")
-            # Annotate top-right with label and URL
+            # Annotate top-right with label, timestamp, container number (if available), and URL
             try:
                 img = Image.open(raw_path).convert("RGBA")
                 draw = ImageDraw.Draw(img)
                 url = self.driver.current_url or ""
-                text = f"{self.screens_label} | {url}"
+                
+                # Build annotation text with timestamp and container number if available
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                text_parts = [self.screens_label, timestamp]
+                
+                # Add container number if available
+                if hasattr(self, 'current_container_id') and self.current_container_id:
+                    text_parts.append(f"Container: {self.current_container_id}")
+                
+                text_parts.append(url)
+                text = " | ".join(text_parts)
+                
                 # Background rectangle (bottom-right), label 100% larger
                 padding = 12
                 # Try a truetype font for better scaling
@@ -1700,7 +1711,20 @@ class EModalBusinessOperations:
                 print(f"     ... and {len(available_times) - 5} more")
             
             self._capture_screenshot("appointment_times_retrieved")
-            return {"success": True, "available_times": available_times, "count": len(available_times)}
+            
+            # Find the dropdown opened screenshot for return
+            dropdown_screenshot = None
+            for screenshot_path in self.screens:
+                if "appointment_dropdown_opened" in screenshot_path:
+                    dropdown_screenshot = screenshot_path
+                    break
+            
+            return {
+                "success": True, 
+                "available_times": available_times, 
+                "count": len(available_times),
+                "dropdown_screenshot": dropdown_screenshot
+            }
         except Exception as e:
             print(f"  ❌ Error getting appointment times: {e}")
             import traceback
@@ -1993,8 +2017,8 @@ class EModalBusinessOperations:
         try:
             print("\n🚗 Navigating to My Appointments page...")
             self.driver.get("https://truckerportal.emodal.com/myappointments")
-            print("⏳ Waiting 30 seconds for page to fully load...")
-            time.sleep(30)  # Wait for page to fully load before starting operations
+            print("⏳ Waiting 45 seconds for page to fully load...")
+            time.sleep(45)  # Wait for page to fully load before starting operations
             self._capture_screenshot("myappointments_page")
             print("✅ Navigated to My Appointments page")
             return {"success": True}
@@ -3677,41 +3701,68 @@ class EModalBusinessOperations:
                         return {"success": False, "error": f"Could not find expanded row: {str(e)}"}
             
             # Look for "Booking #" label and its corresponding value
-            # The structure is: label div with "Booking #" text, followed by field-data div right under it
+            # The structure is: <div class="field-label">Booking #</div> followed by <div class="field-data btn-link">VALUE</div>
             try:
                 # Method 1: Find by label text "Booking #" and get the field-data right under it
                 print("  🔍 Searching for 'Booking #' label...")
-                booking_label = expanded_row.find_element(
-                    By.XPATH,
-                    ".//div[contains(@class, 'field-label') and contains(text(), 'Booking #')]"
-                )
-                print("  ✅ Found 'Booking #' label")
                 
-                # The value should be right under the label (following-sibling)
+                # Try with ng-star-inserted class (from actual HTML)
+                booking_label = None
                 try:
-                    # Try following-sibling first (most common structure)
+                    booking_label = expanded_row.find_element(
+                        By.XPATH,
+                        ".//div[contains(@class, 'field-label') and contains(@class, 'ng-star-inserted') and contains(text(), 'Booking #')]"
+                    )
+                    print("  ✅ Found 'Booking #' label (with ng-star-inserted)")
+                except:
+                    # Fallback to generic search
+                    booking_label = expanded_row.find_element(
+                        By.XPATH,
+                        ".//div[contains(@class, 'field-label') and contains(text(), 'Booking #')]"
+                    )
+                    print("  ✅ Found 'Booking #' label")
+                
+                # The value should be right under the label (following-sibling with btn-link class)
+                try:
+                    # Try following-sibling with btn-link class (from actual HTML)
                     booking_value_elem = booking_label.find_element(
                         By.XPATH,
-                        "following-sibling::div[contains(@class, 'field-data')]"
+                        "following-sibling::div[contains(@class, 'field-data') and contains(@class, 'btn-link') and contains(@class, 'ng-star-inserted')]"
                     )
-                    print("  ✅ Found field-data as following-sibling")
+                    print("  ✅ Found field-data as following-sibling (with btn-link)")
                 except:
                     try:
-                        # Try within same parent container
-                        parent = booking_label.find_element(By.XPATH, "..")
-                        booking_value_elem = parent.find_element(
+                        # Try without ng-star-inserted
+                        booking_value_elem = booking_label.find_element(
                             By.XPATH,
-                            ".//div[contains(@class, 'field-data')]"
+                            "following-sibling::div[contains(@class, 'field-data') and contains(@class, 'btn-link')]"
                         )
-                        print("  ✅ Found field-data within parent")
+                        print("  ✅ Found field-data as following-sibling (btn-link, no ng-star)")
                     except:
-                        # Try next sibling of parent
-                        parent = booking_label.find_element(By.XPATH, "..")
-                        booking_value_elem = parent.find_element(
-                            By.XPATH,
-                            "following-sibling::*//div[contains(@class, 'field-data')]"
-                        )
-                        print("  ✅ Found field-data in following parent sibling")
+                        try:
+                            # Try any following-sibling field-data
+                            booking_value_elem = booking_label.find_element(
+                                By.XPATH,
+                                "following-sibling::div[contains(@class, 'field-data')]"
+                            )
+                            print("  ✅ Found field-data as following-sibling")
+                        except:
+                            try:
+                                # Try within same parent container
+                                parent = booking_label.find_element(By.XPATH, "..")
+                                booking_value_elem = parent.find_element(
+                                    By.XPATH,
+                                    ".//div[contains(@class, 'field-data')]"
+                                )
+                                print("  ✅ Found field-data within parent")
+                            except:
+                                # Try next sibling of parent
+                                parent = booking_label.find_element(By.XPATH, "..")
+                                booking_value_elem = parent.find_element(
+                                    By.XPATH,
+                                    "following-sibling::*//div[contains(@class, 'field-data')]"
+                                )
+                                print("  ✅ Found field-data in following parent sibling")
                 
                 booking_number = booking_value_elem.text.strip()
                 print(f"  📋 Extracted text: '{booking_number}'")
@@ -4931,6 +4982,11 @@ def check_appointments():
             operations.screens_enabled = True
             operations.screens_label = username
             
+            # Set container ID for screenshot annotations
+            container_id = data.get('container_id')
+            if container_id:
+                operations.current_container_id = container_id
+            
             # Ensure app context
             print("🕒 Ensuring app context is fully loaded...")
             ctx = operations.ensure_app_context(30)
@@ -4953,6 +5009,11 @@ def check_appointments():
         operations = EModalBusinessOperations(appt_session.browser_session)
         operations.screens_enabled = True
         operations.screens_label = appt_session.browser_session.username
+        
+        # Set container ID for screenshot annotations
+        container_id = data.get('container_id')
+        if container_id:
+            operations.current_container_id = container_id
         
         # PHASE 1: Dropdowns + Container Number
         if appt_session.current_phase == 1:
@@ -5265,6 +5326,21 @@ def check_appointments():
         
         logger.info(f"[{request_id}] Check appointments completed successfully (browser session kept alive: {browser_session_id})")
         
+        # Prepare dropdown screenshot URL if available
+        dropdown_screenshot_url = None
+        if result.get("dropdown_screenshot"):
+            screenshot_path = result.get("dropdown_screenshot")
+            screenshot_filename = os.path.basename(screenshot_path)
+            # Copy to downloads folder for public access
+            try:
+                import shutil
+                public_screenshot_path = os.path.join(DOWNLOADS_DIR, screenshot_filename)
+                shutil.copy2(screenshot_path, public_screenshot_path)
+                dropdown_screenshot_url = f"http://{request.host}/files/{screenshot_filename}"
+                print(f"📸 Dropdown screenshot available: {dropdown_screenshot_url}")
+            except Exception as copy_error:
+                print(f"⚠️ Could not copy screenshot: {copy_error}")
+        
         return jsonify({
             "success": True,
             "session_id": browser_session_id,
@@ -5272,6 +5348,7 @@ def check_appointments():
             "appointment_session_id": appt_session.session_id,
             "available_times": available_times,
             "count": len(available_times),
+            "dropdown_screenshot_url": dropdown_screenshot_url,
             "debug_bundle_url": bundle_url,
             "phase_data": appt_session.phase_data
         }), 200
@@ -6036,8 +6113,8 @@ def get_appointments():
                     except Exception as e:
                         print(f"⚠️ Could not move Excel file: {e}")
                 
-                # Create public URL
-                excel_url = f"/files/{excel_filename}"
+                # Create full public URL
+                excel_url = f"http://{request.host}/files/{excel_filename}"
                 print(f"✅ Excel file ready: {excel_url}")
             else:
                 print("⚠️ Excel file not found in downloads folder")
@@ -6093,7 +6170,7 @@ def get_appointments():
                     "is_new_session": is_new_session,
                     "selected_count": selected_count,
                     "file_url": excel_url,
-                    "debug_bundle_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
+                    "debug_bundle_url": f"http://{request.host}/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
                 }
                 
                 return jsonify(response_data)
