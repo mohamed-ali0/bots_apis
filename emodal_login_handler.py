@@ -327,8 +327,9 @@ chrome.webRequest.onAuthRequired.addListener(
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
         
-        # Try undetected-chromedriver first for better bot detection avoidance
-        if UC_AVAILABLE:
+        # Use standard ChromeDriver (undetected-chromedriver disabled)
+        # if UC_AVAILABLE:
+        if False:  # Disabled - use standard ChromeDriver instead
             try:
                 print("🔒 Using undetected-chromedriver for anti-bot detection...")
                 

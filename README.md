@@ -1,349 +1,300 @@
-# E-Modal Business Operations API
+# E-Modal Business API
 
-Professional Flask API for E-Modal platform automation with complete business operations support including authentication, container data extraction, Excel downloads, and persistent browser session management.
+Complete automation API for E-Modal trucking portal operations.
 
-## 🚀 Features
+## 🚀 Quick Start
 
-### ✅ **Complete Business Operations**
-- **Authentication**: Full E-Modal login automation with reCAPTCHA
-- **Container Management**: Access and extract container data
-- **Excel Downloads**: Automated data export functionality
-- **Session Persistence**: Keep browser alive for multiple operations
-- **VPN Integration**: Automatic bypass of geographic restrictions
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
 
-### ✅ **Advanced Automation**
-- **Smart Element Detection**: Robust UI element finding with fallbacks
-- **File Management**: Automated download handling and cleanup
-- **Session Management**: Persistent browser sessions with timeout handling
-- **Error Recovery**: Comprehensive error handling and reporting
+# 2. Start API server
+python emodal_business_api.py
 
-### ✅ **Smart reCAPTCHA Handling**
-- **Trusted User Fallback**: Automatic detection when no challenge needed
-- **Audio Challenge**: Reliable audio-based solving when image fails
-- **Fast Processing**: LOGIN button located first to prevent timeouts
-- **Error Recovery**: Comprehensive fallback mechanisms
+# 3. Test the API
+python test_all_endpoints.py
+```
 
-### ✅ **Cross-Platform Support**
-- **Windows**: Native support with existing Chrome profiles
-- **Linux**: Full compatibility with automated setup script
-- **Docker**: Containerized deployment ready
-- **Headless**: Server environments with Xvfb support
+## 📚 Documentation
 
-### ✅ **Professional API Design**  
-- **RESTful Endpoints**: Standard HTTP methods and status codes
-- **Detailed Logging**: Request tracking and error reporting
-- **Batch Processing**: Multiple credential handling
-- **Error Classification**: Specific error types for better handling
+### Essential Docs (Start Here)
+- **[API Documentation](API_DOCUMENTATION.md)** - Complete API reference with all endpoints
+- **[Quick Reference](QUICK_REFERENCE.md)** - One-page cheat sheet for common operations
+- **[Implementation Complete](IMPLEMENTATION_COMPLETE.md)** - Current status and features
 
-### ✅ **Robust Error Detection**
-- **VPN Required**: Geographic restriction detection
-- **Invalid Credentials**: Login failure identification
-- **reCAPTCHA Failures**: Challenge solving issues
-- **Network Errors**: Connection and timeout handling
+### Technical Guides
+- **[Proxy Authentication](PROXY_AUTHENTICATION.md)** - How proxy auto-auth works
+- **[Persistent Sessions](PERSISTENT_SESSIONS_ALL_ENDPOINTS.md)** - Session management system
+- **[LRU Session Management](LRU_SESSION_MANAGEMENT.md)** - Session eviction policy
+- **[Changes Summary](CHANGES_SUMMARY.md)** - Recent changes log
 
-## 📁 Project Structure
+### Testing
+- **[Test All Endpoints](TEST_ALL_ENDPOINTS.md)** - Testing guide
+- **[Test Session Workflow](TEST_SESSION_WORKFLOW.md)** - Session testing
+- **[Test Concurrency](TEST_CONCURRENCY.md)** - Concurrent sessions
+
+## 🎯 Features
+
+### Core Operations
+✅ **Container Management** - Get, search, filter container data (3 modes)  
+✅ **Timeline Extraction** - Extract container timeline with Pregate detection  
+✅ **Booking Numbers** - Retrieve booking numbers from container details  
+✅ **Appointments** - Download appointment data (3 scrolling modes)  
+✅ **Appointment Booking** - Check available times and make appointments  
+
+### Advanced Features
+✅ **Persistent Sessions** - Keep-alive sessions with automatic refresh  
+✅ **LRU Eviction** - Intelligent session management (max 10 concurrent)  
+✅ **Proxy Support** - Automatic residential proxy authentication  
+✅ **Debug Mode** - Screenshot capture and debug bundles  
+✅ **Auto Cleanup** - Automatic file cleanup after 24 hours  
+
+## 🔌 API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Check API status |
+| `/get_session` | POST | Create persistent session |
+| `/get_containers` | POST | Get container data |
+| `/get_container_timeline` | POST | Extract timeline |
+| `/get_booking_number` | POST | Get booking number |
+| `/get_appointments` | POST | Download appointments Excel |
+| `/check_appointments` | POST | Get available times |
+| `/make_appointment` | POST | Submit appointment |
+| `/cleanup` | POST | Manual file cleanup |
+
+## 📝 Quick Examples
+
+### Health Check
+```bash
+curl http://localhost:5010/health
+```
+
+### Create Session
+```bash
+curl -X POST http://localhost:5010/get_session \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "jfernandez",
+    "password": "taffie",
+    "captcha_api_key": "7bf85bb6f37c9799543a2a463aab2b4f"
+  }'
+```
+
+### Get Containers
+```bash
+curl -X POST http://localhost:5010/get_containers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "session_xxx",
+    "target_count": 100,
+    "debug": false
+  }'
+```
+
+### Check Appointments
+```bash
+curl -X POST http://localhost:5010/check_appointments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "session_xxx",
+    "trucking_company": "TEST TRUCKING",
+    "terminal": "ITS Long Beach",
+    "move_type": "DROP EMPTY",
+    "container_id": "CAIU7181746",
+    "truck_plate": "ABC123",
+    "own_chassis": false
+  }'
+```
+
+## 🧪 Testing
+
+### Run All Tests
+```bash
+python test_all_endpoints.py
+```
+
+### Test Specific Features
+```bash
+# Appointments
+python test_get_appointments.py
+
+# Session workflow
+python test_session_workflow.py
+
+# Appointment booking
+python test_appointments.py
+
+# Proxy extension
+python test_proxy_extension.py
+```
+
+## ⚙️ Configuration
+
+### Server URLs
+```
+Local:    http://localhost:5010
+Remote 1: http://89.117.63.196:5010
+Remote 2: http://37.60.243.201:5010  (default)
+```
+
+### Test Credentials
+```
+Username: jfernandez
+Password: taffie
+Captcha:  7bf85bb6f37c9799543a2a463aab2b4f
+```
+
+### System Limits
+- **Max Sessions**: 10 concurrent Chrome windows
+- **Session Refresh**: Every 5 minutes
+- **File Cleanup**: Automatic after 24 hours
+- **Appointment Session TTL**: 10 minutes
+
+## 🗂️ Project Structure
 
 ```
 emodal/
-├── emodal_business_api.py    # 🚀 Main Business Operations API
-├── emodal_login_handler.py   # 🔐 Core login automation logic
-├── recaptcha_handler.py      # 🤖 reCAPTCHA solving module
-├── test_business_api.py      # 🧪 Business API test suite
-├── api.py                    # 📱 Legacy simple login API
-├── test_api.py              # 📱 Legacy API tests
-├── requirements.txt         # 📦 Python dependencies
-├── install.bat             # ⚡ Windows installation script
-├── chromedriver.exe        # 🌐 Chrome WebDriver
-├── README.md               # 📚 This documentation
-├── VPN_SETUP.md           # 🔒 VPN setup instructions
-└── WORKING_SOLUTION.md    # 💡 Technical solution details
+├── emodal_business_api.py       # Main API server
+├── emodal_login_handler.py      # Login & driver setup
+├── recaptcha_handler.py         # Captcha solving
+├── requirements.txt             # Python dependencies
+│
+├── test_all_endpoints.py        # Test all endpoints
+├── test_get_appointments.py     # Test appointments
+├── test_session_workflow.py     # Test sessions
+├── test_appointments.py         # Test booking
+│
+├── downloads/                   # Excel files
+├── screenshots/                 # Debug screenshots
+├── proxy_extension/             # Proxy auth files
+│
+├── API_DOCUMENTATION.md         # Complete API docs
+├── QUICK_REFERENCE.md           # Quick reference
+├── IMPLEMENTATION_COMPLETE.md   # Status summary
+└── README.md                    # This file
 ```
 
-## 🛠️ Setup
+## 🔧 Requirements
 
-### Prerequisites
-
-1. **Python 3.7+** installed
-2. **Google Chrome** browser
-3. **Urban VPN Chrome Extension** (for geographic bypass)
-4. **2captcha Account** with API key
-
-### Installation
-
-#### Linux (Automated Setup - Recommended)
-```bash
-# Make setup script executable
-chmod +x setup.sh
-
-# Run automated setup
-./setup.sh
+### Python Dependencies
+```
+flask>=2.3.0
+selenium>=4.20.0
+webdriver-manager>=4.0.1
+requests>=2.31.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+pillow>=10.0.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+undetected-chromedriver>=3.5.4
+selenium-wire>=5.1.0
 ```
 
-#### Windows (Recommended)
-```bash
-# Run the installation script
-install.bat
-```
+### System Requirements
+- Python 3.8+
+- Chrome browser
+- Internet connection
+- Proxy credentials (Oxylabs)
+- 2captcha API key
 
-#### Manual Installation (Cross-Platform)
-```bash
-# Create virtual environment (Linux/Mac)
-python3 -m venv venv
-source venv/bin/activate
+## 🚨 Important Notes
 
-# Create virtual environment (Windows)
-python -m venv venv
-venv\Scripts\activate
+1. **Session Reuse**: Always prefer reusing `session_id` to avoid login overhead
+2. **Debug Mode**: Use sparingly in production (creates large files)
+3. **Make Appointment**: ⚠️ Actually submits appointments - use carefully!
+4. **Proxy**: Automatically configured (dc.oxylabs.io:8001)
+5. **Cleanup**: Automatic every 24h, manual via `/cleanup` endpoint
 
-# Install dependencies
-pip install -r requirements.txt
+## 📞 Support
 
-# Verify ChromeDriver is managed automatically by webdriver-manager
-```
-
-### VPN Setup
-
-1. Install Urban VPN Chrome extension
-2. Connect to a US server
-3. Verify connection at https://whatismyipaddress.com/
-4. See `VPN_SETUP.md` for detailed instructions
-
-## 🔧 Usage
-
-### Starting the Business API
-
-#### Linux
-```bash
-# Using startup script (recommended)
-./start_api.sh
-
-# Or manually
-source venv/bin/activate
-python emodal_business_api.py
-
-# For headless servers
-export DISPLAY=:99
-Xvfb :99 -screen 0 1024x768x24 &
-python emodal_business_api.py
-```
-
-#### Windows
-```bash
-python emodal_business_api.py
-```
-
-Server will start on `http://localhost:5000`
-
-#### Docker (Cross-Platform)
-```bash
-# Build container
-docker build -t emodal-api .
-
-# Run container
-docker run -p 5000:5000 -e CAPTCHA_API_KEY=your_key emodal-api
-```
-
-## 📋 API Endpoints
-
-### 🚀 **Business Operations**
-
-#### `POST /get_containers` - Extract Container Data
-
-**Request:**
-```json
-{
-    "username": "your_username",
-    "password": "your_password", 
-    "captcha_api_key": "your_2captcha_api_key",
-    "keep_browser_alive": false
-}
-```
-
-**Response (Success):**
-Returns Excel file download with container data.
-
-**Response Headers:**
-```
-Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-Content-Disposition: attachment; filename="containers_username_20250928_143022.xlsx"
-```
-
-**Response (Failure):**
-```json
-{
-    "success": false,
-    "error": "Authentication failed: Invalid credentials"
-}
-```
-
-### 🔗 **Session Management**
-
-#### `GET /sessions` - List Active Sessions
-
-Returns information about active browser sessions.
-
-**Response:**
-```json
-{
-    "active_sessions": 2,
-    "sessions": [
-        {
-            "session_id": "session_1759057890_12345",
-            "username": "jfernandez",
-            "created_at": "2025-09-28T14:30:22",
-            "last_used": "2025-09-28T14:35:10",
-            "keep_alive": true,
-            "current_url": "https://ecp2.emodal.com/containers"
-        }
-    ]
-}
-```
-
-#### `DELETE /sessions/<session_id>` - Close Session
-
-Close a specific browser session.
-
-#### `GET /health` - Health Check
-
-Returns API status, version, and active session count.
-
-### Error Types
-
-| Error Type | Description | Common Causes |
-|------------|-------------|---------------|
-| `vpn_required` | Geographic restriction detected | VPN not connected or not US server |
-| `invalid_credentials` | Login failed with valid page load | Wrong username/password |
-| `recaptcha_failed` | reCAPTCHA solving failed | Invalid API key, no balance, service down |
-| `login_button_not_found` | Cannot locate LOGIN button | Page structure changed |
-| `network_error` | Connection issues | Timeout, DNS, proxy problems |
-| `unknown_error` | Unexpected error | Browser crash, system issues |
-
-### Testing
-
-```bash
-# Run test suite
-python test_api.py
-```
-
-Tests include:
-- Health check verification  
-- API validation testing
-- Optional full login test
-
-## 🔍 reCAPTCHA Flow
-
-### Smart Challenge Detection
-
-1. **Click Checkbox**: Initial reCAPTCHA interaction
-2. **Check Trust Status**: Detect if challenge needed
-3. **Challenge Type**: Switch to audio for reliability
-4. **2captcha Solving**: Audio transcription service
-5. **Verification**: Confirm solution accepted
-6. **Fast Login**: Pre-located button click
-
-### Fallback Scenarios
-
-- **Trusted User**: No challenge → Direct login
-- **No Challenge**: Checkbox sufficient → Direct login  
-- **Audio Challenge**: Full solving flow
-- **Manual Override**: Option for manual solving
-
-## 📊 Performance
-
-- **Trusted Users**: ~5-10 seconds
-- **Audio Challenge**: ~60-90 seconds
-- **Success Rate**: >95% with proper setup
-- **Timeout Protection**: LOGIN button pre-located
-
-## 🛡️ Security
-
-- **No Credential Storage**: Credentials handled in-memory only
-- **Secure Logging**: Sensitive data excluded from logs
-- **Session Extraction**: Full authentication tokens captured
-- **VPN Protection**: Geographic bypass for access
-
-## 📚 Technical Details
-
-### Architecture
-
-- **Modular Design**: Separate handlers for login and reCAPTCHA
-- **Error Handling**: Comprehensive exception management
-- **Logging**: Request tracking and debugging support
-- **API Standards**: RESTful design with proper HTTP codes
-
-### Dependencies
-
-- **Flask**: Web API framework
-- **Selenium**: Browser automation
-- **Requests**: HTTP client for 2captcha
-- **Chrome**: Browser engine with VPN extension
-
-## 🔧 Troubleshooting
-
-### VPN Issues
-```bash
-# Check VPN connection
-python -c "import requests; print(requests.get('https://api.ipify.org').text)"
-```
-Should return a US IP address.
-
-### reCAPTCHA Issues
-- Verify 2captcha API key and balance
-- Check audio challenge availability
-- Try manual solving fallback
-
-### Browser Issues
-- Ensure Chrome is updated
-- Close all Chrome instances before running
-- Check ChromeDriver compatibility
-
-## 📖 Additional Documentation
-
-- **[LINUX_SETUP.md](LINUX_SETUP.md)** - Comprehensive Linux setup guide with Docker support
-- **[VPN_SETUP.md](VPN_SETUP.md)** - VPN configuration instructions  
-- **[recaptcha_handler.py](recaptcha_handler.py)** - reCAPTCHA handling module
-- **[emodal_login_handler.py](emodal_login_handler.py)** - Login automation module
-
-## 🔧 Troubleshooting
+### Documentation Files
+- [API Documentation](API_DOCUMENTATION.md) - Complete reference
+- [Quick Reference](QUICK_REFERENCE.md) - Cheat sheet
+- [Proxy Setup](PROXY_AUTHENTICATION.md) - Proxy guide
+- [Session Management](PERSISTENT_SESSIONS_ALL_ENDPOINTS.md) - Sessions
+- [Testing Guide](TEST_ALL_ENDPOINTS.md) - Testing
 
 ### Common Issues
 
-**Chrome Profile Not Found (Linux)**
-```bash
-# Check Chrome installation
-google-chrome --version
+**Issue**: Session not found  
+**Solution**: Create a new session or check if maximum capacity (10) reached
 
-# Verify profile location  
-ls ~/.config/google-chrome
-ls ~/.config/chromium
+**Issue**: Proxy authentication prompt  
+**Solution**: Verify proxy extension is created (`proxy_extension.zip`)
+
+**Issue**: Captcha timeout  
+**Solution**: Check 2captcha API key and account balance
+
+**Issue**: Chrome version mismatch  
+**Solution**: webdriver-manager auto-updates, or clear cache: `~/.wdm/`
+
+## 🎯 Workflow Examples
+
+### Simple Workflow
+```python
+import requests
+
+# 1. Create session
+response = requests.post('http://localhost:5010/get_session', json={
+    'username': 'jfernandez',
+    'password': 'taffie',
+    'captcha_api_key': '7bf85bb6f37c9799543a2a463aab2b4f'
+})
+session_id = response.json()['session_id']
+
+# 2. Get containers
+response = requests.post('http://localhost:5010/get_containers', json={
+    'session_id': session_id,
+    'target_count': 50
+})
+print(response.json()['file_url'])
+
+# 3. Get timeline
+response = requests.post('http://localhost:5010/get_container_timeline', json={
+    'session_id': session_id,
+    'container_id': 'MSCU5165756'
+})
+print(response.json()['pregate_passed'])
 ```
 
-**Display Issues (Linux Servers)**
-```bash
-# Setup virtual display
-export DISPLAY=:99
-Xvfb :99 -screen 0 1024x768x24 &
+### Appointment Booking Workflow
+```python
+# 1. Check available times (does NOT submit)
+response = requests.post('http://localhost:5010/check_appointments', json={
+    'session_id': session_id,
+    'trucking_company': 'TEST TRUCKING',
+    'terminal': 'ITS Long Beach',
+    'move_type': 'DROP EMPTY',
+    'container_id': 'CAIU7181746',
+    'truck_plate': 'ABC123',
+    'own_chassis': False
+})
+available_times = response.json()['available_times']
+
+# 2. Make appointment (ACTUALLY SUBMITS)
+response = requests.post('http://localhost:5010/make_appointment', json={
+    'session_id': session_id,
+    'trucking_company': 'TEST TRUCKING',
+    'terminal': 'ITS Long Beach',
+    'move_type': 'DROP EMPTY',
+    'container_id': 'CAIU7181746',
+    'truck_plate': 'ABC123',
+    'own_chassis': False,
+    'appointment_time': available_times[0]  # First available
+})
 ```
 
-**Permission Issues (Linux)**
-```bash
-# Fix Chrome permissions
-sudo chown root:root /opt/google/chrome/chrome-sandbox
-sudo chmod 4755 /opt/google/chrome/chrome-sandbox
-```
+## 🎉 Status
 
-## 🤝 Contributing
-
-This is a production-ready solution. For modifications:
-
-1. **recaptcha_handler.py**: reCAPTCHA logic
-2. **emodal_login_handler.py**: Login flow  
-3. **emodal_business_api.py**: Business operations and API endpoints
-
-## 📝 License
-
-Private use only. Not for redistribution.
+✅ **Production Ready**  
+✅ **Fully Documented**  
+✅ **Tested**  
+✅ **All Features Working**
 
 ---
 
-**🎉 Ready for production use with full cross-platform automation capabilities!** 🚀✨🐧
+**Version**: 1.0  
+**Last Updated**: 2025-10-06  
+**Author**: E-Modal API Development Team

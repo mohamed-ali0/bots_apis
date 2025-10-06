@@ -2013,63 +2013,18 @@ class EModalBusinessOperations:
             return {"success": False, "error": f"Select all containers failed: {str(e)}"}
     
     def navigate_to_myappointments(self) -> Dict[str, Any]:
-        """
-        Navigate to myappointments page and verify it fully loads.
-        
-        Returns:
-            Dict with success status and current URL
-        """
+        """Navigate to myappointments page"""
         try:
-            target_url = "https://truckerportal.emodal.com/myappointments"
-            print(f"\n🚗 Navigating to My Appointments page: {target_url}")
-            
-            self.driver.get(target_url)
-            print("⏳ Initial wait: 10 seconds...")
-            time.sleep(10)
-            
-            # Wait for URL to change to myappointments (max 60 seconds)
-            print("⏳ Waiting for URL to confirm navigation...")
-            max_wait = 60
-            start_time = time.time()
-            
-            while time.time() - start_time < max_wait:
-                current_url = self.driver.current_url
-                print(f"   Current URL: {current_url}")
-                
-                if "myappointments" in current_url.lower():
-                    print(f"✅ URL confirmed: {current_url}")
-                    break
-                
-                time.sleep(2)
-            else:
-                current_url = self.driver.current_url
-                error_msg = f"URL did not change to myappointments page. Current: {current_url}"
-                print(f"❌ {error_msg}")
-                self._capture_screenshot("navigation_failed")
-                return {"success": False, "error": error_msg, "current_url": current_url}
-            
-            # Additional wait for page elements to load
-            print("⏳ Waiting additional 45 seconds for page elements to load...")
-            time.sleep(45)
-            
-            # Verify page loaded by checking for common elements
-            try:
-                # Check if we can find the appointments table or checkboxes
-                self.driver.find_element(By.XPATH, "//input[@type='checkbox']")
-                print("✅ Page elements found (checkboxes detected)")
-            except:
-                print("⚠️  Checkboxes not found yet, but continuing...")
-            
-            self._capture_screenshot("myappointments_page_ready")
-            print(f"✅ My Appointments page fully loaded: {self.driver.current_url}")
-            
-            return {"success": True, "url": self.driver.current_url}
-            
+            print("\n🚗 Navigating to My Appointments page...")
+            self.driver.get("https://truckerportal.emodal.com/myappointments")
+            print("⏳ Waiting 45 seconds for page to fully load...")
+            time.sleep(45)  # Wait for page to fully load before starting operations
+            self._capture_screenshot("myappointments_page")
+            print("✅ Navigated to My Appointments page")
+            return {"success": True}
         except Exception as e:
-            error_msg = f"Navigation failed: {str(e)}"
-            print(f"❌ {error_msg}")
-            self._capture_screenshot("navigation_error")
-            return {"success": False, "error": error_msg}
+            print(f"❌ Navigation failed: {e}")
+            return {"success": False, "error": str(e)}
     
     def scroll_and_select_appointment_checkboxes(self, mode: str, target_value: Any = None) -> Dict[str, Any]:
         """
@@ -2108,7 +2063,7 @@ class EModalBusinessOperations:
                 
                 # Select unchecked checkboxes
                 newly_selected = 0
-                for checkbox in checkboxes:
+                for i, checkbox in enumerate(checkboxes):
                     try:
                         # Check if already selected
                         is_checked = checkbox.get_attribute('aria-checked') == 'true'
@@ -2116,27 +2071,56 @@ class EModalBusinessOperations:
                         if not is_checked:
                             # Scroll into view
                             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", checkbox)
-                            time.sleep(0.1)  # Reduced from 0.3
+                            time.sleep(0.2)
                             
-                            # Click the checkbox (or its parent mat-checkbox element)
+                            # Try multiple click strategies
+                            clicked = False
+                            
+                            # Strategy 1: Direct click on input
                             try:
                                 checkbox.click()
+                                clicked = True
                             except:
-                                # If direct click fails, try clicking the parent mat-checkbox
-                                parent = checkbox.find_element(By.XPATH, "./ancestor::mat-checkbox")
-                                parent.click()
+                                pass
                             
-                            time.sleep(0.1)  # Reduced from 0.2
-                            newly_selected += 1
-                            selected_count += 1
+                            # Strategy 2: Click parent mat-checkbox
+                            if not clicked:
+                                try:
+                                    parent = checkbox.find_element(By.XPATH, "./ancestor::mat-checkbox")
+                                    parent.click()
+                                    clicked = True
+                                except:
+                                    pass
                             
-                            if selected_count % 10 == 0:  # Print every 10 to reduce log spam
-                                print(f"    ✅ Selected {selected_count} checkboxes so far...")
+                            # Strategy 3: JavaScript click on input
+                            if not clicked:
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", checkbox)
+                                    clicked = True
+                                except:
+                                    pass
                             
-                            # Check if we've reached target count
-                            if mode == "count" and target_value and selected_count >= target_value:
-                                print(f"  🎯 Target count reached: {selected_count} >= {target_value}")
-                                return {"success": True, "selected_count": selected_count}
+                            # Strategy 4: JavaScript click on parent
+                            if not clicked:
+                                try:
+                                    parent = checkbox.find_element(By.XPATH, "./ancestor::mat-checkbox")
+                                    self.driver.execute_script("arguments[0].click();", parent)
+                                    clicked = True
+                                except:
+                                    pass
+                            
+                            if clicked:
+                                time.sleep(0.2)
+                                newly_selected += 1
+                                selected_count += 1
+                                
+                                if selected_count % 10 == 0:  # Print every 10 to reduce log spam
+                                    print(f"    ✅ Selected {selected_count} checkboxes so far...")
+                                
+                                # Check if we've reached target count
+                                if mode == "count" and target_value and selected_count >= target_value:
+                                    print(f"  🎯 Target count reached: {selected_count} >= {target_value}")
+                                    return {"success": True, "selected_count": selected_count}
                                 
                     except Exception as e:
                         # Silent fail for individual checkboxes to reduce log spam
@@ -6104,32 +6088,9 @@ def get_appointments():
             operations.screens_label = screens_label
 
             # Navigate to myappointments page
-            nav_result = operations.navigate_to_myappointments()
-            if not nav_result["success"]:
-                error_msg = f"Navigation failed: {nav_result.get('error', 'Unknown error')}"
-                logger.error(f"[{request_id}] {error_msg}")
-                
-                # Create debug bundle if requested
-                if debug_mode:
-                    debug_zip_filename = create_debug_bundle(operations, session_id, request_id)
-                    debug_bundle_url = f"http://{request.host}/files/{debug_zip_filename}"
-                    
-                    return jsonify({
-                        "success": False,
-                        "error": error_msg,
-                        "current_url": nav_result.get('current_url', 'unknown'),
-                        "session_id": session_id,
-                        "is_new_session": is_new_session,
-                        "debug_bundle_url": debug_bundle_url
-                    }), 500
-                else:
-                    return jsonify({
-                        "success": False,
-                        "error": error_msg,
-                        "current_url": nav_result.get('current_url', 'unknown'),
-                        "session_id": session_id,
-                        "is_new_session": is_new_session
-                    }), 500
+            nav = operations.navigate_to_myappointments()
+            if not nav["success"]:
+                return jsonify({"success": False, "error": f"Navigation failed: {nav['error']}"}), 500
 
             # Scroll and select checkboxes
             select_result = operations.scroll_and_select_appointment_checkboxes(mode, target_value)
