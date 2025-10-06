@@ -732,12 +732,8 @@ class EModalBusinessOperations:
                 print("📜 Starting infinite scroll to load all containers...")
             self._capture_screenshot("before_infinite_scroll")
             
-            # Ensure the window is maximized so scrollbar is available
-            try:
-                self.driver.maximize_window()
-                print("🪟 Maximized window for scrolling")
-            except Exception as e:
-                print(f"  ⚠️ Could not maximize window: {e}")
+            # Note: Removed window maximization to prevent fullscreen mode
+            # Scrolling works without maximizing the window
 
             # If content is inside an iframe, switch into it
             try:
@@ -984,14 +980,16 @@ class EModalBusinessOperations:
                     from selenium.webdriver.common.action_chains import ActionChains
                     actions = ActionChains(self.driver)
 
-                    # Bring target into view and focus
+                    # Bring target into view and focus (without clicking to avoid expanding rows)
                     if not using_window:
                         try:
                             self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", scroll_target)
                             time.sleep(0.3)
+                            # Move mouse to scroll target but DON'T click (prevents accidental row expansion)
                             actions.move_to_element(scroll_target).perform()
+                            # Focus without clicking - use JavaScript focus
                             try:
-                                scroll_target.click()
+                                self.driver.execute_script("arguments[0].focus();", scroll_target)
                             except Exception:
                                 pass
                         except Exception as foc_e:
@@ -2880,11 +2878,8 @@ class EModalBusinessOperations:
             print(f"🔎 Progressive search with scrolling for: {container_id}")
             self._capture_screenshot("before_progressive_search")
 
-            # Reuse the robust scrolling setup: maximize, iframe, focus
-            try:
-                self.driver.maximize_window()
-            except Exception:
-                pass
+            # Reuse the robust scrolling setup: iframe, focus
+            # Note: Removed window maximization to prevent fullscreen mode
             # Iframe detection (best-effort)
             try:
                 frames = self.driver.find_elements(By.TAG_NAME, "iframe")

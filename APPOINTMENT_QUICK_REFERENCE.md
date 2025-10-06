@@ -188,3 +188,4 @@ Download from `debug_bundle_url` in response.
 
 **Need help?** Check the full documentation in `APPOINTMENT_ENDPOINTS.md`!
 
+

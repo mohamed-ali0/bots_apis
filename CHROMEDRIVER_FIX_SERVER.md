@@ -155,3 +155,4 @@ Instead of:
 ```
 ERROR:__main__:[check_appt_1759678497] Authentication failed: [WinError 193] %1 is not a valid Win32 application
 ```
+

@@ -295,3 +295,4 @@ python test_all_endpoints.py
 **Date**: 2025-10-06  
 **Issue**: Popups causing endpoint failures  
 **Solution**: Comprehensive popup blocking at browser, content, and JavaScript levels
+

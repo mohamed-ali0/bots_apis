@@ -141,3 +141,4 @@ ChromeDriverManager().install()  # Will detect version change
 
 Your system will now automatically maintain ChromeDriver compatibility with Chrome! 🚀
 
+

@@ -292,3 +292,4 @@ If you encounter issues with undetected-chromedriver:
 3. Try clearing driver cache
 4. System will automatically fall back to standard ChromeDriver
 5. All functionality remains available even without undetected-chromedriver
+

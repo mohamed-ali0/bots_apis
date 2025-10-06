@@ -183,3 +183,4 @@ python test_all_endpoints.py
 **Date**: 2025-10-06  
 **Issue**: False "invalid_credentials" detection after successful login  
 **Solution**: More specific error detection and enhanced success recognition
+

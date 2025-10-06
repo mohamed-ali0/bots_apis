@@ -272,3 +272,4 @@ Add cron job to delete files older than 24 hours:
 - Better checkbox selection on Linux
 - Download progress visibility
 
+

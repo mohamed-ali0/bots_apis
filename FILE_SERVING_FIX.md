@@ -171,3 +171,4 @@ Content-Disposition: attachment; filename=containers_scraped_20251006_143022.xls
 **Issue**: File not found for appointments Excel files  
 **Solution**: Enhanced file serving to check session subdirectories
 
+
