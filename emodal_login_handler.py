@@ -285,14 +285,55 @@ chrome.webRequest.onAuthRequired.addListener(
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        # Configure download behavior (important for Linux)
+        # Disable all popups, notifications, and alerts
+        chrome_options.add_argument("--disable-notifications")
+        chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--disable-prompt-on-repost")
+        chrome_options.add_argument("--disable-save-password-bubble")
+        chrome_options.add_argument("--disable-single-click-autofill")
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--disable-features=TranslateUI")
+        chrome_options.add_argument("--disable-ipc-flooding-protection")
+        chrome_options.add_argument("--disable-hang-monitor")
+        chrome_options.add_argument("--disable-client-side-phishing-detection")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-plugins")
+        chrome_options.add_argument("--disable-plugins-discovery")
+        chrome_options.add_argument("--disable-preconnect")
+        chrome_options.add_argument("--disable-print-preview")
+        chrome_options.add_argument("--disable-translate")
+        chrome_options.add_argument("--disable-web-resources")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--no-default-browser-check")
+        chrome_options.add_argument("--disable-logging")
+        chrome_options.add_argument("--disable-gpu-logging")
+        chrome_options.add_argument("--silent")
+        chrome_options.add_argument("--log-level=3")
+        
+        # Configure download behavior and block all popups/notifications
         prefs = {
             "download.default_directory": "/tmp",  # Will be overridden per-session
             "download.prompt_for_download": False,
             "download.directory_upgrade": True,
             "safebrowsing.enabled": False,
-            "profile.default_content_settings.popups": 0,
-            "profile.content_settings.exceptions.automatic_downloads.*.setting": 1
+            "profile.default_content_settings.popups": 2,  # Block all popups
+            "profile.content_settings.exceptions.automatic_downloads.*.setting": 1,
+            "profile.default_content_setting_values.notifications": 2,  # Block notifications
+            "profile.default_content_setting_values.media_stream": 2,  # Block media access
+            "profile.default_content_setting_values.geolocation": 2,  # Block location
+            "profile.default_content_setting_values.camera": 2,  # Block camera
+            "profile.default_content_setting_values.microphone": 2,  # Block microphone
+            "profile.password_manager_enabled": False,  # Disable password manager
+            "credentials_enable_service": False,  # Disable credential service
+            "credentials_enable_autosignin": False,  # Disable auto sign-in
+            "profile.password_manager_leak_detection": False,  # Disable leak detection
+            "profile.default_content_setting_values.plugins": 2,  # Block plugins
+            "profile.default_content_setting_values.images": 1,  # Allow images (needed for site)
+            "profile.default_content_setting_values.javascript": 1,  # Allow JavaScript (needed for site)
+            "profile.default_content_setting_values.cookies": 1,  # Allow cookies (needed for login)
         }
         chrome_options.add_experimental_option("prefs", prefs)
         
@@ -458,6 +499,90 @@ chrome.webRequest.onAuthRequired.addListener(
         # Initialize reCAPTCHA handler
         self.recaptcha_handler = RecaptchaHandler(self.captcha_api_key, self.timeout)
         self.recaptcha_handler.set_driver(self.driver)
+    
+    def _dismiss_all_popups(self) -> None:
+        """Dismiss all possible popups, alerts, and notifications"""
+        try:
+            # Handle JavaScript alerts
+            try:
+                alert = self.driver.switch_to.alert
+                alert.dismiss()
+                print("✅ Dismissed JavaScript alert")
+            except:
+                pass  # No alert present
+            
+            # Handle any modal dialogs or popups
+            try:
+                # Look for common popup selectors and close them
+                popup_selectors = [
+                    "button[aria-label='Close']",
+                    "button[aria-label='Dismiss']", 
+                    "button[aria-label='Cancel']",
+                    ".close-button",
+                    ".dismiss-button",
+                    ".cancel-button",
+                    "[data-dismiss='modal']",
+                    ".modal-close",
+                    ".popup-close",
+                    "button:contains('OK')",
+                    "button:contains('Close')",
+                    "button:contains('Cancel')",
+                    "button:contains('Dismiss')"
+                ]
+                
+                for selector in popup_selectors:
+                    try:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                        for element in elements:
+                            if element.is_displayed():
+                                element.click()
+                                print(f"✅ Dismissed popup with selector: {selector}")
+                                time.sleep(0.5)
+                    except:
+                        continue
+                        
+            except Exception as e:
+                print(f"⚠️ Error dismissing popups: {e}")
+            
+            # Execute JavaScript to remove any remaining popups
+            try:
+                self.driver.execute_script("""
+                    // Remove common popup elements
+                    const popupSelectors = [
+                        '[role="dialog"]',
+                        '.modal',
+                        '.popup',
+                        '.alert',
+                        '.notification',
+                        '.password-manager',
+                        '.chrome-password-manager'
+                    ];
+                    
+                    popupSelectors.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            if (el.style.display !== 'none') {
+                                el.style.display = 'none';
+                                el.remove();
+                            }
+                        });
+                    });
+                    
+                    // Override alert, confirm, and prompt functions
+                    window.alert = function() { return true; };
+                    window.confirm = function() { return true; };
+                    window.prompt = function() { return ''; };
+                    
+                    // Remove any password manager overlays
+                    const passwordOverlays = document.querySelectorAll('[data-password-manager]');
+                    passwordOverlays.forEach(el => el.remove());
+                """)
+                print("✅ Executed JavaScript popup removal")
+            except Exception as e:
+                print(f"⚠️ Error executing popup removal script: {e}")
+                
+        except Exception as e:
+            print(f"⚠️ Error in popup dismissal: {e}")
     
     def _check_vpn_status(self) -> LoginResult:
         """Check if VPN is working (no 403 errors)"""
@@ -811,6 +936,11 @@ chrome.webRequest.onAuthRequired.addListener(
                 print(f"📍 Final URL: {final_result.final_url}")
                 print(f"🍪 Cookies: {len(final_result.cookies)} received")
                 print(f"🔑 Session tokens: {len(final_result.session_tokens)} extracted")
+                
+                # Step 8: Dismiss any popups that appeared after login
+                print("🚫 Dismissing any popups...")
+                self._dismiss_all_popups()
+                print("✅ Popup dismissal completed")
             else:
                 print("❌ LOGIN FAILED")
                 print(f"🔍 Error type: {final_result.error_type.value}")
