@@ -336,19 +336,27 @@ class EModalLoginHandler:
     def _fill_credentials(self, username: str, password: str) -> LoginResult:
         """Fill username and password fields"""
         try:
+            import random
+            
             # Find and fill username
             username_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Username"))
             )
             username_field.clear()
-            username_field.send_keys(username)
+            # Type username character by character with random delays
+            for char in username:
+                username_field.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
             
             # Find and fill password
             password_field = self.wait.until(
                 EC.presence_of_element_located((By.NAME, "Password"))
             )
             password_field.clear()
-            password_field.send_keys(password)
+            # Type password character by character with random delays
+            for char in password:
+                password_field.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
             
             return LoginResult(success=True)
             
