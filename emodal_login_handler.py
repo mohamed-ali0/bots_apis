@@ -125,10 +125,14 @@ class EModalLoginHandler:
         self.login_url = "https://ecp2.emodal.com/login"
         self.success_indicators = [
             "ecp2.emodal.com",
+            "truckerportal.emodal.com",
             "dashboard",
             "portal",
             "signin-oidc",
-            "CargoSprint"
+            "CargoSprint",
+            "containers",
+            "myappointments",
+            "appointments"
         ]
         self.failure_indicators = [
             "Account/Login",
@@ -792,6 +796,10 @@ chrome.webRequest.onAuthRequired.addListener(
             final_url = self.driver.current_url
             final_title = self.driver.title
             
+            print(f"🔍 Analyzing login result:")
+            print(f"   📍 Final URL: {final_url}")
+            print(f"   📄 Final Title: {final_title}")
+            
             # Get cookies
             cookies = self.driver.get_cookies()
             
@@ -809,6 +817,7 @@ chrome.webRequest.onAuthRequired.addListener(
             # Check for success indicators
             if any(indicator.lower() in final_url.lower() or indicator.lower() in final_title.lower() 
                    for indicator in self.success_indicators):
+                print("✅ Login SUCCESS detected via URL/Title indicators")
                 is_success = True
             
             # Check for failure indicators
@@ -830,6 +839,7 @@ chrome.webRequest.onAuthRequired.addListener(
             
             # Check for welcome/success page indicators
             elif "CargoSprint" in final_title or "signin-oidc" in final_url:
+                print("✅ Login SUCCESS detected via CargoSprint/signin-oidc")
                 is_success = True
             
             else:
@@ -837,13 +847,35 @@ chrome.webRequest.onAuthRequired.addListener(
                 try:
                     page_source = self.driver.page_source.lower()
                     
-                    if any(term in page_source for term in ["invalid", "incorrect", "failed"]):
+                    # More specific error detection - look for actual error messages
+                    error_indicators = [
+                        "invalid username or password",
+                        "incorrect credentials", 
+                        "login failed",
+                        "authentication failed",
+                        "invalid login",
+                        "wrong password",
+                        "user not found",
+                        "account locked",
+                        "access denied"
+                    ]
+                    
+                    # Check for specific error messages
+                    if any(error_msg in page_source for error_msg in error_indicators):
+                        print("❌ Login FAILED - specific error message found in page")
                         error_type = LoginErrorType.INVALID_CREDENTIALS
                         error_message = "Invalid credentials detected"
                         is_success = False
-                    elif "welcome" in page_source or "dashboard" in page_source:
+                    # Check for success indicators in page content
+                    elif any(success_msg in page_source for success_msg in ["welcome", "dashboard", "cargosprint", "my appointments", "containers"]):
+                        print("✅ Login SUCCESS detected via page content")
+                        is_success = True
+                    # Check if we're on a valid E-Modal page (not login page)
+                    elif "emodal.com" in final_url and "login" not in final_url.lower():
+                        print("✅ Login SUCCESS detected - on E-Modal page (not login)")
                         is_success = True
                     else:
+                        print("❓ Login result UNCERTAIN - checking page content")
                         error_type = LoginErrorType.UNKNOWN_ERROR
                         error_message = f"Uncertain login result. URL: {final_url}, Title: {final_title}"
                         is_success = False
