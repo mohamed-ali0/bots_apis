@@ -170,23 +170,24 @@ class EModalLoginHandler:
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
         
-        # Proxy configuration with authentication (for Selenium Wire)
-        proxy_username = "mo3li_moQef"
-        proxy_password = "MMMM_15718_mmmm"
-        proxy_host = "dc.oxylabs.io"
-        proxy_port = "8001"
+        # Proxy configuration - store credentials for Selenium Wire
+        self.proxy_username = "mo3li_moQef"
+        self.proxy_password = "MMMM_15718_mmmm"
+        self.proxy_host = "dc.oxylabs.io"
+        self.proxy_port = "8001"
         
-        # Store proxy config for Selenium Wire
+        # Selenium Wire options with authenticated proxy
         self.seleniumwire_options = {
             'proxy': {
-                'http': f'http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}',
-                'https': f'http://{proxy_username}:{proxy_password}@{proxy_host}:{proxy_port}',
+                'http': f'http://{self.proxy_username}:{self.proxy_password}@{self.proxy_host}:{self.proxy_port}',
+                'https': f'http://{self.proxy_username}:{self.proxy_password}@{self.proxy_host}:{self.proxy_port}',
                 'no_proxy': 'localhost,127.0.0.1'
-            }
+            },
+            'disable_encoding': True  # Prevent encoding issues
         }
         
-        print(f"🌐 Proxy configured: {proxy_host}:{proxy_port}")
-        print(f"👤 Proxy user: {proxy_username}")
+        print(f"🌐 Proxy configured: {self.proxy_host}:{self.proxy_port}")
+        print(f"👤 Proxy user: {self.proxy_username}")
         
         # Critical options for Linux servers
         chrome_options.add_argument("--no-sandbox")
