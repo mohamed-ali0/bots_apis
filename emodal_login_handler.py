@@ -17,6 +17,8 @@ import time
 import os
 import sys
 import platform
+import zipfile
+import json
 from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
@@ -112,6 +114,13 @@ class EModalLoginHandler:
         self.recaptcha_handler = None
         self.display = None  # Xvfb display for Linux
         
+        # Proxy configuration with authentication
+        self.proxy_username = "mo3li_moQef"
+        self.proxy_password = "MMMM_15718_mmmm"
+        self.proxy_host = "dc.oxylabs.io"
+        self.proxy_port = "8001"
+        self.proxy_extension_path = None
+        
         # URLs and selectors
         self.login_url = "https://ecp2.emodal.com/login"
         self.success_indicators = [
@@ -127,6 +136,101 @@ class EModalLoginHandler:
             "Forbidden",
             "error"
         ]
+    
+    def _create_proxy_extension(self) -> Optional[str]:
+        """
+        Create a Chrome extension for automatic proxy authentication.
+        
+        This creates a minimal extension with:
+        - manifest.json: Extension metadata and permissions
+        - background.js: Proxy configuration and authentication handler
+        
+        Returns:
+            Path to the created extension ZIP file, or None if proxy is not configured
+        """
+        if not all([self.proxy_host, self.proxy_port, self.proxy_username, self.proxy_password]):
+            print("⚠️  Proxy credentials not configured, skipping extension")
+            return None
+        
+        try:
+            # Create extension directory
+            extension_dir = os.path.join(os.getcwd(), 'proxy_extension')
+            os.makedirs(extension_dir, exist_ok=True)
+            
+            # Manifest file
+            manifest_json = {
+                "version": "1.0.0",
+                "manifest_version": 2,
+                "name": "Proxy Auto-Auth",
+                "permissions": [
+                    "proxy",
+                    "tabs",
+                    "unlimitedStorage",
+                    "storage",
+                    "<all_urls>",
+                    "webRequest",
+                    "webRequestBlocking"
+                ],
+                "background": {
+                    "scripts": ["background.js"]
+                },
+                "minimum_chrome_version": "76.0.0"
+            }
+            
+            # Background script for proxy authentication
+            background_js = f"""
+var config = {{
+    mode: "fixed_servers",
+    rules: {{
+        singleProxy: {{
+            scheme: "http",
+            host: "{self.proxy_host}",
+            port: parseInt("{self.proxy_port}")
+        }},
+        bypassList: ["localhost"]
+    }}
+}};
+
+chrome.proxy.settings.set({{value: config, scope: "regular"}}, function() {{}});
+
+function callbackFn(details) {{
+    return {{
+        authCredentials: {{
+            username: "{self.proxy_username}",
+            password: "{self.proxy_password}"
+        }}
+    }};
+}}
+
+chrome.webRequest.onAuthRequired.addListener(
+    callbackFn,
+    {{urls: ["<all_urls>"]}},
+    ['blocking']
+);
+"""
+            
+            # Write files
+            manifest_path = os.path.join(extension_dir, 'manifest.json')
+            background_path = os.path.join(extension_dir, 'background.js')
+            
+            with open(manifest_path, 'w') as f:
+                json.dump(manifest_json, f, indent=2)
+            
+            with open(background_path, 'w') as f:
+                f.write(background_js)
+            
+            # Create ZIP file
+            extension_zip = os.path.join(os.getcwd(), 'proxy_extension.zip')
+            with zipfile.ZipFile(extension_zip, 'w') as zf:
+                zf.write(manifest_path, 'manifest.json')
+                zf.write(background_path, 'background.js')
+            
+            print(f"✅ Proxy extension created: {extension_zip}")
+            return extension_zip
+            
+        except Exception as e:
+            print(f"⚠️  Failed to create proxy extension: {e}")
+            return None
     
     def _setup_driver(self) -> None:
         """Setup Chrome WebDriver with optimal configuration and Xvfb support for Linux"""
@@ -170,22 +274,7 @@ class EModalLoginHandler:
                 chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
                 chrome_options.add_argument("--profile-directory=Default")
         
-        # Proxy configuration - store credentials for Selenium Wire
-        self.proxy_username = "mo3li_moQef"
-        self.proxy_password = "MMMM_15718_mmmm"
-        self.proxy_host = "dc.oxylabs.io"
-        self.proxy_port = "8001"
-        
-        # Selenium Wire options with authenticated proxy
-        self.seleniumwire_options = {
-            'proxy': {
-                'http': f'http://{self.proxy_username}:{self.proxy_password}@{self.proxy_host}:{self.proxy_port}',
-                'https': f'http://{self.proxy_username}:{self.proxy_password}@{self.proxy_host}:{self.proxy_port}',
-                'no_proxy': 'localhost,127.0.0.1'
-            },
-            'disable_encoding': True  # Prevent encoding issues
-        }
-        
+        # Print proxy configuration (set in __init__)
         print(f"🌐 Proxy configured: {self.proxy_host}:{self.proxy_port}")
         print(f"👤 Proxy user: {self.proxy_username}")
         
@@ -229,6 +318,12 @@ class EModalLoginHandler:
             chrome_options.add_argument("--window-size=1920,1080")
             chrome_options.add_argument("--start-maximized")
         
+        # Create proxy extension for automatic authentication
+        self.proxy_extension_path = self._create_proxy_extension()
+        if self.proxy_extension_path:
+            chrome_options.add_extension(self.proxy_extension_path)
+            print(f"✅ Proxy extension loaded: {self.proxy_extension_path}")
+        
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
         
@@ -242,10 +337,8 @@ class EModalLoginHandler:
                 uc_options = uc.ChromeOptions()
                 
                 # Only add safe arguments (avoid excludeSwitches and other incompatible options)
-                proxy_host = "dc.oxylabs.io"
-                proxy_port = "8001"
+                # Proxy is handled by extension
                 safe_args = [
-                    f"--proxy-server=http://{proxy_host}:{proxy_port}",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-blink-features=AutomationControlled",
@@ -253,11 +346,16 @@ class EModalLoginHandler:
                     "--window-size=1920,1080",
                     "--start-maximized",
                 ]
-                print(f"🌐 Using proxy: {proxy_host}:{proxy_port}")
+                print(f"🌐 Proxy will be handled by Chrome extension")
                 
                 for arg in safe_args:
                     if arg:  # Skip None values
                         uc_options.add_argument(arg)
+                
+                # Add proxy extension to UC options
+                if self.proxy_extension_path and os.path.exists(self.proxy_extension_path):
+                    uc_options.add_extension(self.proxy_extension_path)
+                    print(f"✅ Proxy extension added to UC Chrome")
                 
                 # Add download preferences (compatible with UC)
                 prefs = {
@@ -277,15 +375,7 @@ class EModalLoginHandler:
                     headless=False,  # UC doesn't work well with headless
                 )
                 
-                # Inject proxy authentication via CDP
-                if hasattr(self, 'proxy_username') and hasattr(self, 'proxy_password'):
-                    self.driver.execute_cdp_cmd('Network.enable', {})
-                    self.driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
-                        'headers': {
-                            'Proxy-Authorization': f'Basic {__import__("base64").b64encode(f"{self.proxy_username}:{self.proxy_password}".encode()).decode()}'
-                        }
-                    })
-                    print("✅ Proxy authentication injected")
+                print("✅ Undetected Chrome initialized with proxy extension")
                 
                 print("✅ Undetected ChromeDriver initialized successfully")
                 
