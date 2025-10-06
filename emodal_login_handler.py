@@ -31,6 +31,14 @@ from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
+# Undetected ChromeDriver for anti-bot detection
+try:
+    import undetected_chromedriver as uc
+    UC_AVAILABLE = True
+except ImportError:
+    UC_AVAILABLE = False
+    uc = None
+
 from recaptcha_handler import RecaptchaHandler, RecaptchaError
 
 # Linux Xvfb support for non-GUI servers
@@ -196,41 +204,81 @@ class EModalLoginHandler:
         
         # Initialize driver with automatic ChromeDriver management
         print("🚀 Initializing Chrome WebDriver...")
-        print("📦 Auto-downloading matching ChromeDriver version...")
         
-        # Try webdriver-manager first, with fallback to local chromedriver
-        try:
-            # Clear any corrupted ChromeDriver cache
+        # Try undetected-chromedriver first for better bot detection avoidance
+        if UC_AVAILABLE:
             try:
-                import shutil
-                cache_dir = os.path.expanduser("~/.wdm")
-                if os.path.exists(cache_dir):
-                    print("🧹 Clearing ChromeDriver cache...")
-                    shutil.rmtree(cache_dir, ignore_errors=True)
-            except Exception:
-                pass
-            
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            print("✅ ChromeDriver initialized successfully with webdriver-manager")
-        except Exception as wdm_error:
-            print(f"⚠️ WebDriver Manager failed: {wdm_error}")
-            print("🔄 Trying local chromedriver.exe...")
-            
-            # Fallback to local chromedriver.exe
-            local_chromedriver = os.path.join(os.getcwd(), "chromedriver.exe")
-            if os.path.exists(local_chromedriver):
-                try:
-                    service = Service(local_chromedriver)
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    print("✅ ChromeDriver initialized successfully with local chromedriver.exe")
-                except Exception as local_error:
-                    print(f"❌ Local chromedriver.exe also failed: {local_error}")
-                    raise Exception(f"Both webdriver-manager and local chromedriver failed. WDM error: {wdm_error}, Local error: {local_error}")
+                print("🔒 Using undetected-chromedriver for anti-bot detection...")
+                
+                # Convert Options to uc.ChromeOptions
+                uc_options = uc.ChromeOptions()
+                
+                # Copy all arguments from chrome_options
+                for arg in chrome_options.arguments:
+                    uc_options.add_argument(arg)
+                
+                # Copy experimental options
+                for key, value in chrome_options.experimental_options.items():
+                    uc_options.add_experimental_option(key, value)
+                
+                # Initialize undetected Chrome
+                self.driver = uc.Chrome(
+                    options=uc_options,
+                    use_subprocess=True,
+                    version_main=None,  # Auto-detect Chrome version
+                )
+                print("✅ Undetected ChromeDriver initialized successfully")
+                
+            except Exception as uc_error:
+                print(f"⚠️ Undetected ChromeDriver failed: {uc_error}")
+                print("🔄 Falling back to standard ChromeDriver...")
+                UC_AVAILABLE_FALLBACK = False
             else:
-                print("❌ No local chromedriver.exe found")
-                raise Exception(f"WebDriver Manager failed and no local chromedriver.exe found. WDM error: {wdm_error}")
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+                UC_AVAILABLE_FALLBACK = True
+        else:
+            print("ℹ️ Undetected-chromedriver not available, using standard ChromeDriver")
+            UC_AVAILABLE_FALLBACK = False
+        
+        # Fallback to standard ChromeDriver if undetected failed or not available
+        if not UC_AVAILABLE or not UC_AVAILABLE_FALLBACK:
+            print("📦 Auto-downloading matching ChromeDriver version...")
+            try:
+                # Clear any corrupted ChromeDriver cache
+                try:
+                    import shutil
+                    cache_dir = os.path.expanduser("~/.wdm")
+                    if os.path.exists(cache_dir):
+                        print("🧹 Clearing ChromeDriver cache...")
+                        shutil.rmtree(cache_dir, ignore_errors=True)
+                except Exception:
+                    pass
+                
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                print("✅ ChromeDriver initialized successfully with webdriver-manager")
+            except Exception as wdm_error:
+                print(f"⚠️ WebDriver Manager failed: {wdm_error}")
+                print("🔄 Trying local chromedriver.exe...")
+                
+                # Fallback to local chromedriver.exe
+                local_chromedriver = os.path.join(os.getcwd(), "chromedriver.exe")
+                if os.path.exists(local_chromedriver):
+                    try:
+                        service = Service(local_chromedriver)
+                        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                        print("✅ ChromeDriver initialized successfully with local chromedriver.exe")
+                    except Exception as local_error:
+                        print(f"❌ Local chromedriver.exe also failed: {local_error}")
+                        raise Exception(f"Both webdriver-manager and local chromedriver failed. WDM error: {wdm_error}, Local error: {local_error}")
+                else:
+                    print("❌ No local chromedriver.exe found")
+                    raise Exception(f"WebDriver Manager failed and no local chromedriver.exe found. WDM error: {wdm_error}")
+            
+            # Additional anti-detection for standard ChromeDriver
+            try:
+                self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            except:
+                pass
         
         self.wait = WebDriverWait(self.driver, self.timeout)
         
