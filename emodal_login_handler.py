@@ -230,7 +230,7 @@ class EModalLoginHandler:
                 
                 # Add download preferences (compatible with UC)
                 prefs = {
-                    "download.default_directory": download_dir,
+                    "download.default_directory": "/tmp",
                     "download.prompt_for_download": False,
                     "download.directory_upgrade": True,
                     "safebrowsing.enabled": False,
