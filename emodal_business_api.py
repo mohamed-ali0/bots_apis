@@ -563,11 +563,22 @@ class EModalBusinessOperations:
                 print(f"  ❌ Invalid screenshot path: {screenshot_path}")
                 return None
             
+            # Check if Tesseract is available
+            try:
+                import pytesseract
+                pytesseract.get_tesseract_version()
+                print("  ✅ Tesseract OCR is available")
+            except Exception as e:
+                print(f"  ❌ Tesseract OCR not available: {e}")
+                print("  💡 To enable image-based extraction, install Tesseract OCR:")
+                print("     Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki")
+                print("     Linux: sudo apt-get install tesseract-ocr")
+                return None
+            
             # Import required libraries
             from PIL import Image, ImageDraw, ImageFont
             import numpy as np
             import cv2
-            import pytesseract
             import re
             
             # Load the image
@@ -4118,59 +4129,73 @@ class EModalBusinessOperations:
                 except Exception as e4:
                     print(f"  ℹ️ Method 4 failed: {str(e4)}")
                 
-                # Method 5: Image-based approach - Find "Booking" text and extract from image
+                # Method 5: JavaScript-based text extraction
                 try:
-                    print("  🔍 Method 5: Image-based booking number extraction...")
+                    print("  🔍 Method 5: JavaScript-based text extraction...")
                     
-                    # Take a full screenshot first
-                    full_screenshot_path = self._capture_screenshot("booking_extraction_full")
+                    # Get all text content from the expanded row using JavaScript
+                    all_text = self.driver.execute_script("""
+                        var expandedRow = arguments[0];
+                        return expandedRow.innerText || expandedRow.textContent || '';
+                    """, expanded_row)
                     
-                    # Use image processing to find "Booking" text and extract booking number
-                    booking_number = self._extract_booking_number_from_image(full_screenshot_path)
+                    print(f"  📋 All text in expanded row: '{all_text[:200]}...'")
                     
-                    if booking_number and booking_number != "N/A" and booking_number != "":
-                        print(f"  ✅ Booking number found (method 5 - image): {booking_number}")
-                        return {
-                            "success": True,
-                            "booking_number": booking_number,
-                            "container_id": container_id
-                        }
-                    else:
-                        print("  ℹ️ Method 5: No booking number found in image")
-                        return {
-                            "success": True,
-                            "booking_number": None,
-                            "container_id": container_id,
-                            "message": "Booking number not found in image"
-                        }
+                    # Look for booking number pattern in the text
+                    import re
+                    booking_patterns = [
+                        r'Booking\s*#\s*([A-Z0-9]{8,12})',  # "Booking # RICFEM857500"
+                        r'([A-Z]{2,4}[A-Z0-9]{6,10})',      # Pattern like RICFEM857500
+                        r'([A-Z0-9]{8,12})',                # General alphanumeric
+                        r'([A-Z]{3,6}[0-9]{4,8})',          # Letters followed by numbers
+                    ]
+                    
+                    for pattern in booking_patterns:
+                        matches = re.findall(pattern, all_text)
+                        for match in matches:
+                            if len(match) >= 8:  # Booking numbers are usually at least 8 characters
+                                print(f"  🎯 Found potential booking number (method 5): {match}")
+                                return {
+                                    "success": True,
+                                    "booking_number": match,
+                                    "container_id": container_id
+                                }
+                    
+                    print("  ℹ️ Method 5: No booking number pattern found in text")
+                    return {
+                        "success": True,
+                        "booking_number": None,
+                        "container_id": container_id,
+                        "message": "Booking number pattern not found in text"
+                    }
                         
                 except Exception as e5:
                     print(f"  ℹ️ Method 5 failed: {str(e5)}")
                     
-                    # Method 6: Look for any field-data with btn-link class (simplified)
+                    # Method 6: Image-based approach (fallback if Tesseract is available)
                     try:
-                        print("  🔍 Method 6: Looking for any field-data with btn-link...")
-                        booking_value_elem = expanded_row.find_element(
-                            By.XPATH,
-                            ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link')]"
-                        )
-                        booking_number = booking_value_elem.text.strip()
-                        print(f"  📋 Extracted text (method 6): '{booking_number}'")
+                        print("  🔍 Method 6: Image-based booking number extraction...")
+                        
+                        # Take a full screenshot first
+                        full_screenshot_path = self._capture_screenshot("booking_extraction_full")
+                        
+                        # Use image processing to find "Booking" text and extract booking number
+                        booking_number = self._extract_booking_number_from_image(full_screenshot_path)
                         
                         if booking_number and booking_number != "N/A" and booking_number != "":
-                            print(f"  ✅ Booking number found (method 6): {booking_number}")
+                            print(f"  ✅ Booking number found (method 6 - image): {booking_number}")
                             return {
                                 "success": True,
                                 "booking_number": booking_number,
                                 "container_id": container_id
                             }
                         else:
-                            print("  ℹ️ Method 6: field-data exists but is empty or N/A")
+                            print("  ℹ️ Method 6: No booking number found in image")
                             return {
                                 "success": True,
                                 "booking_number": None,
                                 "container_id": container_id,
-                                "message": "Booking number not available"
+                                "message": "Booking number not found in image"
                             }
                             
                     except Exception as e6:
