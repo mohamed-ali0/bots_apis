@@ -3903,6 +3903,65 @@ class EModalBusinessOperations:
                 except Exception as e4:
                     print(f"  ℹ️ Method 4 failed: {str(e4)}")
                 
+                # Method 5: Direct search for the exact HTML structure provided by user
+                try:
+                    print("  🔍 Method 5: Looking for exact HTML structure...")
+                    # Look for div with field-data btn-link ng-star-inserted and cursor pointer
+                    booking_value_elem = expanded_row.find_element(
+                        By.XPATH,
+                        ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link') and contains(@class, 'ng-star-inserted') and contains(@style, 'cursor: pointer')]"
+                    )
+                    booking_number = booking_value_elem.text.strip()
+                    print(f"  📋 Extracted text (method 5): '{booking_number}'")
+                    
+                    if booking_number and booking_number != "N/A" and booking_number != "":
+                        print(f"  ✅ Booking number found (method 5): {booking_number}")
+                        return {
+                            "success": True,
+                            "booking_number": booking_number,
+                            "container_id": container_id
+                        }
+                    else:
+                        print("  ℹ️ Method 5: field-data exists but is empty or N/A")
+                        return {
+                            "success": True,
+                            "booking_number": None,
+                            "container_id": container_id,
+                            "message": "Booking number not available"
+                        }
+                        
+                except Exception as e5:
+                    print(f"  ℹ️ Method 5 failed: {str(e5)}")
+                    
+                    # Method 6: Look for any field-data with btn-link class (simplified)
+                    try:
+                        print("  🔍 Method 6: Looking for any field-data with btn-link...")
+                        booking_value_elem = expanded_row.find_element(
+                            By.XPATH,
+                            ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link')]"
+                        )
+                        booking_number = booking_value_elem.text.strip()
+                        print(f"  📋 Extracted text (method 6): '{booking_number}'")
+                        
+                        if booking_number and booking_number != "N/A" and booking_number != "":
+                            print(f"  ✅ Booking number found (method 6): {booking_number}")
+                            return {
+                                "success": True,
+                                "booking_number": booking_number,
+                                "container_id": container_id
+                            }
+                        else:
+                            print("  ℹ️ Method 6: field-data exists but is empty or N/A")
+                            return {
+                                "success": True,
+                                "booking_number": None,
+                                "container_id": container_id,
+                                "message": "Booking number not available"
+                            }
+                            
+                    except Exception as e6:
+                        print(f"  ℹ️ Method 6 failed: {str(e6)}")
+                
                 # Booking number doesn't exist for this container
                 print("  ℹ️ Booking number field does not exist for this container")
                 self._capture_screenshot("booking_not_found")
