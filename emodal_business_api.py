@@ -7083,6 +7083,268 @@ def emergency_recovery():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route('/get_info_bulk', methods=['POST'])
+def get_info_bulk():
+    """
+    Bulk process multiple containers to extract information efficiently.
+    
+    For IMPORT containers: Get Pregate status
+    For EXPORT containers: Get Booking number
+    
+    Request JSON:
+        - session_id (optional): Use existing session
+        OR
+        - username, password, captcha_api_key: Create new session
+        - import_containers: List of import container IDs (optional)
+        - export_containers: List of export container IDs (optional)
+        - debug: Boolean for debug mode (default: false)
+    
+    Returns:
+        - Results for each container with status/booking number
+        - Session info for reuse
+    """
+    request_id = f"bulk_{int(time.time())}"
+    
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+        
+        data = request.get_json()
+        
+        # Get container lists
+        import_containers = data.get('import_containers', [])
+        export_containers = data.get('export_containers', [])
+        debug_mode = data.get('debug', False)
+        
+        if not import_containers and not export_containers:
+            return jsonify({
+                "success": False,
+                "error": "At least one of 'import_containers' or 'export_containers' must be provided"
+            }), 400
+        
+        # Get or create browser session
+        result = get_or_create_browser_session(data, request_id)
+        
+        if len(result) == 5:  # Error case
+            _, _, _, _, error_response = result
+            return error_response
+        
+        driver, username, browser_session_id, is_new_browser_session = result
+        
+        logger.info(f"[{request_id}] Bulk processing for user: {username}")
+        logger.info(f"[{request_id}] Import containers: {len(import_containers)}, Export containers: {len(export_containers)}")
+        
+        # Create wrapper for browser session
+        class SessionWrapper:
+            def __init__(self, driver, session_id, username):
+                self.driver = driver
+                self.session_id = session_id
+                self.username = username
+        
+        browser_session = SessionWrapper(driver, browser_session_id, username)
+        
+        operations = EModalBusinessOperations(browser_session)
+        operations.screens_enabled = debug_mode
+        operations.screens_label = username
+        
+        # Ensure we're on containers page
+        print("🕒 Ensuring app context is fully loaded...")
+        ctx = operations.ensure_app_context(30)
+        if not ctx.get("success"):
+            print("⚠️ App readiness not confirmed - proceeding anyway...")
+        
+        # Results storage
+        results = {
+            "import_results": [],
+            "export_results": [],
+            "summary": {
+                "total_import": len(import_containers),
+                "total_export": len(export_containers),
+                "import_success": 0,
+                "import_failed": 0,
+                "export_success": 0,
+                "export_failed": 0
+            }
+        }
+        
+        # Process IMPORT containers (get Pregate status)
+        if import_containers:
+            print(f"\n📦 Processing {len(import_containers)} IMPORT containers for Pregate status...")
+            
+            for idx, container_id in enumerate(import_containers, 1):
+                print(f"\n[{idx}/{len(import_containers)}] Processing IMPORT: {container_id}")
+                
+                try:
+                    # Set current container for screenshots
+                    operations.current_container_id = container_id
+                    
+                    # Search and expand
+                    search_result = operations.search_container_with_scrolling(container_id)
+                    if not search_result.get("success"):
+                        results["import_results"].append({
+                            "container_id": container_id,
+                            "success": False,
+                            "error": f"Container not found: {search_result.get('error')}",
+                            "pregate_status": None
+                        })
+                        results["summary"]["import_failed"] += 1
+                        continue
+                    
+                    expand_result = operations.expand_container(container_id)
+                    if not expand_result.get("success"):
+                        results["import_results"].append({
+                            "container_id": container_id,
+                            "success": False,
+                            "error": f"Failed to expand: {expand_result.get('error')}",
+                            "pregate_status": None
+                        })
+                        results["summary"]["import_failed"] += 1
+                        continue
+                    
+                    # Get Pregate status
+                    pregate_result = operations.get_pregate_status(container_id)
+                    
+                    # Collapse container
+                    operations.collapse_container(container_id)
+                    
+                    if pregate_result.get("success"):
+                        results["import_results"].append({
+                            "container_id": container_id,
+                            "success": True,
+                            "pregate_status": pregate_result.get("passed_pregate"),
+                            "pregate_details": pregate_result.get("message")
+                        })
+                        results["summary"]["import_success"] += 1
+                        print(f"  ✅ Pregate: {pregate_result.get('passed_pregate')}")
+                    else:
+                        results["import_results"].append({
+                            "container_id": container_id,
+                            "success": False,
+                            "error": pregate_result.get("error"),
+                            "pregate_status": None
+                        })
+                        results["summary"]["import_failed"] += 1
+                        print(f"  ❌ Failed: {pregate_result.get('error')}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing import container {container_id}: {e}")
+                    results["import_results"].append({
+                        "container_id": container_id,
+                        "success": False,
+                        "error": str(e),
+                        "pregate_status": None
+                    })
+                    results["summary"]["import_failed"] += 1
+        
+        # Process EXPORT containers (get Booking number)
+        if export_containers:
+            print(f"\n📦 Processing {len(export_containers)} EXPORT containers for Booking numbers...")
+            
+            for idx, container_id in enumerate(export_containers, 1):
+                print(f"\n[{idx}/{len(export_containers)}] Processing EXPORT: {container_id}")
+                
+                try:
+                    # Set current container for screenshots
+                    operations.current_container_id = container_id
+                    
+                    # Search and expand
+                    search_result = operations.search_container_with_scrolling(container_id)
+                    if not search_result.get("success"):
+                        results["export_results"].append({
+                            "container_id": container_id,
+                            "success": False,
+                            "error": f"Container not found: {search_result.get('error')}",
+                            "booking_number": None
+                        })
+                        results["summary"]["export_failed"] += 1
+                        continue
+                    
+                    expand_result = operations.expand_container(container_id)
+                    if not expand_result.get("success"):
+                        results["export_results"].append({
+                            "container_id": container_id,
+                            "success": False,
+                            "error": f"Failed to expand: {expand_result.get('error')}",
+                            "booking_number": None
+                        })
+                        results["summary"]["export_failed"] += 1
+                        continue
+                    
+                    # Get Booking number
+                    booking_result = operations.get_booking_number(container_id)
+                    
+                    # Collapse container
+                    operations.collapse_container(container_id)
+                    
+                    if booking_result.get("success"):
+                        booking_number = booking_result.get("booking_number")
+                        results["export_results"].append({
+                            "container_id": container_id,
+                            "success": True,
+                            "booking_number": booking_number
+                        })
+                        if booking_number:
+                            results["summary"]["export_success"] += 1
+                            print(f"  ✅ Booking: {booking_number}")
+                        else:
+                            results["summary"]["export_success"] += 1
+                            print(f"  ⚠️ Booking: Not available")
+                    else:
+                        results["export_results"].append({
+                            "container_id": container_id,
+                            "success": False,
+                            "error": booking_result.get("error"),
+                            "booking_number": None
+                        })
+                        results["summary"]["export_failed"] += 1
+                        print(f"  ❌ Failed: {booking_result.get('error')}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing export container {container_id}: {e}")
+                    results["export_results"].append({
+                        "container_id": container_id,
+                        "success": False,
+                        "error": str(e),
+                        "booking_number": None
+                    })
+                    results["summary"]["export_failed"] += 1
+        
+        # Release session after operation
+        release_session_after_operation(browser_session_id)
+        
+        # Prepare final response
+        response_data = {
+            "success": True,
+            "session_id": browser_session_id,
+            "is_new_session": is_new_browser_session,
+            "results": results,
+            "message": f"Bulk processing completed: {results['summary']['import_success'] + results['summary']['export_success']} successful, {results['summary']['import_failed'] + results['summary']['export_failed']} failed"
+        }
+        
+        # Add debug bundle if requested
+        if debug_mode:
+            debug_bundle_path = operations.create_debug_bundle()
+            if debug_bundle_path:
+                bundle_filename = os.path.basename(debug_bundle_path)
+                debug_url = f"{request.host_url}debug_bundles/{bundle_filename}"
+                response_data["debug_bundle_url"] = debug_url
+        
+        print(f"\n✅ Bulk processing completed!")
+        print(f"   Import: {results['summary']['import_success']}/{results['summary']['total_import']} successful")
+        print(f"   Export: {results['summary']['export_success']}/{results['summary']['total_export']} successful")
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"[{request_id}] Error in bulk processing: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 @app.route('/files/<path:filename>', methods=['GET'])
 def serve_download(filename):
     """Serve downloaded Excel files from the downloads directory"""
