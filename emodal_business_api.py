@@ -7153,15 +7153,17 @@ def get_info_bulk():
         if not ctx.get("success"):
             print("⚠️ App readiness not confirmed - proceeding anyway...")
         
-        # Navigate to containers page explicitly
-        try:
-            current_url = driver.current_url
-            if 'containers' not in current_url.lower():
-                print("📍 Navigating to containers page...")
-                driver.get("https://truckerportal.emodal.com/containers")
-                time.sleep(3)
-        except Exception as nav_error:
-            logger.warning(f"Navigation check error: {nav_error}")
+        # Navigate to containers page
+        print("📍 Navigating to containers page...")
+        nav_result = operations.navigate_to_containers()
+        if not nav_result.get("success"):
+            logger.warning(f"Navigation to containers page failed: {nav_result.get('error')}")
+            return jsonify({
+                "success": False,
+                "error": f"Failed to navigate to containers page: {nav_result.get('error')}",
+                "session_id": browser_session_id,
+                "is_new_session": is_new_browser_session
+            }), 500
         
         # Results storage
         results = {
