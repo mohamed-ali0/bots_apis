@@ -7202,7 +7202,7 @@ def get_info_bulk():
                         results["summary"]["import_failed"] += 1
                         continue
                     
-                    expand_result = operations.expand_container(container_id)
+                    expand_result = operations.expand_container_row(container_id)
                     if not expand_result.get("success"):
                         results["import_results"].append({
                             "container_id": container_id,
@@ -7215,12 +7215,6 @@ def get_info_bulk():
                     
                     # Get Pregate status
                     pregate_result = operations.get_pregate_status(container_id)
-                    
-                    # Collapse container (with error handling)
-                    try:
-                        operations.collapse_container(container_id)
-                    except Exception as collapse_error:
-                        logger.warning(f"Failed to collapse {container_id}: {collapse_error}")
                     
                     if pregate_result.get("success"):
                         results["import_results"].append({
@@ -7278,7 +7272,7 @@ def get_info_bulk():
                         results["summary"]["export_failed"] += 1
                         continue
                     
-                    expand_result = operations.expand_container(container_id)
+                    expand_result = operations.expand_container_row(container_id)
                     if not expand_result.get("success"):
                         results["export_results"].append({
                             "container_id": container_id,
@@ -7291,12 +7285,6 @@ def get_info_bulk():
                     
                     # Get Booking number
                     booking_result = operations.get_booking_number(container_id)
-                    
-                    # Collapse container (with error handling)
-                    try:
-                        operations.collapse_container(container_id)
-                    except Exception as collapse_error:
-                        logger.warning(f"Failed to collapse {container_id}: {collapse_error}")
                     
                     if booking_result.get("success"):
                         booking_number = booking_result.get("booking_number")
