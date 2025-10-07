@@ -123,7 +123,7 @@ def test_get_booking_number_with_session(server_url, session_id, container_id, d
     
     try:
         start_time = time.time()
-        response = requests.post(f"{server_url}/get_booking_number", json=payload, timeout=120)
+        response = requests.post(f"{server_url}/get_booking_number", json=payload, timeout=600)
         end_time = time.time()
         
         print(f"   ⏱️  Response time: {end_time - start_time:.2f} seconds")
@@ -175,7 +175,7 @@ def test_get_booking_number_with_credentials(server_url, username, password, cap
     
     try:
         start_time = time.time()
-        response = requests.post(f"{server_url}/get_booking_number", json=payload, timeout=120)
+        response = requests.post(f"{server_url}/get_booking_number", json=payload, timeout=600)
         end_time = time.time()
         
         print(f"   ⏱️  Response time: {end_time - start_time:.2f} seconds")

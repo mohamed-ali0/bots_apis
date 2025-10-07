@@ -491,7 +491,7 @@ class EModalBusinessOperations:
     def _capture_screenshot(self, tag: str):
         if not self.screens_enabled:
             print(f"📸 Screenshot skipped (disabled): {tag}")
-            return
+            return None
         try:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
@@ -540,8 +540,10 @@ class EModalBusinessOperations:
             except Exception:
                 pass
             self.screens.append(raw_path)
+            return raw_path  # Return the file path
         except Exception as e:
             print(f"⚠️ Screenshot failed: {e}")
+            return None
 
     def _extract_booking_number_from_image(self, screenshot_path: str) -> str:
         """
@@ -555,6 +557,11 @@ class EModalBusinessOperations:
         """
         try:
             print("  🔍 Processing image for booking number extraction...")
+            
+            # Check if screenshot path is valid
+            if not screenshot_path or not os.path.exists(screenshot_path):
+                print(f"  ❌ Invalid screenshot path: {screenshot_path}")
+                return None
             
             # Import required libraries
             from PIL import Image, ImageDraw, ImageFont
