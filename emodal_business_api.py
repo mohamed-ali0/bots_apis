@@ -543,6 +543,214 @@ class EModalBusinessOperations:
         except Exception as e:
             print(f"⚠️ Screenshot failed: {e}")
 
+    def _extract_booking_number_from_image(self, screenshot_path: str) -> str:
+        """
+        Extract booking number from screenshot using image processing and OCR.
+        
+        Args:
+            screenshot_path: Path to the screenshot image
+            
+        Returns:
+            Booking number string or None if not found
+        """
+        try:
+            print("  🔍 Processing image for booking number extraction...")
+            
+            # Import required libraries
+            from PIL import Image, ImageDraw, ImageFont
+            import numpy as np
+            import cv2
+            import pytesseract
+            import re
+            
+            # Load the image
+            image = Image.open(screenshot_path)
+            img_array = np.array(image)
+            
+            print(f"  📸 Image loaded: {image.size[0]}x{image.size[1]} pixels")
+            
+            # Convert to OpenCV format (BGR)
+            img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+            
+            # Method 1: Look for "Booking" text using template matching
+            booking_number = self._find_booking_number_near_text(img_cv, "Booking")
+            if booking_number:
+                print(f"  ✅ Found booking number near 'Booking' text: {booking_number}")
+                return booking_number
+            
+            # Method 2: Look for "Booking #" text
+            booking_number = self._find_booking_number_near_text(img_cv, "Booking #")
+            if booking_number:
+                print(f"  ✅ Found booking number near 'Booking #' text: {booking_number}")
+                return booking_number
+            
+            # Method 3: Look for blue text (booking numbers are often blue)
+            booking_number = self._find_blue_text_booking_number(img_cv)
+            if booking_number:
+                print(f"  ✅ Found booking number in blue text: {booking_number}")
+                return booking_number
+            
+            # Method 4: OCR the entire image and look for booking number pattern
+            booking_number = self._ocr_booking_number(img_cv)
+            if booking_number:
+                print(f"  ✅ Found booking number via OCR: {booking_number}")
+                return booking_number
+            
+            print("  ℹ️ No booking number found in image")
+            return None
+            
+        except Exception as e:
+            print(f"  ❌ Image processing error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _find_booking_number_near_text(self, img_cv, search_text: str) -> str:
+        """Find booking number near specific text using template matching"""
+        try:
+            import cv2
+            import pytesseract
+            import re
+            
+            # Use OCR to find text locations
+            data = pytesseract.image_to_data(img_cv, output_type=pytesseract.Output.DICT)
+            
+            # Find the search text
+            text_found = False
+            search_x, search_y, search_w, search_h = 0, 0, 0, 0
+            
+            for i, text in enumerate(data['text']):
+                if search_text.lower() in text.lower():
+                    text_found = True
+                    search_x = data['left'][i]
+                    search_y = data['top'][i]
+                    search_w = data['width'][i]
+                    search_h = data['height'][i]
+                    print(f"  🔍 Found '{search_text}' at ({search_x}, {search_y})")
+                    break
+            
+            if not text_found:
+                return None
+            
+            # Define search area around the found text (extend to the right and below)
+            margin = 50
+            search_area_x1 = max(0, search_x - margin)
+            search_area_y1 = max(0, search_y - margin)
+            search_area_x2 = min(img_cv.shape[1], search_x + search_w + 300)  # Extend right for booking number
+            search_area_y2 = min(img_cv.shape[0], search_y + search_h + 100)  # Extend down
+            
+            # Crop the search area
+            search_area = img_cv[search_area_y1:search_area_y2, search_area_x1:search_area_x2]
+            
+            # Save cropped area for debugging
+            cropped_path = os.path.join(self.screens_dir, f"booking_search_area_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            cv2.imwrite(cropped_path, search_area)
+            print(f"  📸 Saved search area: {os.path.basename(cropped_path)}")
+            
+            # OCR the search area
+            search_text_result = pytesseract.image_to_string(search_area, config='--psm 6')
+            print(f"  📋 OCR text in search area: '{search_text_result.strip()}'")
+            
+            # Look for booking number pattern (letters and numbers, typically 8-12 characters)
+            booking_patterns = [
+                r'[A-Z]{2,4}[A-Z0-9]{6,10}',  # Pattern like RICFEM857500
+                r'[A-Z0-9]{8,12}',            # General alphanumeric
+                r'[A-Z]{3,6}[0-9]{4,8}',      # Letters followed by numbers
+            ]
+            
+            for pattern in booking_patterns:
+                matches = re.findall(pattern, search_text_result)
+                for match in matches:
+                    if len(match) >= 8:  # Booking numbers are usually at least 8 characters
+                        print(f"  🎯 Found potential booking number: {match}")
+                        return match
+            
+            return None
+            
+        except Exception as e:
+            print(f"  ❌ Error in _find_booking_number_near_text: {e}")
+            return None
+
+    def _find_blue_text_booking_number(self, img_cv) -> str:
+        """Find booking number by looking for blue text"""
+        try:
+            import cv2
+            import pytesseract
+            import re
+            import numpy as np
+            
+            # Convert to HSV for better color detection
+            hsv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2HSV)
+            
+            # Define blue color range
+            lower_blue = np.array([100, 50, 50])
+            upper_blue = np.array([130, 255, 255])
+            
+            # Create mask for blue regions
+            blue_mask = cv2.inRange(hsv, lower_blue, upper_blue)
+            
+            # Apply mask to original image
+            blue_regions = cv2.bitwise_and(img_cv, img_cv, mask=blue_mask)
+            
+            # Save blue regions for debugging
+            blue_path = os.path.join(self.screens_dir, f"blue_regions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            cv2.imwrite(blue_path, blue_regions)
+            print(f"  📸 Saved blue regions: {os.path.basename(blue_path)}")
+            
+            # OCR blue regions
+            blue_text = pytesseract.image_to_string(blue_regions, config='--psm 6')
+            print(f"  📋 Blue text OCR: '{blue_text.strip()}'")
+            
+            # Look for booking number pattern in blue text
+            booking_patterns = [
+                r'[A-Z]{2,4}[A-Z0-9]{6,10}',  # Pattern like RICFEM857500
+                r'[A-Z0-9]{8,12}',            # General alphanumeric
+                r'[A-Z]{3,6}[0-9]{4,8}',      # Letters followed by numbers
+            ]
+            
+            for pattern in booking_patterns:
+                matches = re.findall(pattern, blue_text)
+                for match in matches:
+                    if len(match) >= 8:  # Booking numbers are usually at least 8 characters
+                        print(f"  🎯 Found potential blue booking number: {match}")
+                        return match
+            
+            return None
+            
+        except Exception as e:
+            print(f"  ❌ Error in _find_blue_text_booking_number: {e}")
+            return None
+
+    def _ocr_booking_number(self, img_cv) -> str:
+        """Use OCR to find booking number pattern in the entire image"""
+        try:
+            import pytesseract
+            import re
+            
+            # OCR the entire image
+            full_text = pytesseract.image_to_string(img_cv, config='--psm 6')
+            print(f"  📋 Full OCR text: '{full_text[:200]}...'")
+            
+            # Look for booking number patterns
+            booking_patterns = [
+                r'[A-Z]{2,4}[A-Z0-9]{6,10}',  # Pattern like RICFEM857500
+                r'[A-Z0-9]{8,12}',            # General alphanumeric
+                r'[A-Z]{3,6}[0-9]{4,8}',      # Letters followed by numbers
+            ]
+            
+            for pattern in booking_patterns:
+                matches = re.findall(pattern, full_text)
+                for match in matches:
+                    if len(match) >= 8:  # Booking numbers are usually at least 8 characters
+                        print(f"  🎯 Found potential OCR booking number: {match}")
+                        return match
+            
+            return None
+            
+        except Exception as e:
+            print(f"  ❌ Error in _ocr_booking_number: {e}")
+            return None
+
     def ensure_app_context(self, max_wait_seconds: int = 45) -> Dict[str, Any]:
         """Ensure we are in authenticated app context (not Identity/forbidden) and app is fully loaded."""
         end_time = time.time() + max_wait_seconds
@@ -3903,31 +4111,30 @@ class EModalBusinessOperations:
                 except Exception as e4:
                     print(f"  ℹ️ Method 4 failed: {str(e4)}")
                 
-                # Method 5: Direct search for the exact HTML structure provided by user
+                # Method 5: Image-based approach - Find "Booking" text and extract from image
                 try:
-                    print("  🔍 Method 5: Looking for exact HTML structure...")
-                    # Look for div with field-data btn-link ng-star-inserted and cursor pointer
-                    booking_value_elem = expanded_row.find_element(
-                        By.XPATH,
-                        ".//div[contains(@class, 'field-data') and contains(@class, 'btn-link') and contains(@class, 'ng-star-inserted') and contains(@style, 'cursor: pointer')]"
-                    )
-                    booking_number = booking_value_elem.text.strip()
-                    print(f"  📋 Extracted text (method 5): '{booking_number}'")
+                    print("  🔍 Method 5: Image-based booking number extraction...")
+                    
+                    # Take a full screenshot first
+                    full_screenshot_path = self._capture_screenshot("booking_extraction_full")
+                    
+                    # Use image processing to find "Booking" text and extract booking number
+                    booking_number = self._extract_booking_number_from_image(full_screenshot_path)
                     
                     if booking_number and booking_number != "N/A" and booking_number != "":
-                        print(f"  ✅ Booking number found (method 5): {booking_number}")
+                        print(f"  ✅ Booking number found (method 5 - image): {booking_number}")
                         return {
                             "success": True,
                             "booking_number": booking_number,
                             "container_id": container_id
                         }
                     else:
-                        print("  ℹ️ Method 5: field-data exists but is empty or N/A")
+                        print("  ℹ️ Method 5: No booking number found in image")
                         return {
                             "success": True,
                             "booking_number": None,
                             "container_id": container_id,
-                            "message": "Booking number not available"
+                            "message": "Booking number not found in image"
                         }
                         
                 except Exception as e5:
