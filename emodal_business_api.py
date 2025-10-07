@@ -7214,7 +7214,7 @@ def get_info_bulk():
                         continue
                     
                     # Get Pregate status
-                    pregate_result = operations.get_pregate_status(container_id)
+                    pregate_result = operations.check_pregate_status()
                     
                     if pregate_result.get("success"):
                         results["import_results"].append({
