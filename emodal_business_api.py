@@ -140,11 +140,33 @@ def find_session_by_credentials(username: str, password: str) -> Optional[Browse
         session_id = persistent_sessions[cred_hash]
         if session_id in active_sessions:
             session = active_sessions[session_id]
-            if session.keep_alive and not session.is_expired():
+            
+            # Check if session is expired
+            if session.is_expired():
+                logger.info(f"Session {session_id} is expired, cleaning up...")
+                del persistent_sessions[cred_hash]
+                if session_id in active_sessions:
+                    try:
+                        active_sessions[session_id].driver.quit()
+                    except:
+                        pass
+                    del active_sessions[session_id]
+                return None
+            
+            # Check if session is still alive
+            if not is_session_alive(session):
+                logger.warning(f"Session {session_id} is dead (browser crashed), cleaning up...")
+                del persistent_sessions[cred_hash]
+                if session_id in active_sessions:
+                    del active_sessions[session_id]
+                return None
+            
+            # Session is valid and alive
+            if session.keep_alive:
                 logger.info(f"Found existing persistent session: {session_id} for user: {username}")
                 return session
             else:
-                # Clean up expired or non-keep-alive session
+                # Not a keep-alive session, clean up
                 del persistent_sessions[cred_hash]
                 if session_id in active_sessions:
                     try:
@@ -228,6 +250,150 @@ def ensure_session_capacity() -> bool:
     return evict_lru_session()
 
 
+def kill_orphaned_chrome_processes():
+    """
+    Kill all Chrome and ChromeDriver processes that are not associated with active sessions.
+    This helps clean up zombie processes that may be consuming resources.
+    """
+    import psutil
+    
+    try:
+        # Get PIDs of active session drivers
+        active_pids = set()
+        for session_id, session in active_sessions.items():
+            try:
+                if hasattr(session.driver, 'service') and hasattr(session.driver.service, 'process'):
+                    active_pids.add(session.driver.service.process.pid)
+                    logger.debug(f"Active session {session_id} ChromeDriver PID: {session.driver.service.process.pid}")
+            except Exception as e:
+                logger.debug(f"Could not get PID for session {session_id}: {e}")
+        
+        logger.info(f"Active ChromeDriver PIDs: {active_pids}")
+        
+        # Find and kill orphaned processes
+        killed_count = 0
+        
+        # Kill orphaned ChromeDriver processes
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                if 'chromedriver' in proc.info['name'].lower():
+                    pid = proc.info['pid']
+                    if pid not in active_pids:
+                        logger.info(f"Killing orphaned ChromeDriver process: PID {pid}")
+                        proc.kill()
+                        killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        # Kill orphaned Chrome processes (those without a parent ChromeDriver)
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                if 'chrome' in proc.info['name'].lower() and 'chromedriver' not in proc.info['name'].lower():
+                    # Check if this Chrome process has --test-type flag (managed by ChromeDriver)
+                    cmdline = proc.info.get('cmdline', [])
+                    if cmdline and '--test-type' in ' '.join(cmdline):
+                        # Check if its parent ChromeDriver is in active PIDs
+                        try:
+                            parent = proc.parent()
+                            if parent and 'chromedriver' in parent.name().lower():
+                                if parent.pid not in active_pids:
+                                    logger.info(f"Killing orphaned Chrome process: PID {proc.info['pid']}")
+                                    proc.kill()
+                                    killed_count += 1
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        if killed_count > 0:
+            logger.info(f"✅ Killed {killed_count} orphaned Chrome/ChromeDriver processes")
+        else:
+            logger.info("✅ No orphaned processes found")
+        
+        return killed_count
+        
+    except Exception as e:
+        logger.error(f"Error killing orphaned processes: {e}")
+        return 0
+
+
+def kill_all_chrome_instances():
+    """
+    Emergency recovery: Kill ALL Chrome and ChromeDriver processes.
+    Use this as a last resort when session recovery fails.
+    WARNING: This will close all Chrome browsers, not just those managed by this API.
+    """
+    import psutil
+    
+    try:
+        logger.warning("🚨 EMERGENCY RECOVERY: Killing ALL Chrome instances")
+        
+        killed_count = 0
+        
+        # Kill all ChromeDriver processes
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                if 'chromedriver' in proc.info['name'].lower():
+                    logger.info(f"Killing ChromeDriver process: PID {proc.info['pid']}")
+                    proc.kill()
+                    killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        # Kill all Chrome processes
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                if 'chrome' in proc.info['name'].lower():
+                    logger.info(f"Killing Chrome process: PID {proc.info['pid']}")
+                    proc.kill()
+                    killed_count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        logger.warning(f"🚨 Emergency recovery killed {killed_count} processes")
+        
+        # Clear all active sessions
+        active_sessions.clear()
+        persistent_sessions.clear()
+        logger.info("🗑️ Cleared all session data")
+        
+        return killed_count
+        
+    except Exception as e:
+        logger.error(f"Error in emergency recovery: {e}")
+        return 0
+
+
+def is_session_alive(session: BrowserSession) -> bool:
+    """
+    Check if a browser session is still alive and responsive.
+    
+    Args:
+        session: BrowserSession to check
+    
+    Returns:
+        True if session is alive, False otherwise
+    """
+    try:
+        # Try to get current URL as a health check
+        _ = session.driver.current_url
+        return True
+    except Exception as e:
+        logger.warning(f"Session {session.session_id} appears dead: {e}")
+        
+        # Check if this is a connection error
+        error_str = str(e).lower()
+        if 'connection' in error_str or 'winerror 10061' in error_str or 'newconnectionerror' in error_str:
+            logger.warning("🔧 Connection error detected - attempting to clean up orphaned processes")
+            # Try to kill orphaned processes
+            try:
+                kill_orphaned_chrome_processes()
+            except Exception as cleanup_error:
+                logger.error(f"Failed to clean up orphaned processes: {cleanup_error}")
+        
+        return False
+
+
 def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
     """
     Get existing session by session_id OR create new persistent session.
@@ -248,10 +414,27 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
         
         if session_id in active_sessions:
             browser_session = active_sessions[session_id]
-            browser_session.update_last_used()
-            browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
-            logger.info(f"[{request_id}] ✅ Found existing session for user: {browser_session.username}")
-            return (browser_session.driver, browser_session.username, session_id, False)
+            
+            # Check if session is still alive
+            if not is_session_alive(browser_session):
+                logger.warning(f"[{request_id}] ⚠️ Session {session_id} is dead (browser closed or crashed)")
+                logger.info(f"[{request_id}] Removing dead session and creating new one...")
+                
+                # Clean up dead session
+                try:
+                    del active_sessions[session_id]
+                    # Remove from persistent sessions if present
+                    if browser_session.credentials_hash in persistent_sessions:
+                        del persistent_sessions[browser_session.credentials_hash]
+                except:
+                    pass
+                
+                # Fall through to create new session
+            else:
+                browser_session.update_last_used()
+                browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
+                logger.info(f"[{request_id}] ✅ Found existing session for user: {browser_session.username}")
+                return (browser_session.driver, browser_session.username, session_id, False)
         else:
             logger.warning(f"[{request_id}] ⚠️ Session ID not found or expired: {session_id}")
             logger.info(f"[{request_id}] Creating new session instead...")
@@ -1750,12 +1933,22 @@ class EModalBusinessOperations:
         Fill the truck plate field in Phase 2.
         If exact match not found, can select any available option.
         
+        Special case: If truck_plate is "ABC123" or empty, it will select any available plate from the list.
+        
         Args:
-            truck_plate: Desired truck plate number
+            truck_plate: Desired truck plate number (use "ABC123" or empty string to select any available plate)
             allow_any_if_missing: If True, select first available option if exact match fails
         """
         try:
-            print(f"🚛 Filling truck plate: {truck_plate}...")
+            print(f"🚛 Filling truck plate: {truck_plate if truck_plate else '(empty - will select from list)'}...")
+            
+            # Check if this is a wildcard request (ABC123 or empty string)
+            is_wildcard = truck_plate.upper() == "ABC123" or truck_plate.strip() == ""
+            if is_wildcard:
+                if truck_plate.strip() == "":
+                    print(f"  🎲 Empty truck plate detected - will select any available truck plate from list")
+                else:
+                    print(f"  🎲 Wildcard detected (ABC123) - will select any available truck plate from list")
             
             # Find plate input field
             plate_input = None
@@ -1770,10 +1963,58 @@ class EModalBusinessOperations:
             if not plate_input:
                 return {"success": False, "error": "Truck plate field not found"}
             
-            # Click and type
+            # Click to open dropdown
             plate_input.click()
             time.sleep(0.3)
             plate_input.clear()
+            
+            # If wildcard, just trigger the dropdown without typing specific value
+            if is_wildcard:
+                # Type a space or click to trigger dropdown
+                plate_input.send_keys(" ")
+                time.sleep(1.5)  # Wait for autocomplete to populate
+                
+                # Clear the space
+                plate_input.clear()
+                time.sleep(0.5)
+                
+                print(f"  🔍 Searching for any available truck plate in list...")
+                
+                try:
+                    # Get all available options
+                    all_options = self.driver.find_elements(By.XPATH, "//mat-option")
+                    
+                    if all_options:
+                        # Select first available option
+                        first_option = all_options[0]
+                        selected_text = first_option.text.strip()
+                        first_option.click()
+                        time.sleep(0.5)
+                        print(f"  ✅ Selected truck plate from list: '{selected_text}'")
+                        
+                        # Click blank area to confirm selection
+                        try:
+                            self.driver.find_element(By.TAG_NAME, "body").click()
+                            time.sleep(0.5)
+                            print(f"  ✅ Truck plate confirmed")
+                        except:
+                            pass
+                        
+                        self._capture_screenshot("truck_plate_wildcard_selected")
+                        return {"success": True, "truck_plate": selected_text, "exact_match": False, "wildcard": True, "original_request": truck_plate}
+                    else:
+                        print(f"  ❌ No truck plate options available in list")
+                        # Close autocomplete
+                        try:
+                            self.driver.find_element(By.TAG_NAME, "body").click()
+                        except:
+                            pass
+                        return {"success": False, "error": "No truck plates available in dropdown"}
+                except Exception as option_error:
+                    print(f"  ❌ Error selecting from list: {option_error}")
+                    return {"success": False, "error": f"Failed to select from truck plate list: {str(option_error)}"}
+            
+            # Normal flow: type the specific truck plate
             plate_input.send_keys(truck_plate)
             time.sleep(1.5)  # Wait for autocomplete to populate
             
@@ -6795,6 +7036,50 @@ def manual_cleanup():
             "screenshots_mb": round(screenshots_size / (1024 * 1024), 2)
         })
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/cleanup_orphaned_processes', methods=['POST'])
+def cleanup_orphaned_processes():
+    """
+    Clean up orphaned Chrome/ChromeDriver processes.
+    Kills processes that are not associated with active sessions.
+    """
+    try:
+        logger.info("🔧 Orphaned process cleanup triggered")
+        killed_count = kill_orphaned_chrome_processes()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Cleaned up {killed_count} orphaned processes",
+            "killed_count": killed_count,
+            "active_sessions": len(active_sessions)
+        })
+    except Exception as e:
+        logger.error(f"Error in orphaned process cleanup: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/emergency_recovery', methods=['POST'])
+def emergency_recovery():
+    """
+    Emergency recovery: Kill ALL Chrome instances and clear all sessions.
+    Use this as a last resort when normal recovery fails.
+    WARNING: This will close ALL Chrome browsers on the system.
+    """
+    try:
+        logger.warning("🚨 Emergency recovery triggered")
+        killed_count = kill_all_chrome_instances()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Emergency recovery completed - killed {killed_count} processes and cleared all sessions",
+            "killed_count": killed_count,
+            "warning": "All Chrome browsers have been closed",
+            "active_sessions": 0
+        })
+    except Exception as e:
+        logger.error(f"Error in emergency recovery: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

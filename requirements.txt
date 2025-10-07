@@ -14,6 +14,9 @@ pydub==0.25.1
 # Screenshots and image annotations
 Pillow==10.4.0
 
+# Process management for Chrome cleanup
+psutil==5.9.6
+
 # Additional system dependencies for Linux:
 # sudo apt-get update
 # sudo apt-get install -y wget unzip xvfb
