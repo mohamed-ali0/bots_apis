@@ -1438,17 +1438,74 @@ class EModalBusinessOperations:
     
     def fill_container_number(self, container_id: str) -> Dict[str, Any]:
         """
-        Fill the container number field (chip input).
-        Clears existing chips first, then adds the new container.
+        Fill the container number field (chip input) or booking number field (text input).
+        For container fields: Clears existing chips first, then adds the new container.
+        For booking fields: Clears and fills the text input directly.
         
         Args:
-            container_id: Container number to add
+            container_id: Container number or booking number to add
         
         Returns:
             Dict with success status
         """
         try:
-            print(f"📦 Filling container number: {container_id}...")
+            print(f"📦 Filling container/booking number: {container_id}...")
+            
+            # First, try to find booking number field (text input)
+            booking_input = None
+            try:
+                booking_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='bookingNumber']")
+                print("  📋 Found booking number field (text input)")
+            except:
+                pass
+            
+            if booking_input:
+                # Handle booking number field (chip input - same as container)
+                print(f"  📝 Filling booking number field: {container_id}")
+                
+                # Clear existing chips first (same as container field)
+                remove_buttons = self.driver.find_elements(By.XPATH, "//mat-icon[@matchipremove and contains(text(),'cancel')]")
+                if remove_buttons:
+                    print(f"  🗑️ Removing {len(remove_buttons)} existing booking number(s)...")
+                    for btn in remove_buttons:
+                        try:
+                            btn.click()
+                            time.sleep(0.3)
+                        except:
+                            pass
+                    self._capture_screenshot("booking_numbers_cleared")
+                
+                # Click and type
+                booking_input.click()
+                time.sleep(0.3)
+                booking_input.send_keys(container_id)
+                time.sleep(0.5)
+                
+                # Press Enter to add as chip (same as container)
+                booking_input.send_keys(Keys.ENTER)
+                time.sleep(1)
+                
+                # Click blank area to confirm chip is added
+                try:
+                    self.driver.find_element(By.TAG_NAME, "body").click()
+                    time.sleep(0.5)
+                    print(f"  ✅ Booking number chip confirmed")
+                except:
+                    pass
+                
+                # Verify chip was added
+                chips = self.driver.find_elements(By.XPATH, f"//mat-chip//span[contains(text(),'{container_id}')]")
+                if chips:
+                    print(f"  ✅ Added booking number: {container_id}")
+                    self._capture_screenshot("booking_number_added")
+                    return {"success": True, "container_id": container_id, "field_type": "booking_number"}
+                else:
+                    print(f"  ⚠️ Booking number chip may not have been added, but continuing...")
+                    self._capture_screenshot("booking_number_added_unverified")
+                    return {"success": True, "container_id": container_id, "field_type": "booking_number"}
+            
+            # If no booking field found, try container number field (chip input)
+            print("  📦 No booking field found, trying container number field...")
             
             # Clear existing chips first
             remove_buttons = self.driver.find_elements(By.XPATH, "//mat-icon[@matchipremove and contains(text(),'cancel')]")
@@ -1462,7 +1519,7 @@ class EModalBusinessOperations:
                         pass
                 self._capture_screenshot("containers_cleared")
             
-            # Find the input field
+            # Find the container input field
             container_input = None
             try:
                 container_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='containerNumber']")
@@ -1473,7 +1530,7 @@ class EModalBusinessOperations:
                     pass
             
             if not container_input:
-                return {"success": False, "error": "Container number input field not found"}
+                return {"success": False, "error": "Neither container number nor booking number input field found"}
             
             # Click and type
             container_input.click()
@@ -1499,14 +1556,14 @@ class EModalBusinessOperations:
             if chips:
                 print(f"  ✅ Added container: {container_id}")
                 self._capture_screenshot("container_added")
-                return {"success": True, "container_id": container_id}
+                return {"success": True, "container_id": container_id, "field_type": "container_number"}
             else:
                 print(f"  ⚠️ Container chip may not have been added, but continuing...")
                 self._capture_screenshot("container_added_unverified")
-                return {"success": True, "container_id": container_id}
+                return {"success": True, "container_id": container_id, "field_type": "container_number"}
             
         except Exception as e:
-            print(f"  ❌ Error filling container number: {e}")
+            print(f"  ❌ Error filling container/booking number: {e}")
             return {"success": False, "error": str(e)}
     
     def get_current_phase_from_stepper(self) -> int:
