@@ -4129,44 +4129,117 @@ class EModalBusinessOperations:
                 except Exception as e4:
                     print(f"  ℹ️ Method 4 failed: {str(e4)}")
                 
-                # Method 5: JavaScript-based text extraction
+                # Method 5: Full page text extraction (like get_containers)
                 try:
-                    print("  🔍 Method 5: JavaScript-based text extraction...")
+                    print("  🔍 Method 5: Full page text extraction...")
                     
-                    # Get all text content from the expanded row using JavaScript
+                    # Get all text content from the entire page using JavaScript (like get_containers)
                     all_text = self.driver.execute_script("""
-                        var expandedRow = arguments[0];
-                        return expandedRow.innerText || expandedRow.textContent || '';
-                    """, expanded_row)
+                        // Select all text on the page (like Ctrl+A)
+                        var range = document.createRange();
+                        range.selectNodeContents(document.body);
+                        var selection = window.getSelection();
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                        
+                        // Get the selected text
+                        var selectedText = selection.toString();
+                        
+                        // Clear selection
+                        selection.removeAllRanges();
+                        
+                        return selectedText;
+                    """)
                     
-                    print(f"  📋 All text in expanded row: '{all_text[:200]}...'")
+                    print(f"  📋 Full page text extracted: '{all_text[:300]}...'")
                     
-                    # Look for booking number pattern in the text
+                    # Look for the specific pattern: "Booking #" followed by the booking number
                     import re
-                    booking_patterns = [
-                        r'Booking\s*#\s*([A-Z0-9]{8,12})',  # "Booking # RICFEM857500"
-                        r'([A-Z]{2,4}[A-Z0-9]{6,10})',      # Pattern like RICFEM857500
-                        r'([A-Z0-9]{8,12})',                # General alphanumeric
-                        r'([A-Z]{3,6}[0-9]{4,8})',          # Letters followed by numbers
-                    ]
                     
-                    for pattern in booking_patterns:
-                        matches = re.findall(pattern, all_text)
-                        for match in matches:
-                            if len(match) >= 8:  # Booking numbers are usually at least 8 characters
-                                print(f"  🎯 Found potential booking number (method 5): {match}")
-                                return {
-                                    "success": True,
-                                    "booking_number": match,
-                                    "container_id": container_id
-                                }
+                    # Method 5a: Line-by-line search (most reliable)
+                    print("  🔍 Method 5a: Line-by-line search...")
+                    lines = all_text.split('\n')
+                    print(f"  📋 Total lines: {len(lines)}")
                     
-                    print("  ℹ️ Method 5: No booking number pattern found in text")
+                    for i, line in enumerate(lines):
+                        if 'Booking #' in line:
+                            print(f"  📍 Found 'Booking #' at line {i+1}: '{line.strip()}'")
+                            
+                            # Look for the pattern: Booking # -> Status -> Booking Number
+                            # Check the next few lines for a booking number pattern
+                            for j in range(1, 6):  # Check next 5 lines
+                                if i + j < len(lines):
+                                    potential_line = lines[i + j].strip()
+                                    print(f"     Checking line {i+j+1}: '{potential_line}'")
+                                    
+                                    # Check if this line contains a booking number pattern
+                                    if re.match(r'^[A-Z0-9]{8,12}$', potential_line):
+                                        print(f"  🎯 Found booking number (method 5a): {potential_line}")
+                                        return {
+                                            "success": True,
+                                            "booking_number": potential_line,
+                                            "container_id": container_id
+                                        }
+                                    
+                                    # Also check if the line contains a booking number within it
+                                    booking_match = re.search(r'\b([A-Z0-9]{8,12})\b', potential_line)
+                                    if booking_match:
+                                        booking_number = booking_match.group(1)
+                                        print(f"  🎯 Found booking number in line (method 5a): {booking_number}")
+                                        return {
+                                            "success": True,
+                                            "booking_number": booking_number,
+                                            "container_id": container_id
+                                        }
+                    
+                    # Method 5b: Regex pattern - "Booking #" followed by status, then booking number
+                    print("  🔍 Method 5b: Regex pattern search...")
+                    booking_pattern = r'Booking\s*#\s*\n\s*[A-Z\s]+\n\s*([A-Z0-9]{8,12})'
+                    match = re.search(booking_pattern, all_text, re.MULTILINE)
+                    
+                    if match:
+                        booking_number = match.group(1).strip()
+                        print(f"  🎯 Found booking number (method 5b): {booking_number}")
+                        return {
+                            "success": True,
+                            "booking_number": booking_number,
+                            "container_id": container_id
+                        }
+                    
+                    # Method 5c: More flexible regex - "Booking #" followed by any text, then booking number
+                    print("  🔍 Method 5c: Flexible regex search...")
+                    booking_flexible_pattern = r'Booking\s*#\s*\n\s*.*?\n\s*([A-Z0-9]{8,12})'
+                    match = re.search(booking_flexible_pattern, all_text, re.MULTILINE | re.DOTALL)
+                    
+                    if match:
+                        booking_number = match.group(1).strip()
+                        print(f"  🎯 Found booking number (method 5c): {booking_number}")
+                        return {
+                            "success": True,
+                            "booking_number": booking_number,
+                            "container_id": container_id
+                        }
+                    
+                    # Method 5d: Find "Booking #" and get the next alphanumeric string
+                    print("  🔍 Method 5d: Next alphanumeric search...")
+                    booking_simple_pattern = r'Booking\s*#\s*[^\w]*([A-Z0-9]{8,12})'
+                    match = re.search(booking_simple_pattern, all_text)
+                    
+                    if match:
+                        booking_number = match.group(1).strip()
+                        print(f"  🎯 Found booking number (method 5d): {booking_number}")
+                        return {
+                            "success": True,
+                            "booking_number": booking_number,
+                            "container_id": container_id
+                        }
+                    
+                    print("  ℹ️ Method 5: No booking number found in full page text")
                     return {
                         "success": True,
                         "booking_number": None,
                         "container_id": container_id,
-                        "message": "Booking number pattern not found in text"
+                        "message": "Booking number not found in full page text"
                     }
                         
                 except Exception as e5:
