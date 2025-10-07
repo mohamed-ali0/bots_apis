@@ -9,24 +9,25 @@ import json
 import time
 
 # Configuration
-API_BASE_URL = "http://localhost:5010"
-# API_BASE_URL = "http://37.60.243.201:5010"  # Remote server
+# API_BASE_URL = "http://localhost:5010"  # Local server
+API_BASE_URL = "http://37.60.243.201:5010"  # Remote server (default)
 
 # Test credentials
-USERNAME = "Gustavoa"
-PASSWORD = "Julian_1"
+USERNAME = "jfernandez"
+PASSWORD = "taffie"
 CAPTCHA_API_KEY = "7bf85bb6f37c9799543a2a463aab2b4f"
 
-# Test containers
+# Test containers - Real container IDs from your E-Modal account
 IMPORT_CONTAINERS = [
-    "MSCU5165756",  # Import container
-    "TRHU1866154",  # Import container
-    "MSDU4431979",  # Import container
+    "MSDU8716455",  # IMPORT container
+    "TCLU8784503",  # IMPORT container
+    "MEDU7724823",  # IMPORT container
 ]
 
 EXPORT_CONTAINERS = [
-    "TRHU1866154",  # Export container (also testing dual purpose)
-    "MSDU5772413",  # Export container
+    "TRHU1866154",  # EXPORT container
+    "YMMU1089936",  # EXPORT container
+    "EISU1654618",  # EXPORT container
 ]
 
 def print_separator(title=""):
@@ -137,9 +138,9 @@ def test_bulk_with_existing_session(session_id):
     """Test bulk processing with existing session"""
     print_separator("TEST 2: Bulk Processing with Existing Session")
     
-    # Use different containers for reuse test
-    import_test = ["MSDU4431979"]
-    export_test = ["MSDU5772413"]
+    # Use subset of containers for reuse test
+    import_test = [IMPORT_CONTAINERS[0]] if IMPORT_CONTAINERS else []
+    export_test = [EXPORT_CONTAINERS[0]] if EXPORT_CONTAINERS else []
     
     payload = {
         "session_id": session_id,

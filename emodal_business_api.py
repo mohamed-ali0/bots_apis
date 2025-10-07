@@ -7153,6 +7153,16 @@ def get_info_bulk():
         if not ctx.get("success"):
             print("⚠️ App readiness not confirmed - proceeding anyway...")
         
+        # Navigate to containers page explicitly
+        try:
+            current_url = driver.current_url
+            if 'containers' not in current_url.lower():
+                print("📍 Navigating to containers page...")
+                driver.get("https://truckerportal.emodal.com/containers")
+                time.sleep(3)
+        except Exception as nav_error:
+            logger.warning(f"Navigation check error: {nav_error}")
+        
         # Results storage
         results = {
             "import_results": [],
@@ -7204,8 +7214,11 @@ def get_info_bulk():
                     # Get Pregate status
                     pregate_result = operations.get_pregate_status(container_id)
                     
-                    # Collapse container
-                    operations.collapse_container(container_id)
+                    # Collapse container (with error handling)
+                    try:
+                        operations.collapse_container(container_id)
+                    except Exception as collapse_error:
+                        logger.warning(f"Failed to collapse {container_id}: {collapse_error}")
                     
                     if pregate_result.get("success"):
                         results["import_results"].append({
@@ -7235,6 +7248,10 @@ def get_info_bulk():
                         "pregate_status": None
                     })
                     results["summary"]["import_failed"] += 1
+                    
+                # Small delay between containers to avoid overwhelming the system
+                if idx < len(import_containers):
+                    time.sleep(0.5)
         
         # Process EXPORT containers (get Booking number)
         if export_containers:
@@ -7273,8 +7290,11 @@ def get_info_bulk():
                     # Get Booking number
                     booking_result = operations.get_booking_number(container_id)
                     
-                    # Collapse container
-                    operations.collapse_container(container_id)
+                    # Collapse container (with error handling)
+                    try:
+                        operations.collapse_container(container_id)
+                    except Exception as collapse_error:
+                        logger.warning(f"Failed to collapse {container_id}: {collapse_error}")
                     
                     if booking_result.get("success"):
                         booking_number = booking_result.get("booking_number")
@@ -7308,9 +7328,14 @@ def get_info_bulk():
                         "booking_number": None
                     })
                     results["summary"]["export_failed"] += 1
+                    
+                # Small delay between containers to avoid overwhelming the system
+                if idx < len(export_containers):
+                    time.sleep(0.5)
         
-        # Release session after operation
-        release_session_after_operation(browser_session_id)
+        print(f"\n✅ Bulk processing completed!")
+        print(f"   Import: {results['summary']['import_success']}/{results['summary']['total_import']} successful")
+        print(f"   Export: {results['summary']['export_success']}/{results['summary']['total_export']} successful")
         
         # Prepare final response
         response_data = {
@@ -7323,15 +7348,20 @@ def get_info_bulk():
         
         # Add debug bundle if requested
         if debug_mode:
-            debug_bundle_path = operations.create_debug_bundle()
-            if debug_bundle_path:
-                bundle_filename = os.path.basename(debug_bundle_path)
-                debug_url = f"{request.host_url}debug_bundles/{bundle_filename}"
-                response_data["debug_bundle_url"] = debug_url
+            try:
+                debug_bundle_path = operations.create_debug_bundle()
+                if debug_bundle_path:
+                    bundle_filename = os.path.basename(debug_bundle_path)
+                    debug_url = f"{request.host_url}debug_bundles/{bundle_filename}"
+                    response_data["debug_bundle_url"] = debug_url
+            except Exception as debug_error:
+                logger.warning(f"Failed to create debug bundle: {debug_error}")
         
-        print(f"\n✅ Bulk processing completed!")
-        print(f"   Import: {results['summary']['import_success']}/{results['summary']['total_import']} successful")
-        print(f"   Export: {results['summary']['export_success']}/{results['summary']['total_export']} successful")
+        # Release session after operation (in finally-like pattern)
+        try:
+            release_session_after_operation(browser_session_id)
+        except Exception as release_error:
+            logger.warning(f"Failed to release session: {release_error}")
         
         return jsonify(response_data)
         
