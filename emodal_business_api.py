@@ -2160,26 +2160,37 @@ class EModalBusinessOperations:
             for span in toggle_spans:
                 try:
                     text = span.text.strip()
-                    # Check parent button for checked state
-                    parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
-                    classes = parent.get_attribute("class") or ""
-                    aria_pressed = parent.get_attribute("aria-pressed") or ""
+                    # Try multiple ways to find parent button
+                    parent = None
+                    try:
+                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                    except:
+                        try:
+                            parent = span.find_element(By.XPATH, "..")
+                        except:
+                            pass
                     
-                    print(f"    Span '{text}': pressed={aria_pressed}, has-checked-class={('mat-button-toggle-checked' in classes)}")
-                    
-                    # Check if this button is currently selected
-                    if "mat-button-toggle-checked" in classes or aria_pressed == "true":
-                        current_state = text
-                        current_span = span
-                        print(f"  ✅ Detected current state: {current_state}")
-                        break
+                    if parent:
+                        classes = parent.get_attribute("class") or ""
+                        aria_pressed = parent.get_attribute("aria-pressed") or ""
+                        
+                        print(f"    Span '{text}': pressed={aria_pressed}, has-checked-class={('mat-button-toggle-checked' in classes)}")
+                        
+                        # Check if this button is currently selected
+                        if "mat-button-toggle-checked" in classes or aria_pressed == "true":
+                            current_state = text
+                            current_span = span
+                            print(f"  ✅ Detected current state: {current_state}")
+                            break
+                    else:
+                        print(f"    Span '{text}': Could not find parent button")
                 except Exception as e:
                     print(f"    ⚠️ Error checking span: {e}")
                     pass
             
-            # If still no state detected, assume first one (NO) is default
+            # If still no state detected, assume YES is default for export (most common case)
             if current_state is None:
-                current_state = "NO"
+                current_state = "YES"
                 print(f"  ⚠️ Could not detect state, assuming default: {current_state}")
             
             # Check if already in desired state
@@ -2193,27 +2204,42 @@ class EModalBusinessOperations:
             for span in toggle_spans:
                 if span.text.strip() == target:
                     try:
-                        # Scroll into view
+                        # Scroll span into view
                         self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", span)
                         time.sleep(0.5)
                         
-                        # Click the span (or its parent button)
-                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
-                        print(f"  🖱️  Clicking {target} button...")
-                        parent.click()
-                        time.sleep(1)
+                        # Try to find parent button and click it
+                        parent = None
+                        try:
+                            parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                        except:
+                            try:
+                                parent = span.find_element(By.XPATH, "..")
+                            except:
+                                pass
                         
-                        print(f"  ✅ Toggled to {target}")
-                        self._capture_screenshot("own_chassis_toggled")
-                        return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
-                    except Exception as click_error:
-                        print(f"  ⚠️ Error clicking parent, trying span: {click_error}")
-                        # Try clicking span directly
+                        if parent:
+                            print(f"  🖱️  Clicking {target} button (parent)...")
+                            try:
+                                parent.click()
+                                time.sleep(1)
+                                print(f"  ✅ Toggled to {target}")
+                                self._capture_screenshot("own_chassis_toggled")
+                                return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
+                            except:
+                                pass
+                        
+                        # If parent click failed or parent not found, click span directly
+                        print(f"  🖱️  Clicking {target} button (direct span)...")
                         span.click()
                         time.sleep(1)
                         print(f"  ✅ Toggled to {target} (direct click)")
                         self._capture_screenshot("own_chassis_toggled")
                         return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
+                        
+                    except Exception as click_error:
+                        print(f"  ⚠️ Error clicking: {click_error}")
+                        pass
             
             return {"success": False, "error": f"Could not find {target} option"}
         except Exception as e:
