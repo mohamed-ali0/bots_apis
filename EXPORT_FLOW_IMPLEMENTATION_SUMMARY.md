@@ -83,7 +83,7 @@ Phase 3: Get Available Times → Return list of time slots
 
 ### Export Flow (New)
 ```
-Phase 1: Company → Terminal → Move → Booking → Quantity (auto) → Wait 3s → Next
+Phase 1: Company → Terminal → Move → Booking → Click Blank + Wait 5s → Quantity (auto) → Wait 3s → Next
 Phase 2: Checkbox → Unit → Seals (4x) → Truck → Chassis → Next
 Phase 3: Find Calendar Icon → Click → Screenshot → Return calendar_found
 ```

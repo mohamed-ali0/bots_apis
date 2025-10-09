@@ -94,13 +94,15 @@ else:
 
 ## What Happens Automatically
 
-1. ✅ **Quantity** → Set to "1"
-2. ✅ **Wait 3 seconds** → After quantity fill
-3. ✅ **Unit number** → Set to "1"
-4. ✅ **4 Seal fields** → All set to "1"
-5. ✅ **Truck plate** → Wildcard support ("ABC123" = any plate)
-6. ✅ **Calendar search** → Find and click icon
-7. ✅ **Screenshot** → Captured in debug bundle
+1. ✅ **Booking number entered** → Clicks blank space
+2. ✅ **Wait 5 seconds** → After booking number (UI processing)
+3. ✅ **Quantity** → Set to "1"
+4. ✅ **Wait 3 seconds** → After quantity fill
+5. ✅ **Unit number** → Set to "1"
+6. ✅ **4 Seal fields** → All set to "1"
+7. ✅ **Truck plate** → Wildcard support ("ABC123" = any plate)
+8. ✅ **Calendar search** → Find and click icon
+9. ✅ **Screenshot** → Captured in debug bundle
 
 ## Response
 

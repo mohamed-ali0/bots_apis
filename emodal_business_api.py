@@ -6050,6 +6050,18 @@ def check_appointments():
                         "current_phase": 1
                     }), 500
                 
+                # Click blank space and wait 5 seconds before filling quantity
+                print("  🖱️  Clicking blank space after booking number...")
+                try:
+                    operations.driver.find_element(By.TAG_NAME, "body").click()
+                    time.sleep(0.5)
+                except:
+                    pass
+                
+                print("  ⏳ Waiting 5 seconds before filling quantity...")
+                time.sleep(5)
+                print("  ✅ Ready to fill quantity")
+                
                 # Fill quantity field (export only)
                 result = operations.fill_quantity_field()
                 if not result["success"]:
@@ -6078,6 +6090,13 @@ def check_appointments():
                         operations.fill_container_number(container_id)
                     else:  # export
                         operations.fill_container_number(booking_number)
+                        # Click blank and wait before quantity
+                        try:
+                            operations.driver.find_element(By.TAG_NAME, "body").click()
+                            time.sleep(0.5)
+                        except:
+                            pass
+                        time.sleep(5)
                         operations.fill_quantity_field()
                     
                     # Retry Next button

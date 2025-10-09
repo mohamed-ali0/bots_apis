@@ -170,9 +170,10 @@ Check available appointment times for import or export containers.
 2. Selects terminal from dropdown
 3. Selects move type from dropdown
 4. Fills booking number field (uses the same chip input as container number)
-5. Fills quantity field with "1"
-6. Waits 3 seconds (as requested)
-7. Clicks "Next" button to advance to Phase 2
+5. **Clicks blank space and waits 5 seconds** (to allow UI to process booking number)
+6. Fills quantity field with "1"
+7. Waits 3 seconds (as requested)
+8. Clicks "Next" button to advance to Phase 2
 
 **Fields:**
 - `trucking_company`: Company name (e.g., "LONGSHIP FREIGHT LLC")
@@ -181,8 +182,9 @@ Check available appointment times for import or export containers.
 - `booking_number`: Booking number (e.g., "RICFEM857500")
 
 **Automatic Actions:**
+- After booking number: Clicks blank space and waits 5 seconds
 - Quantity is automatically set to "1"
-- System waits 3 seconds after filling quantity before clicking Next
+- After quantity: System waits 3 seconds before clicking Next
 
 ### Phase 2: Container Selection + Export Fields
 
@@ -236,7 +238,8 @@ Export containers have sensible defaults:
 ## Timing
 
 - Phase load wait: 5 seconds (consistent across all phases)
-- Quantity fill wait: 3 seconds after setting quantity
+- After booking number: 5 seconds (to allow UI to process)
+- After quantity fill: 3 seconds before clicking Next
 - Between fields: 0.2-0.5 seconds for smooth input
 
 ## Session Continuation
