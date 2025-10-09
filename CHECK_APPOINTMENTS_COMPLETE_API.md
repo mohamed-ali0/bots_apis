@@ -138,7 +138,7 @@ Phase 3: Find Calendar Icon → Click → Screenshot
 
 ## Response Format
 
-### Import Success Response
+### Import Success Response (Working Mode)
 
 ```json
 {
@@ -156,7 +156,6 @@ Phase 3: Find Calendar Icon → Click → Screenshot
   ],
   "count": 5,
   "dropdown_screenshot_url": "http://37.60.243.201:5010/files/20251009_123456_appointment_dropdown.png",
-  "debug_bundle_url": "http://37.60.243.201:5010/files/appt_sess_abc123_1696848000_20251009_123456_check_appointments.zip",
   "phase_data": {
     "container_type": "import",
     "trucking_company": "LONGSHIP FREIGHT LLC",
@@ -170,7 +169,9 @@ Phase 3: Find Calendar Icon → Click → Screenshot
 }
 ```
 
-### Export Success Response
+**Note:** `debug_bundle_url` is only included when `debug: true` is set in the request.
+
+### Export Success Response (Working Mode)
 
 ```json
 {
@@ -181,7 +182,6 @@ Phase 3: Find Calendar Icon → Click → Screenshot
   "appointment_session_id": "appt_sess_xyz789_1696848100",
   "calendar_found": true,
   "calendar_screenshot_url": "http://37.60.243.201:5010/files/20251009_123456_calendar_opened.png",
-  "debug_bundle_url": "http://37.60.243.201:5010/files/appt_sess_xyz789_1696848100_20251009_123500_check_appointments.zip",
   "phase_data": {
     "container_type": "export",
     "trucking_company": "K & R TRANSPORTATION LLC",
@@ -195,6 +195,8 @@ Phase 3: Find Calendar Icon → Click → Screenshot
   }
 }
 ```
+
+**Note:** `debug_bundle_url` is only included when `debug: true` is set in the request.
 
 ### Error Response (Generic)
 
@@ -238,8 +240,8 @@ Phase 3: Find Calendar Icon → Click → Screenshot
 | `session_id` | string | Browser session ID (persistent) |
 | `is_new_session` | boolean | Whether browser session was newly created |
 | `appointment_session_id` | string | Appointment workflow session ID |
-| `debug_bundle_url` | string | Full URL to ZIP file with all screenshots |
 | `phase_data` | object | All data collected through phases |
+| `debug_bundle_url` | string | *(Optional)* ZIP with all screenshots - only if `debug: true` |
 
 ### Import-Specific Fields
 

@@ -18,9 +18,9 @@ CAPTCHA_API_KEY = "7bf85bb6f37c9799543a2a463aab2b4f"
 # Export container test data
 TEST_EXPORT_DATA = {
     "trucking_company": "K & R TRANSPORTATION LLC",
-    "terminal": "Pacific Container Terminal",
+    "terminal": "Everport Terminal Services - Los Angeles",
     "move_type": "DROP FULL",
-    "booking_number": "YCH25199089",  # Booking number instead of container ID
+    "booking_number": "510476551",  # Booking number instead of container ID
     "container_number": "CONTAINER123",  # For display in screenshots (optional)
     "truck_plate": "ABC123",  # Wildcard to select any available plate
     "own_chassis": True,

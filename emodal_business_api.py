@@ -5932,6 +5932,7 @@ def check_appointments():
         
         data = request.get_json()
         appointment_session_id = data.get('appointment_session_id')
+        debug_mode = data.get('debug', False)  # Default: working mode (no bundle)
         
         # Validate container_type
         container_type = data.get('container_type', '').lower()
@@ -5942,6 +5943,7 @@ def check_appointments():
             }), 400
         
         print(f"📦 Container Type: {container_type.upper()}")
+        print(f"🔧 Debug Mode: {'ENABLED' if debug_mode else 'DISABLED (working mode)'}")
         
         # Check if continuing from existing appointment workflow session
         if appointment_session_id and appointment_session_id in appointment_sessions:
@@ -6485,36 +6487,39 @@ def check_appointments():
                     print("⚠️ Phase 3 completed but calendar not found")
                     print(f"⚠️ Calendar icon was not found on the page")
         
-        # Create debug bundle
+        # Create debug bundle (only if debug mode is enabled)
         bundle_name = None
         bundle_url = None
-        try:
-            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-            bundle_name = f"{appt_session.session_id}_{ts}_check_appointments.zip"
-            bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
-            
-            with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                # Include screenshots
-                session_sc_dir = operations.screens_dir
-                if os.path.isdir(session_sc_dir):
-                    for root, _, files in os.walk(session_sc_dir):
-                        for f in files:
-                            fp = os.path.join(root, f)
-                            rel = os.path.relpath(fp, session_sc_dir)
-                            arc = os.path.join('screenshots', rel)
-                            zf.write(fp, arc)
-            
-            bundle_url = f"http://{request.host}/files/{bundle_name}"
-            print(f"\n{'='*70}")
-            print(f"📦 DEBUG BUNDLE CREATED")
-            print(f"{'='*70}")
-            print(f" Public URL: {bundle_url}")
-            print(f" File: {bundle_name}")
-            print(f" Size: {os.path.getsize(bundle_path)} bytes")
-            print(f"{'='*70}\n")
-            
-        except Exception as be:
-            print(f"⚠️ Bundle creation failed: {be}")
+        if debug_mode:
+            try:
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                bundle_name = f"{appt_session.session_id}_{ts}_check_appointments.zip"
+                bundle_path = os.path.join(DOWNLOADS_DIR, bundle_name)
+                
+                with zipfile.ZipFile(bundle_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    # Include screenshots
+                    session_sc_dir = operations.screens_dir
+                    if os.path.isdir(session_sc_dir):
+                        for root, _, files in os.walk(session_sc_dir):
+                            for f in files:
+                                fp = os.path.join(root, f)
+                                rel = os.path.relpath(fp, session_sc_dir)
+                                arc = os.path.join('screenshots', rel)
+                                zf.write(fp, arc)
+                
+                bundle_url = f"http://{request.host}/files/{bundle_name}"
+                print(f"\n{'='*70}")
+                print(f"📦 DEBUG BUNDLE CREATED")
+                print(f"{'='*70}")
+                print(f" Public URL: {bundle_url}")
+                print(f" File: {bundle_name}")
+                print(f" Size: {os.path.getsize(bundle_path)} bytes")
+                print(f"{'='*70}\n")
+                
+            except Exception as be:
+                print(f"⚠️ Bundle creation failed: {be}")
+        else:
+            print(f"\n✅ Working mode: No debug bundle created (screenshots available via direct URLs)")
         
         # Clean up appointment workflow session (keep browser session alive)
         if appt_session.session_id in appointment_sessions:
@@ -6559,9 +6564,12 @@ def check_appointments():
             "session_id": browser_session_id,
             "is_new_session": is_new_browser_session,
             "appointment_session_id": appt_session.session_id,
-            "debug_bundle_url": bundle_url,
             "phase_data": appt_session.phase_data
         }
+        
+        # Only include debug bundle URL if debug mode is enabled
+        if debug_mode and bundle_url:
+            response["debug_bundle_url"] = bundle_url
         
         if container_type == 'import':
             response["available_times"] = available_times
