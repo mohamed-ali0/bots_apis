@@ -180,6 +180,7 @@ Phase 3: Find Calendar Icon → Click → Screenshot
   "is_new_session": true,
   "appointment_session_id": "appt_sess_xyz789_1696848100",
   "calendar_found": true,
+  "calendar_screenshot_url": "http://37.60.243.201:5010/files/20251009_123456_calendar_opened.png",
   "debug_bundle_url": "http://37.60.243.201:5010/files/appt_sess_xyz789_1696848100_20251009_123500_check_appointments.zip",
   "phase_data": {
     "container_type": "export",
@@ -253,6 +254,7 @@ Phase 3: Find Calendar Icon → Click → Screenshot
 | Field | Type | Description |
 |-------|------|-------------|
 | `calendar_found` | boolean | Whether calendar icon was found and clicked |
+| `calendar_screenshot_url` | string | Direct screenshot of opened calendar (if found) |
 
 ### Error-Specific Fields
 
@@ -476,9 +478,10 @@ result = response.json()
 if result["success"]:
     if result["calendar_found"]:
         print("✅ Calendar found and ready for appointment booking")
+        print(f"📸 Calendar screenshot: {result['calendar_screenshot_url']}")
     else:
         print("⚠️ Calendar not found")
-    print(f"Debug bundle: {result['debug_bundle_url']}")
+    print(f"📦 Debug bundle: {result['debug_bundle_url']}")
 ```
 
 ---

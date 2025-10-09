@@ -2417,9 +2417,9 @@ class EModalBusinessOperations:
             print(f"  ✅ Calendar clicked")
             
             # Take screenshot to show calendar
-            self._capture_screenshot("calendar_opened")
+            screenshot_path = self._capture_screenshot("calendar_opened")
             
-            return {"success": True, "calendar_found": True}
+            return {"success": True, "calendar_found": True, "calendar_screenshot": screenshot_path}
             
         except Exception as e:
             print(f"  ❌ Error with calendar icon: {e}")
@@ -6522,7 +6522,7 @@ def check_appointments():
         
         logger.info(f"[{request_id}] Check appointments completed successfully (browser session kept alive: {browser_session_id})")
         
-        # Prepare dropdown screenshot URL if available
+        # Prepare dropdown screenshot URL if available (import)
         dropdown_screenshot_url = None
         if result.get("dropdown_screenshot"):
             screenshot_path = result.get("dropdown_screenshot")
@@ -6534,6 +6534,21 @@ def check_appointments():
                 shutil.copy2(screenshot_path, public_screenshot_path)
                 dropdown_screenshot_url = f"http://{request.host}/files/{screenshot_filename}"
                 print(f"📸 Dropdown screenshot available: {dropdown_screenshot_url}")
+            except Exception as copy_error:
+                print(f"⚠️ Could not copy screenshot: {copy_error}")
+        
+        # Prepare calendar screenshot URL if available (export)
+        calendar_screenshot_url = None
+        if result.get("calendar_screenshot"):
+            screenshot_path = result.get("calendar_screenshot")
+            screenshot_filename = os.path.basename(screenshot_path)
+            # Copy to downloads folder for public access
+            try:
+                import shutil
+                public_screenshot_path = os.path.join(DOWNLOADS_DIR, screenshot_filename)
+                shutil.copy2(screenshot_path, public_screenshot_path)
+                calendar_screenshot_url = f"http://{request.host}/files/{screenshot_filename}"
+                print(f"📸 Calendar screenshot available: {calendar_screenshot_url}")
             except Exception as copy_error:
                 print(f"⚠️ Could not copy screenshot: {copy_error}")
         
@@ -6554,6 +6569,7 @@ def check_appointments():
             response["dropdown_screenshot_url"] = dropdown_screenshot_url
         else:  # export
             response["calendar_found"] = calendar_found
+            response["calendar_screenshot_url"] = calendar_screenshot_url
         
         return jsonify(response), 200
     
