@@ -2145,55 +2145,42 @@ class EModalBusinessOperations:
             # Take screenshot before reading state
             self._capture_screenshot("own_chassis_before_read")
             
-            # Find the button group first
-            button_group = None
-            try:
-                button_group = self.driver.find_element(By.XPATH, "//mat-button-toggle-group[contains(@class, 'mat-button-toggle-group')]")
-            except:
-                print(f"  ⚠️ Could not find button toggle group")
-            
-            # Find all YES/NO toggle buttons
-            toggle_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class, 'mat-button-toggle')]//span[text()='YES' or text()='NO']")
-            if not toggle_buttons:
+            # Find all YES/NO toggle spans (with or without _ngcontent attributes)
+            toggle_spans = self.driver.find_elements(By.XPATH, "//span[text()='YES' or text()='NO']")
+            if not toggle_spans:
                 print(f"  ❌ No YES/NO toggle buttons found")
                 return {"success": False, "error": "Own chassis toggle not found"}
             
-            print(f"  🔍 Found {len(toggle_buttons)} toggle button(s)")
+            print(f"  🔍 Found {len(toggle_spans)} toggle span(s)")
             
-            # Detect current state by checking each button
+            # Detect current state by checking multiple indicators
             current_state = None
+            current_span = None
             
-            for span in toggle_buttons:
+            for span in toggle_spans:
                 try:
                     text = span.text.strip()
+                    # Check parent button for checked state
                     parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
-                    
-                    # Get all attributes
                     classes = parent.get_attribute("class") or ""
                     aria_pressed = parent.get_attribute("aria-pressed") or ""
-                    aria_checked = parent.get_attribute("aria-checked") or ""
                     
-                    print(f"    Button '{text}': checked={aria_checked}, pressed={aria_pressed}, has-checked-class={('mat-button-toggle-checked' in classes)}")
+                    print(f"    Span '{text}': pressed={aria_pressed}, has-checked-class={('mat-button-toggle-checked' in classes)}")
                     
                     # Check if this button is currently selected
-                    if "mat-button-toggle-checked" in classes or aria_pressed == "true" or aria_checked == "true":
+                    if "mat-button-toggle-checked" in classes or aria_pressed == "true":
                         current_state = text
+                        current_span = span
                         print(f"  ✅ Detected current state: {current_state}")
                         break
                 except Exception as e:
-                    print(f"    ⚠️ Error reading button state: {e}")
+                    print(f"    ⚠️ Error checking span: {e}")
                     pass
             
-            # If still no state detected, try alternative method
+            # If still no state detected, assume first one (NO) is default
             if current_state is None:
-                print(f"  ⚠️ Could not detect state from buttons, trying alternative method...")
-                try:
-                    checked_button = self.driver.find_element(By.XPATH, "//button[contains(@class,'mat-button-toggle-checked')]//span[text()='YES' or text()='NO']")
-                    current_state = checked_button.text.strip()
-                    print(f"  ✅ Detected current state (alternative): {current_state}")
-                except:
-                    current_state = "NO"
-                    print(f"  ⚠️ Could not detect state, assuming default: {current_state}")
+                current_state = "NO"
+                print(f"  ⚠️ Could not detect state, assuming default: {current_state}")
             
             # Check if already in desired state
             if current_state == target:
@@ -2203,34 +2190,32 @@ class EModalBusinessOperations:
             
             # Need to toggle - find and click the target button
             print(f"  🔄 Changing from {current_state} to {target}...")
-            
-            for span in toggle_buttons:
+            for span in toggle_spans:
                 if span.text.strip() == target:
                     try:
-                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
-                        
                         # Scroll into view
-                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", parent)
+                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", span)
                         time.sleep(0.5)
                         
-                        # Click the parent button
+                        # Click the span (or its parent button)
+                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
                         print(f"  🖱️  Clicking {target} button...")
                         parent.click()
                         time.sleep(1)
                         
-                        print(f"  ✅ Clicked {target}")
-                        self._capture_screenshot("own_chassis_after_toggle")
+                        print(f"  ✅ Toggled to {target}")
+                        self._capture_screenshot("own_chassis_toggled")
                         return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
                     except Exception as click_error:
                         print(f"  ⚠️ Error clicking parent, trying span: {click_error}")
                         # Try clicking span directly
                         span.click()
                         time.sleep(1)
-                        print(f"  ✅ Clicked {target} (direct)")
-                        self._capture_screenshot("own_chassis_after_toggle")
+                        print(f"  ✅ Toggled to {target} (direct click)")
+                        self._capture_screenshot("own_chassis_toggled")
                         return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
             
-            return {"success": False, "error": f"Could not find {target} button to click"}
+            return {"success": False, "error": f"Could not find {target} option"}
         except Exception as e:
             print(f"  ❌ Error toggling own chassis: {e}")
             import traceback
