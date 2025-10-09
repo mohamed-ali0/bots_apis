@@ -6151,7 +6151,37 @@ def check_appointments():
                 except:
                     pass
                 
-                # Check for and close any popup messages (e.g., "Booking shippingline is required")
+                # Check for specific error: "No open transactions for this booking number"
+                try:
+                    error_dialog = operations.driver.find_element(
+                        By.XPATH,
+                        "//div[contains(@class, 'dialog-content')]//span[contains(text(), 'No open transactions for this booking number')]"
+                    )
+                    if error_dialog:
+                        error_message = error_dialog.text.strip()
+                        print(f"  ⚠️ Booking number error detected: {error_message}")
+                        operations._capture_screenshot("booking_number_error")
+                        
+                        # Close the error dialog
+                        operations.close_popup_if_present()
+                        
+                        # Release session
+                        release_session_after_operation(browser_session_id)
+                        
+                        return jsonify({
+                            "success": False,
+                            "error": "Booking number validation failed",
+                            "error_message": error_message,
+                            "session_id": browser_session_id,
+                            "is_new_session": is_new_browser_session,
+                            "appointment_session_id": appt_session.session_id,
+                            "current_phase": 1,
+                            "screenshot_url": f"http://{request.host}/files/{operations.screens_dir.split('/')[-1]}/booking_number_error.png"
+                        }), 400
+                except:
+                    pass  # No error dialog found, continue
+                
+                # Check for and close any other popup messages (e.g., "Booking shippingline is required")
                 operations.close_popup_if_present()
                 
                 print("  ⏳ Waiting 5 seconds before filling quantity...")
