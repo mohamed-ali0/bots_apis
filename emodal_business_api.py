@@ -2093,8 +2093,51 @@ class EModalBusinessOperations:
             print(f"  ❌ Error filling truck plate: {e}")
             return {"success": False, "error": str(e)}
     
+    def close_popup_if_present(self) -> Dict[str, Any]:
+        """Detect and close popup messages (e.g., 'Booking shippingline is required')"""
+        try:
+            print("🔍 Checking for popup messages...")
+            
+            # Look for CLOSE button in popup
+            close_buttons = self.driver.find_elements(
+                By.XPATH,
+                "//span[@class='mat-button-wrapper' and text()='CLOSE']"
+            )
+            
+            if close_buttons:
+                print(f"  ⚠️ Found {len(close_buttons)} popup(s) - closing...")
+                
+                for idx, close_btn in enumerate(close_buttons, 1):
+                    try:
+                        # Check if button is visible
+                        if close_btn.is_displayed():
+                            print(f"  🖱️  Clicking CLOSE button {idx}...")
+                            
+                            # Try regular click first
+                            try:
+                                close_btn.click()
+                            except:
+                                # Fallback to JavaScript click
+                                self.driver.execute_script("arguments[0].click();", close_btn)
+                            
+                            time.sleep(0.5)
+                            print(f"  ✅ Popup {idx} closed")
+                    except Exception as btn_error:
+                        print(f"  ⚠️ Could not click button {idx}: {btn_error}")
+                
+                self._capture_screenshot("popup_closed")
+                return {"success": True, "popups_closed": len(close_buttons)}
+            else:
+                print("  ℹ️  No popup messages found")
+                return {"success": True, "popups_closed": 0}
+                
+        except Exception as e:
+            print(f"  ⚠️ Error checking for popups: {e}")
+            # Don't fail the whole operation if popup check fails
+            return {"success": True, "popups_closed": 0, "error": str(e)}
+    
     def toggle_own_chassis(self, own_chassis: bool) -> Dict[str, Any]:
-        """Toggle the 'Own Chassis' button"""
+        """Toggle the 'Own Chassis' button - Smart toggle that reads current state first"""
         try:
             target = "YES" if own_chassis else "NO"
             print(f"🔘 Setting Own Chassis to: {target}...")
@@ -6050,13 +6093,16 @@ def check_appointments():
                         "current_phase": 1
                     }), 500
                 
-                # Click blank space and wait 5 seconds before filling quantity
+                # Click blank space and check for popup after booking number
                 print("  🖱️  Clicking blank space after booking number...")
                 try:
                     operations.driver.find_element(By.TAG_NAME, "body").click()
                     time.sleep(0.5)
                 except:
                     pass
+                
+                # Check for and close any popup messages (e.g., "Booking shippingline is required")
+                operations.close_popup_if_present()
                 
                 print("  ⏳ Waiting 5 seconds before filling quantity...")
                 time.sleep(5)
@@ -6090,12 +6136,13 @@ def check_appointments():
                         operations.fill_container_number(container_id)
                     else:  # export
                         operations.fill_container_number(booking_number)
-                        # Click blank and wait before quantity
+                        # Click blank and check for popup
                         try:
                             operations.driver.find_element(By.TAG_NAME, "body").click()
                             time.sleep(0.5)
                         except:
                             pass
+                        operations.close_popup_if_present()
                         time.sleep(5)
                         operations.fill_quantity_field()
                     
@@ -6374,11 +6421,11 @@ def check_appointments():
                             arc = os.path.join('screenshots', rel)
                             zf.write(fp, arc)
             
-            bundle_url = f"/files/{bundle_name}"
+            bundle_url = f"http://89.117.63.196:5010/files/{bundle_name}"
             print(f"\n{'='*70}")
             print(f"📦 DEBUG BUNDLE CREATED")
             print(f"{'='*70}")
-            print(f" Public URL: http://89.117.63.196:5010{bundle_url}")
+            print(f" Public URL: {bundle_url}")
             print(f" File: {bundle_name}")
             print(f" Size: {os.path.getsize(bundle_path)} bytes")
             print(f"{'='*70}\n")
@@ -6672,11 +6719,11 @@ def make_appointment():
                             arc = os.path.join('screenshots', rel)
                             zf.write(fp, arc)
             
-            bundle_url = f"/files/{bundle_name}"
+            bundle_url = f"http://89.117.63.196:5010/files/{bundle_name}"
             print(f"\n{'='*70}")
             print(f"📦 APPOINTMENT SUBMITTED - DEBUG BUNDLE CREATED")
             print(f"{'='*70}")
-            print(f" Public URL: http://89.117.63.196:5010{bundle_url}")
+            print(f" Public URL: {bundle_url}")
             print(f" File: {bundle_name}")
             print(f" Size: {os.path.getsize(bundle_path)} bytes")
             print(f"{'='*70}\n")
