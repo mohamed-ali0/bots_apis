@@ -6204,6 +6204,9 @@ def check_appointments():
             truck_plate = data.get('truck_plate')
             own_chassis = data.get('own_chassis', False)
             
+            # Debug: Show what we received
+            print(f"  📋 Received own_chassis value: {own_chassis} (type: {type(own_chassis).__name__})")
+            
             # Select checkbox (always required)
             result = operations.select_container_checkbox()
             if not result["success"]:
@@ -6421,7 +6424,7 @@ def check_appointments():
                             arc = os.path.join('screenshots', rel)
                             zf.write(fp, arc)
             
-            bundle_url = f"http://89.117.63.196:5010/files/{bundle_name}"
+            bundle_url = f"http://{request.host}/files/{bundle_name}"
             print(f"\n{'='*70}")
             print(f"📦 DEBUG BUNDLE CREATED")
             print(f"{'='*70}")
@@ -6719,7 +6722,7 @@ def make_appointment():
                             arc = os.path.join('screenshots', rel)
                             zf.write(fp, arc)
             
-            bundle_url = f"http://89.117.63.196:5010/files/{bundle_name}"
+            bundle_url = f"http://{request.host}/files/{bundle_name}"
             print(f"\n{'='*70}")
             print(f"📦 APPOINTMENT SUBMITTED - DEBUG BUNDLE CREATED")
             print(f"{'='*70}")
