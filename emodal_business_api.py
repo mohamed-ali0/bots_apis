@@ -2166,6 +2166,184 @@ class EModalBusinessOperations:
             print(f"  ❌ Error toggling own chassis: {e}")
             return {"success": False, "error": str(e)}
     
+    def fill_quantity_field(self) -> Dict[str, Any]:
+        """Fill quantity field with '1' for export appointments"""
+        try:
+            print(f"🔢 Filling quantity field...")
+            
+            # Find quantity field by label
+            quantity_input = None
+            try:
+                # Strategy 1: Find by label "Quantity"
+                quantity_input = self.driver.find_element(
+                    By.XPATH, 
+                    "//mat-label[contains(text(),'Quantity')]/ancestor::mat-form-field//input[@type='number']"
+                )
+            except:
+                # Strategy 2: Find by type='number' with min='1'
+                try:
+                    quantity_input = self.driver.find_element(
+                        By.XPATH,
+                        "//input[@type='number' and @min='1']"
+                    )
+                except:
+                    pass
+            
+            if not quantity_input:
+                return {"success": False, "error": "Quantity field not found"}
+            
+            # Get current value
+            current_value = quantity_input.get_attribute("value") or "0"
+            print(f"  📊 Current quantity: {current_value}")
+            
+            # Clear and set to 1
+            quantity_input.clear()
+            time.sleep(0.3)
+            quantity_input.click()
+            time.sleep(0.3)
+            quantity_input.send_keys("1")
+            time.sleep(0.5)
+            
+            print(f"  ✅ Quantity set to 1")
+            self._capture_screenshot("quantity_filled")
+            
+            # Wait 3 seconds as requested
+            print(f"  ⏳ Waiting 3 seconds...")
+            time.sleep(3)
+            
+            return {"success": True, "quantity": "1"}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling quantity: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def fill_unit_number(self, unit_number: str = "1") -> Dict[str, Any]:
+        """Fill unit number field for export appointments"""
+        try:
+            print(f"📦 Filling unit number: {unit_number}...")
+            
+            # Find unit number field by formcontrolname
+            unit_input = None
+            try:
+                unit_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='Unit']")
+            except:
+                try:
+                    # Fallback: Find by uppercase attribute
+                    unit_input = self.driver.find_element(
+                        By.XPATH,
+                        "//input[@matinput and @uppercase and @maxlength='11']"
+                    )
+                except:
+                    pass
+            
+            if not unit_input:
+                return {"success": False, "error": "Unit number field not found"}
+            
+            # Clear and fill
+            unit_input.clear()
+            time.sleep(0.3)
+            unit_input.click()
+            time.sleep(0.3)
+            unit_input.send_keys(unit_number)
+            time.sleep(0.5)
+            
+            print(f"  ✅ Unit number filled: {unit_number}")
+            self._capture_screenshot("unit_number_filled")
+            return {"success": True, "unit_number": unit_number}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling unit number: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def fill_seal_fields(self, seal_value: str = "1") -> Dict[str, Any]:
+        """Fill all 4 seal fields for export appointments"""
+        try:
+            print(f"🔒 Filling seal fields with: {seal_value}...")
+            
+            filled_count = 0
+            
+            # Fill all 4 seal fields
+            for i in range(1, 5):
+                seal_name = f"Seal{i}_Num"
+                try:
+                    seal_input = self.driver.find_element(
+                        By.XPATH,
+                        f"//input[@formcontrolname='{seal_name}']"
+                    )
+                    
+                    seal_input.clear()
+                    time.sleep(0.2)
+                    seal_input.click()
+                    time.sleep(0.2)
+                    seal_input.send_keys(seal_value)
+                    time.sleep(0.3)
+                    
+                    filled_count += 1
+                    print(f"  ✅ Filled Seal {i}")
+                    
+                except Exception as seal_error:
+                    print(f"  ⚠️ Could not fill Seal {i}: {seal_error}")
+            
+            if filled_count == 0:
+                return {"success": False, "error": "No seal fields found"}
+            
+            print(f"  ✅ Filled {filled_count}/4 seal fields")
+            self._capture_screenshot("seals_filled")
+            return {"success": True, "seals_filled": filled_count}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling seal fields: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def find_and_click_calendar_icon(self) -> Dict[str, Any]:
+        """Find and click calendar icon in Phase 3, then take screenshot"""
+        try:
+            print(f"📅 Looking for calendar icon...")
+            
+            # Find calendar icon by text 'calendar_month'
+            calendar_icon = None
+            try:
+                calendar_icon = self.driver.find_element(
+                    By.XPATH,
+                    "//mat-icon[text()='calendar_month']"
+                )
+            except:
+                # Fallback: Find any mat-icon with calendar in it
+                try:
+                    calendar_icon = self.driver.find_element(
+                        By.XPATH,
+                        "//mat-icon[contains(text(),'calendar')]"
+                    )
+                except:
+                    pass
+            
+            if not calendar_icon:
+                print(f"  ❌ Calendar icon not found")
+                self._capture_screenshot("calendar_not_found")
+                return {"success": False, "calendar_found": False, "error": "Calendar icon not found"}
+            
+            print(f"  ✅ Calendar icon found")
+            
+            # Click the calendar icon
+            try:
+                calendar_icon.click()
+            except:
+                # Try JavaScript click
+                self.driver.execute_script("arguments[0].click();", calendar_icon)
+            
+            time.sleep(1)
+            print(f"  ✅ Calendar clicked")
+            
+            # Take screenshot to show calendar
+            self._capture_screenshot("calendar_opened")
+            
+            return {"success": True, "calendar_found": True}
+            
+        except Exception as e:
+            print(f"  ❌ Error with calendar icon: {e}")
+            self._capture_screenshot("calendar_error")
+            return {"success": False, "calendar_found": False, "error": str(e)}
+    
     def get_available_appointment_times(self) -> Dict[str, Any]:
         """
         Get all available appointment time slots from Phase 3 dropdown.
@@ -5606,7 +5784,10 @@ def check_appointments():
     Check available appointment times by going through all 3 phases.
     Does NOT submit the appointment - only retrieves available time slots.
     
+    Supports both IMPORT and EXPORT container workflows.
+    
     Required fields:
+        - container_type: "import" or "export" (required)
         - session_id (optional): Use existing persistent session, skip login
         OR
         - username, password, captcha_api_key (required if no session_id)
@@ -5615,12 +5796,32 @@ def check_appointments():
         - trucking_company: Trucking company name
         - terminal: Terminal name (e.g., "ITS Long Beach")
         - move_type: Move type (e.g., "DROP EMPTY")
-        - container_id: Container number
+        
+        For IMPORT:
+            - container_id: Container number
+        
+        For EXPORT:
+            - booking_number: Booking number
     
     Phase 2 fields (required unless continuing from appointment_session_id):
-        - pin_code: PIN code (optional, can be missing)
-        - truck_plate: Truck plate number
-        - own_chassis: Boolean (true/false)
+        For IMPORT:
+            - pin_code: PIN code (optional, can be missing)
+            - truck_plate: Truck plate number
+            - own_chassis: Boolean (true/false)
+        
+        For EXPORT:
+            - unit_number: Unit number (default: "1")
+            - seal_value: Value for seal fields (default: "1")
+            - truck_plate: Truck plate number
+            - own_chassis: Boolean (true/false)
+    
+    Phase 3:
+        For IMPORT:
+            - Returns available appointment times
+        
+        For EXPORT:
+            - Finds and clicks calendar icon
+            - Returns calendar_found: true/false
     
     Session continuation (if error occurred):
         - appointment_session_id: To continue from where it left off (different from session_id)
@@ -5630,7 +5831,8 @@ def check_appointments():
         - session_id: Browser session ID (persistent)
         - is_new_session: Whether browser session was newly created
         - appointment_session_id: Appointment workflow session ID
-        - available_times: List of appointment time slots
+        - available_times: List of appointment time slots (import only)
+        - calendar_found: Boolean (export only)
         - debug_bundle_url: ZIP file with screenshots
         - current_phase: Current phase number (1-3)
         - message: Error message if missing fields
@@ -5648,6 +5850,16 @@ def check_appointments():
         
         data = request.get_json()
         appointment_session_id = data.get('appointment_session_id')
+        
+        # Validate container_type
+        container_type = data.get('container_type', '').lower()
+        if container_type not in ['import', 'export']:
+            return jsonify({
+                "success": False,
+                "error": "container_type must be 'import' or 'export'"
+            }), 400
+        
+        print(f"📦 Container Type: {container_type.upper()}")
         
         # Check if continuing from existing appointment workflow session
         if appointment_session_id and appointment_session_id in appointment_sessions:
@@ -5731,11 +5943,16 @@ def check_appointments():
         if container_id:
             operations.current_container_id = container_id
         
-        # PHASE 1: Dropdowns + Container Number
+        # PHASE 1: Dropdowns + Container/Booking Number + Quantity (for export)
         if appt_session.current_phase == 1:
-            print("\n" + "="*70)
-            print("📋 PHASE 1: Trucking Company, Terminal, Move Type, Container")
-            print("="*70)
+            if container_type == 'import':
+                print("\n" + "="*70)
+                print("📋 PHASE 1 (IMPORT): Trucking Company, Terminal, Move Type, Container")
+                print("="*70)
+            else:
+                print("\n" + "="*70)
+                print("📋 PHASE 1 (EXPORT): Trucking Company, Terminal, Move Type, Booking, Quantity")
+                print("="*70)
             
             # Wait 5 seconds for phase to fully load
             print("⏳ Waiting 5 seconds for Phase 1 to fully load...")
@@ -5745,9 +5962,8 @@ def check_appointments():
             trucking_company = data.get('trucking_company')
             terminal = data.get('terminal')
             move_type = data.get('move_type')
-            container_id = data.get('container_id')
             
-            # Check for missing fields
+            # Check for missing fields based on container type
             missing_fields = []
             if not trucking_company:
                 missing_fields.append("trucking_company")
@@ -5755,8 +5971,15 @@ def check_appointments():
                 missing_fields.append("terminal")
             if not move_type:
                 missing_fields.append("move_type")
-            if not container_id:
-                missing_fields.append("container_id")
+            
+            if container_type == 'import':
+                container_id = data.get('container_id')
+                if not container_id:
+                    missing_fields.append("container_id")
+            else:  # export
+                booking_number = data.get('booking_number')
+                if not booking_number:
+                    missing_fields.append("booking_number")
             
             if missing_fields:
                 return jsonify({
@@ -5803,16 +6026,41 @@ def check_appointments():
                     "current_phase": 1
                 }), 500
             
-            result = operations.fill_container_number(container_id)
-            if not result["success"]:
-                return jsonify({
-                    "success": False,
-                    "error": f"Phase 1 failed - Container: {result['error']}",
-                    "session_id": browser_session_id,
-                    "is_new_session": is_new_browser_session,
-                    "appointment_session_id": appt_session.session_id,
-                    "current_phase": 1
-                }), 500
+            # Fill container or booking number based on type
+            if container_type == 'import':
+                result = operations.fill_container_number(container_id)
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 1 failed - Container: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 1
+                    }), 500
+            else:  # export
+                result = operations.fill_container_number(booking_number)  # Works for both container and booking
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 1 failed - Booking number: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 1
+                    }), 500
+                
+                # Fill quantity field (export only)
+                result = operations.fill_quantity_field()
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 1 failed - Quantity: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 1
+                    }), 500
             
             # Click Next
             result = operations.click_next_button(1)
@@ -5825,7 +6073,12 @@ def check_appointments():
                     operations.select_dropdown_by_text("Trucking", trucking_company)
                     operations.select_dropdown_by_text("Terminal", terminal)
                     operations.select_dropdown_by_text("Move", move_type)
-                    operations.fill_container_number(container_id)
+                    
+                    if container_type == 'import':
+                        operations.fill_container_number(container_id)
+                    else:  # export
+                        operations.fill_container_number(booking_number)
+                        operations.fill_quantity_field()
                     
                     # Retry Next button
                     print("  🔄 Retrying Next button after re-filling...")
@@ -5851,26 +6104,37 @@ def check_appointments():
             
             # Update session
             appt_session.current_phase = 2
-            appt_session.phase_data.update({
+            phase_data = {
+                "container_type": container_type,
                 "trucking_company": trucking_company,
                 "terminal": terminal,
-                "move_type": move_type,
-                "container_id": container_id
-            })
+                "move_type": move_type
+            }
+            
+            if container_type == 'import':
+                phase_data["container_id"] = container_id
+            else:  # export
+                phase_data["booking_number"] = booking_number
+            
+            appt_session.phase_data.update(phase_data)
             print("✅ Phase 1 completed successfully")
         
-        # PHASE 2: Checkbox, PIN, Plate, Chassis
+        # PHASE 2: Container Selection + Type-Specific Fields
         if appt_session.current_phase == 2:
-            print("\n" + "="*70)
-            print("📋 PHASE 2: Container Selection, PIN, Truck Plate, Chassis")
-            print("="*70)
+            if container_type == 'import':
+                print("\n" + "="*70)
+                print("📋 PHASE 2 (IMPORT): Checkbox, PIN, Truck Plate, Chassis")
+                print("="*70)
+            else:
+                print("\n" + "="*70)
+                print("📋 PHASE 2 (EXPORT): Checkbox, Unit, Seals, Truck Plate, Chassis")
+                print("="*70)
             
             # Wait 5 seconds for phase to fully load
             print("⏳ Waiting 5 seconds for Phase 2 to fully load...")
             time.sleep(5)
             print("✅ Phase 2 ready")
             
-            pin_code = data.get('pin_code')
             truck_plate = data.get('truck_plate')
             own_chassis = data.get('own_chassis', False)
             
@@ -5886,13 +6150,42 @@ def check_appointments():
                     "current_phase": 2
                 }), 500
             
-            # PIN code (optional)
-            if pin_code:
-                result = operations.fill_pin_code(pin_code)
+            # Type-specific fields
+            if container_type == 'import':
+                # Import: PIN code (optional)
+                pin_code = data.get('pin_code')
+                if pin_code:
+                    result = operations.fill_pin_code(pin_code)
+                    if not result["success"]:
+                        return jsonify({
+                            "success": False,
+                            "error": f"Phase 2 failed - PIN: {result['error']}",
+                            "session_id": browser_session_id,
+                            "is_new_session": is_new_browser_session,
+                            "appointment_session_id": appt_session.session_id,
+                            "current_phase": 2
+                        }), 500
+            else:  # export
+                # Export: Unit number (default "1")
+                unit_number = data.get('unit_number', '1')
+                result = operations.fill_unit_number(unit_number)
                 if not result["success"]:
                     return jsonify({
                         "success": False,
-                        "error": f"Phase 2 failed - PIN: {result['error']}",
+                        "error": f"Phase 2 failed - Unit number: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 2
+                    }), 500
+                
+                # Export: Seal fields (default "1")
+                seal_value = data.get('seal_value', '1')
+                result = operations.fill_seal_fields(seal_value)
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 2 failed - Seal fields: {result['error']}",
                         "session_id": browser_session_id,
                         "is_new_session": is_new_browser_session,
                         "appointment_session_id": appt_session.session_id,
@@ -5943,8 +6236,17 @@ def check_appointments():
                     
                     # Re-fill all Phase 2 fields
                     operations.select_container_checkbox()
-                    if pin_code:
-                        operations.fill_pin_code(pin_code)
+                    
+                    if container_type == 'import':
+                        pin_code = data.get('pin_code')
+                        if pin_code:
+                            operations.fill_pin_code(pin_code)
+                    else:  # export
+                        unit_number = data.get('unit_number', '1')
+                        seal_value = data.get('seal_value', '1')
+                        operations.fill_unit_number(unit_number)
+                        operations.fill_seal_fields(seal_value)
+                    
                     operations.fill_truck_plate(truck_plate)
                     operations.toggle_own_chassis(own_chassis)
                     
@@ -5972,38 +6274,67 @@ def check_appointments():
             
             # Update session
             appt_session.current_phase = 3
-            appt_session.phase_data.update({
-                "pin_code": pin_code,
+            phase_data = {
                 "truck_plate": truck_plate,
                 "own_chassis": own_chassis
-            })
+            }
+            
+            if container_type == 'import':
+                pin_code = data.get('pin_code')
+                if pin_code:
+                    phase_data["pin_code"] = pin_code
+            else:  # export
+                phase_data["unit_number"] = data.get('unit_number', '1')
+                phase_data["seal_value"] = data.get('seal_value', '1')
+            
+            appt_session.phase_data.update(phase_data)
             print("✅ Phase 2 completed successfully")
         
-        # PHASE 3: Get Available Times
+        # PHASE 3: Get Available Times (import) or Find Calendar (export)
         if appt_session.current_phase == 3:
-            print("\n" + "="*70)
-            print("📋 PHASE 3: Retrieving Available Appointment Times")
-            print("="*70)
+            if container_type == 'import':
+                print("\n" + "="*70)
+                print("📋 PHASE 3 (IMPORT): Retrieving Available Appointment Times")
+                print("="*70)
+            else:
+                print("\n" + "="*70)
+                print("📋 PHASE 3 (EXPORT): Finding Calendar Icon")
+                print("="*70)
             
             # Wait 5 seconds for phase to fully load
             print("⏳ Waiting 5 seconds for Phase 3 to fully load...")
             time.sleep(5)
             print("✅ Phase 3 ready")
             
-            result = operations.get_available_appointment_times()
-            if not result["success"]:
-                return jsonify({
-                    "success": False,
-                    "error": f"Phase 3 failed: {result['error']}",
-                    "session_id": browser_session_id,
-                    "is_new_session": is_new_browser_session,
-                    "appointment_session_id": appt_session.session_id,
-                    "current_phase": 3
-                }), 500
+            # Execute phase based on container type
+            available_times = []
+            calendar_found = False
             
-            available_times = result["available_times"]
-            print("✅ Phase 3 completed successfully")
-            print(f"✅ Found {len(available_times)} available appointment times")
+            if container_type == 'import':
+                result = operations.get_available_appointment_times()
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 3 failed: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 3
+                    }), 500
+                
+                available_times = result["available_times"]
+                print("✅ Phase 3 completed successfully")
+                print(f"✅ Found {len(available_times)} available appointment times")
+            else:  # export
+                result = operations.find_and_click_calendar_icon()
+                calendar_found = result.get("calendar_found", False)
+                
+                if calendar_found:
+                    print("✅ Phase 3 completed successfully")
+                    print(f"✅ Calendar icon found and clicked")
+                else:
+                    print("⚠️ Phase 3 completed but calendar not found")
+                    print(f"⚠️ Calendar icon was not found on the page")
         
         # Create debug bundle
         bundle_name = None
@@ -6057,17 +6388,25 @@ def check_appointments():
             except Exception as copy_error:
                 print(f"⚠️ Could not copy screenshot: {copy_error}")
         
-        return jsonify({
+        # Build response based on container type
+        response = {
             "success": True,
+            "container_type": container_type,
             "session_id": browser_session_id,
             "is_new_session": is_new_browser_session,
             "appointment_session_id": appt_session.session_id,
-            "available_times": available_times,
-            "count": len(available_times),
-            "dropdown_screenshot_url": dropdown_screenshot_url,
             "debug_bundle_url": bundle_url,
             "phase_data": appt_session.phase_data
-        }), 200
+        }
+        
+        if container_type == 'import':
+            response["available_times"] = available_times
+            response["count"] = len(available_times)
+            response["dropdown_screenshot_url"] = dropdown_screenshot_url
+        else:  # export
+            response["calendar_found"] = calendar_found
+        
+        return jsonify(response), 200
     
     except Exception as e:
         logger.error(f"[{request_id}] Unexpected error: {str(e)}")
