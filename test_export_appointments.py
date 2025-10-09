@@ -21,6 +21,7 @@ TEST_EXPORT_DATA = {
     "terminal": "Everport Terminal Services - Los Angeles",
     "move_type": "DROP FULL",
     "booking_number": "510476551",  # Booking number instead of container ID
+    "container_number": "CONTAINER123",  # For display in screenshots (optional)
     "truck_plate": "ABC123",  # Wildcard to select any available plate
     "own_chassis": True,
     "unit_number": "1",  # Will be filled automatically

@@ -2142,71 +2142,99 @@ class EModalBusinessOperations:
             target = "YES" if own_chassis else "NO"
             print(f"🔘 Setting Own Chassis to: {target}...")
             
-            # Find all YES/NO toggle spans
-            toggle_spans = self.driver.find_elements(By.XPATH, "//span[text()='YES' or text()='NO']")
-            if not toggle_spans:
+            # Take screenshot before reading state
+            self._capture_screenshot("own_chassis_before_read")
+            
+            # Find the button group first
+            button_group = None
+            try:
+                button_group = self.driver.find_element(By.XPATH, "//mat-button-toggle-group[contains(@class, 'mat-button-toggle-group')]")
+            except:
+                print(f"  ⚠️ Could not find button toggle group")
+            
+            # Find all YES/NO toggle buttons
+            toggle_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class, 'mat-button-toggle')]//span[text()='YES' or text()='NO']")
+            if not toggle_buttons:
+                print(f"  ❌ No YES/NO toggle buttons found")
                 return {"success": False, "error": "Own chassis toggle not found"}
             
-            # Detect current state by checking multiple indicators
-            current_state = None
-            current_span = None
+            print(f"  🔍 Found {len(toggle_buttons)} toggle button(s)")
             
-            for span in toggle_spans:
+            # Detect current state by checking each button
+            current_state = None
+            
+            for span in toggle_buttons:
                 try:
-                    # Check parent button for checked state
+                    text = span.text.strip()
                     parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                    
+                    # Get all attributes
                     classes = parent.get_attribute("class") or ""
                     aria_pressed = parent.get_attribute("aria-pressed") or ""
+                    aria_checked = parent.get_attribute("aria-checked") or ""
+                    
+                    print(f"    Button '{text}': checked={aria_checked}, pressed={aria_pressed}, has-checked-class={('mat-button-toggle-checked' in classes)}")
                     
                     # Check if this button is currently selected
-                    if "mat-button-toggle-checked" in classes or aria_pressed == "true":
-                        current_state = span.text
-                        current_span = span
+                    if "mat-button-toggle-checked" in classes or aria_pressed == "true" or aria_checked == "true":
+                        current_state = text
+                        print(f"  ✅ Detected current state: {current_state}")
                         break
-                except:
+                except Exception as e:
+                    print(f"    ⚠️ Error reading button state: {e}")
                     pass
             
-            # If still no state detected, assume first one (NO) is default
+            # If still no state detected, try alternative method
             if current_state is None:
-                current_state = "NO"
-                print(f"  📊 Could not detect state, assuming default: {current_state}")
-            else:
-                print(f"  📊 Current state: {current_state}")
+                print(f"  ⚠️ Could not detect state from buttons, trying alternative method...")
+                try:
+                    checked_button = self.driver.find_element(By.XPATH, "//button[contains(@class,'mat-button-toggle-checked')]//span[text()='YES' or text()='NO']")
+                    current_state = checked_button.text.strip()
+                    print(f"  ✅ Detected current state (alternative): {current_state}")
+                except:
+                    current_state = "NO"
+                    print(f"  ⚠️ Could not detect state, assuming default: {current_state}")
             
             # Check if already in desired state
             if current_state == target:
                 print(f"  ✅ Already set to {target} - no action needed")
                 self._capture_screenshot("own_chassis_already_set")
-                return {"success": True, "own_chassis": own_chassis}
+                return {"success": True, "own_chassis": own_chassis, "was_toggled": False}
             
             # Need to toggle - find and click the target button
             print(f"  🔄 Changing from {current_state} to {target}...")
-            for span in toggle_spans:
-                if span.text == target:
+            
+            for span in toggle_buttons:
+                if span.text.strip() == target:
                     try:
+                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                        
                         # Scroll into view
-                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", span)
+                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", parent)
                         time.sleep(0.5)
                         
-                        # Click the span (or its parent button)
-                        parent = span.find_element(By.XPATH, "./ancestor::button[contains(@class,'mat-button-toggle')]")
+                        # Click the parent button
+                        print(f"  🖱️  Clicking {target} button...")
                         parent.click()
                         time.sleep(1)
                         
-                        print(f"  ✅ Toggled to {target}")
-                        self._capture_screenshot("own_chassis_toggled")
-                        return {"success": True, "own_chassis": own_chassis}
+                        print(f"  ✅ Clicked {target}")
+                        self._capture_screenshot("own_chassis_after_toggle")
+                        return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
                     except Exception as click_error:
+                        print(f"  ⚠️ Error clicking parent, trying span: {click_error}")
                         # Try clicking span directly
                         span.click()
                         time.sleep(1)
-                        print(f"  ✅ Toggled to {target} (direct click)")
-                        self._capture_screenshot("own_chassis_toggled")
-                        return {"success": True, "own_chassis": own_chassis}
+                        print(f"  ✅ Clicked {target} (direct)")
+                        self._capture_screenshot("own_chassis_after_toggle")
+                        return {"success": True, "own_chassis": own_chassis, "was_toggled": True}
             
-            return {"success": False, "error": f"Could not find {target} option"}
+            return {"success": False, "error": f"Could not find {target} button to click"}
         except Exception as e:
             print(f"  ❌ Error toggling own chassis: {e}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "error": str(e)}
     
     def fill_quantity_field(self) -> Dict[str, Any]:
@@ -5953,9 +5981,13 @@ def check_appointments():
             operations.screens_enabled = True
             operations.screens_label = username
             
-            # Set container ID for screenshot annotations
+            # Set container ID for screenshot annotations (import or export)
             container_id = data.get('container_id')
-            if container_id:
+            container_number = data.get('container_number')  # For display in screenshots
+            
+            if container_number:
+                operations.current_container_id = container_number
+            elif container_id:
                 operations.current_container_id = container_id
             
             # Ensure app context
@@ -5981,9 +6013,16 @@ def check_appointments():
         operations.screens_enabled = True
         operations.screens_label = appt_session.browser_session.username
         
-        # Set container ID for screenshot annotations
+        # Set container ID for screenshot annotations (import or export)
         container_id = data.get('container_id')
-        if container_id:
+        container_number = data.get('container_number')  # For display in screenshots
+        booking_number = data.get('booking_number')  # For export
+        
+        if container_number:
+            operations.current_container_id = container_number
+        elif booking_number:
+            operations.current_container_id = booking_number
+        elif container_id:
             operations.current_container_id = container_id
         
         # PHASE 1: Dropdowns + Container/Booking Number + Quantity (for export)
