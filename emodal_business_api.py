@@ -1669,6 +1669,11 @@ class EModalBusinessOperations:
         try:
             print(f"📦 Filling container/booking number: {container_id}...")
             
+            # Wait 3 seconds before starting to fill (allows UI to stabilize after dropdown selections)
+            print("  ⏳ Waiting 3 seconds for UI to stabilize...")
+            time.sleep(3)
+            print("  ✅ Ready to fill container/booking number")
+            
             # First, try to find booking number field (text input)
             booking_input = None
             try:
