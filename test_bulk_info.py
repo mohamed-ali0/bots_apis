@@ -94,9 +94,18 @@ def test_bulk_with_session_creation():
                     if result.get('success'):
                         pregate = result.get('pregate_status')
                         status = "✅ PASSED" if pregate else "❌ NOT PASSED"
-                        print(f"   {container}: {status}")
-                        if result.get('pregate_details'):
-                            print(f"      Details: {result.get('pregate_details')}")
+                        milestone_count = result.get('milestone_count', 0)
+                        print(f"   {container}: {status} | {milestone_count} milestones")
+                        
+                        # Show timeline preview (first 3 milestones)
+                        timeline = result.get('timeline', [])
+                        if timeline:
+                            print(f"      Timeline preview:")
+                            for idx, m in enumerate(timeline[:3], 1):
+                                icon = "✅" if m['status'] == 'completed' else "⏳"
+                                print(f"         {idx}. {icon} {m['milestone']} - {m['date']}")
+                            if len(timeline) > 3:
+                                print(f"         ... and {len(timeline) - 3} more")
                     else:
                         print(f"   {container}: ❌ FAILED - {result.get('error')}")
             
@@ -221,13 +230,14 @@ def test_import_only():
             summary = data.get('results', {}).get('summary', {})
             print(f"\n✅ SUCCESS: {summary.get('import_success')}/{summary.get('total_import')} successful")
             
-            # Print pregate statuses
+            # Print pregate statuses with timeline info
             for result in data.get('results', {}).get('import_results', []):
                 container = result.get('container_id')
                 pregate = result.get('pregate_status')
+                milestone_count = result.get('milestone_count', 0)
                 if pregate is not None:
                     status = "PASSED" if pregate else "NOT PASSED"
-                    print(f"   {container}: {status}")
+                    print(f"   {container}: {status} ({milestone_count} milestones)")
             
             return True
         else:

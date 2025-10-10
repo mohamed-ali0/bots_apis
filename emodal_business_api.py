@@ -7828,10 +7828,24 @@ def get_info_bulk():
                             "container_id": container_id,
                             "success": False,
                             "error": f"Failed to expand: {expand_result.get('error')}",
-                            "pregate_status": None
+                            "pregate_status": None,
+                            "timeline": [],
+                            "milestone_count": 0
                         })
                         results["summary"]["import_failed"] += 1
                         continue
+                    
+                    # Extract full timeline
+                    timeline_result = operations.extract_full_timeline()
+                    timeline_data = []
+                    milestone_count = 0
+                    
+                    if timeline_result.get("success"):
+                        timeline_data = timeline_result.get("timeline", [])
+                        milestone_count = timeline_result.get("milestone_count", 0)
+                        print(f"  ✅ Extracted {milestone_count} milestones")
+                    else:
+                        print(f"  ⚠️ Timeline extraction failed: {timeline_result.get('error')}")
                     
                     # Get Pregate status
                     pregate_result = operations.check_pregate_status()
@@ -7841,7 +7855,9 @@ def get_info_bulk():
                             "container_id": container_id,
                             "success": True,
                             "pregate_status": pregate_result.get("passed_pregate"),
-                            "pregate_details": pregate_result.get("message")
+                            "pregate_details": pregate_result.get("message"),
+                            "timeline": timeline_data,
+                            "milestone_count": milestone_count
                         })
                         results["summary"]["import_success"] += 1
                         print(f"  ✅ Pregate: {pregate_result.get('passed_pregate')}")
@@ -7850,7 +7866,9 @@ def get_info_bulk():
                             "container_id": container_id,
                             "success": False,
                             "error": pregate_result.get("error"),
-                            "pregate_status": None
+                            "pregate_status": None,
+                            "timeline": timeline_data,
+                            "milestone_count": milestone_count
                         })
                         results["summary"]["import_failed"] += 1
                         print(f"  ❌ Failed: {pregate_result.get('error')}")
@@ -7861,7 +7879,9 @@ def get_info_bulk():
                         "container_id": container_id,
                         "success": False,
                         "error": str(e),
-                        "pregate_status": None
+                        "pregate_status": None,
+                        "timeline": [],
+                        "milestone_count": 0
                     })
                     results["summary"]["import_failed"] += 1
                     
