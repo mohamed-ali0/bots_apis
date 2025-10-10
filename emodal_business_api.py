@@ -4205,6 +4205,96 @@ class EModalBusinessOperations:
             print(f"  ❌ Error checking Pregate status: {e}")
             return {"success": False, "error": str(e)}
     
+    def extract_full_timeline(self) -> Dict[str, Any]:
+        """
+        Extract all timeline milestones with their dates and status.
+        
+        Returns:
+            Dict with success and timeline array of {milestone, date, status}
+            Timeline is in reverse chronological order (newest first)
+        """
+        try:
+            print("📋 Extracting full timeline...")
+            
+            # Find the timeline container
+            timeline_container = None
+            try:
+                timeline_container = self.driver.find_element(By.XPATH, "//app-containerflow")
+                print("  ✅ Found timeline container")
+            except Exception:
+                try:
+                    timeline_container = self.driver.find_element(By.XPATH, "//div[contains(@class,'timeline-container')]")
+                except Exception:
+                    return {"success": False, "error": "Timeline container not found"}
+            
+            # Find all milestone rows
+            try:
+                milestone_rows = timeline_container.find_elements(By.XPATH, ".//div[@fxlayout='row']")
+                print(f"  📊 Found {len(milestone_rows)} timeline rows")
+            except Exception as e:
+                return {"success": False, "error": f"Could not find timeline rows: {str(e)}"}
+            
+            timeline_data = []
+            
+            for idx, row in enumerate(milestone_rows):
+                try:
+                    # Find milestone label (name)
+                    milestone_labels = row.find_elements(By.XPATH, ".//span[contains(@class,'location-details-label')]")
+                    
+                    if len(milestone_labels) >= 2:
+                        # First span is the milestone name, second is the date
+                        milestone_name = milestone_labels[0].text.strip()
+                        milestone_date = milestone_labels[1].text.strip()
+                        
+                        # Skip if it's just an arrow icon
+                        if not milestone_name or milestone_name in ['arrow_drop_up', 'arrow_drop_down']:
+                            continue
+                        
+                        # Find divider to determine status
+                        status = "pending"
+                        try:
+                            divider = row.find_element(By.XPATH, ".//div[contains(@class,'timeline-divider')]")
+                            divider_classes = divider.get_attribute("class")
+                            
+                            # Check if line is colored (completed) or gray (pending)
+                            if 'dividerflowcolor' in divider_classes and 'horizontalconflow' not in divider_classes:
+                                status = "completed"
+                            elif 'horizontalconflow' in divider_classes or 'dividerflowcolor2' in divider_classes:
+                                status = "pending"
+                        except Exception:
+                            # If no divider found, assume pending
+                            pass
+                        
+                        timeline_data.append({
+                            "milestone": milestone_name,
+                            "date": milestone_date,
+                            "status": status
+                        })
+                        
+                        print(f"    {idx+1}. {milestone_name} | {milestone_date} | {status}")
+                
+                except Exception as row_e:
+                    # Skip rows that don't have the expected structure
+                    continue
+            
+            if not timeline_data:
+                return {"success": False, "error": "No timeline milestones found"}
+            
+            # Reverse the array to get newest first (timeline is bottom-to-top in HTML)
+            timeline_data.reverse()
+            
+            print(f"  ✅ Extracted {len(timeline_data)} milestones (newest first)")
+            
+            return {
+                "success": True,
+                "timeline": timeline_data,
+                "milestone_count": len(timeline_data)
+            }
+            
+        except Exception as e:
+            print(f"  ❌ Error extracting timeline: {e}")
+            return {"success": False, "error": str(e)}
+    
     def _check_pregate_by_image(self) -> Dict[str, Any]:
         """
         Fallback method: Capture screenshot of Pregate area and analyze line color.
@@ -6954,6 +7044,20 @@ def get_container_timeline():
             if not ex["success"]:
                 return jsonify({"success": False, "error": f"Expand failed: {ex['error']}"}), 500
 
+            # Extract full timeline
+            timeline_result = operations.extract_full_timeline()
+            
+            if not timeline_result.get("success"):
+                return jsonify({
+                    "success": False,
+                    "error": f"Timeline extraction failed: {timeline_result.get('error')}"
+                }), 500
+            
+            timeline_data = timeline_result.get("timeline", [])
+            milestone_count = timeline_result.get("milestone_count", 0)
+            
+            print(f"✅ Extracted {milestone_count} milestones")
+            
             # Check Pregate status (DOM check + optional image processing)
             pregate_status_result = operations.check_pregate_status()
             
@@ -7013,8 +7117,10 @@ def get_container_timeline():
                     "is_new_session": is_new_session,
                     "container_id": container_id,
                     "passed_pregate": passed_pregate,
+                    "timeline": timeline_data,
+                    "milestone_count": milestone_count,
                     "detection_method": detection_method,
-                    "debug_bundle_url": f"/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
+                    "debug_bundle_url": f"http://{request.host}/files/{bundle_name}" if bundle_path and os.path.exists(bundle_path) else None
                 }
                 
                 # Add image analysis details if method was image processing
@@ -7024,7 +7130,7 @@ def get_container_timeline():
                 return jsonify(response_data)
             
             else:
-                # Normal mode: Return only Pregate status (fast)
+                # Working mode: Return Pregate status + full timeline (fast)
                 logger.info(f"[{request_id}] Session kept alive: {session_id}")
                 
                 return jsonify({
@@ -7033,6 +7139,8 @@ def get_container_timeline():
                     "is_new_session": is_new_session,
                     "container_id": container_id,
                     "passed_pregate": passed_pregate,
+                    "timeline": timeline_data,
+                    "milestone_count": milestone_count,
                     "detection_method": detection_method
                 })
 

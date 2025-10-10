@@ -118,12 +118,16 @@ def test_export_appointment():
             print(f"Session ID: {appt_data.get('session_id', 'N/A')}")
             print(f"Is New Session: {appt_data.get('is_new_session', False)}")
             
+            # Calendar screenshot (working mode)
+            if 'calendar_screenshot_url' in appt_data:
+                print(f"\n📸 Calendar Screenshot: {appt_data['calendar_screenshot_url']}")
+            
             # Phase data
             if 'phase_data' in appt_data:
                 print("\nPhase Data:")
                 print_result(appt_data['phase_data'])
             
-            # Debug bundle
+            # Debug bundle (debug mode only)
             if 'debug_bundle_url' in appt_data:
                 print(f"\n📦 Debug Bundle: {appt_data['debug_bundle_url']}")
             
@@ -223,7 +227,7 @@ def main():
     print("""
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                                                                           ║
-║           E-MODAL EXPORT APPOINTMENT FLOW TEST                           ║
+║           E-MODAL EXPORT APPOINTMENT FLOW TEST                            ║
 ║                                                                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
     """)
