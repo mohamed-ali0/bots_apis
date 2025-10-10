@@ -695,7 +695,39 @@ class EModalBusinessOperations:
                     text_parts.append(f"Container: {self.current_container_id}")
                 
                 text_parts.append(url)
-                text = " | ".join(text_parts)
+                main_text = " | ".join(text_parts)
+                
+                # Check if we have date counters to display (for import containers)
+                date_lines = []
+                
+                # Check if we should show date counters (if at least one date field is set)
+                show_manifested = hasattr(self, 'show_manifested_counter') and self.show_manifested_counter
+                show_departed = hasattr(self, 'show_departed_counter') and self.show_departed_counter
+                
+                if show_manifested:
+                    if hasattr(self, 'manifested_date') and self.manifested_date:
+                        try:
+                            # Parse date (format: MM/DD/YYYY or YYYY-MM-DD)
+                            from dateutil import parser as date_parser
+                            manifested = date_parser.parse(self.manifested_date)
+                            days_since_manifested = (datetime.now() - manifested).days
+                            date_lines.append(f"Days from Manifested: {days_since_manifested}/4")
+                        except:
+                            date_lines.append(f"Days from Manifested: ??/4 (Invalid date)")
+                    else:
+                        date_lines.append(f"Days from Manifested: ??/4 (N/A)")
+                
+                if show_departed:
+                    if hasattr(self, 'departed_date') and self.departed_date:
+                        try:
+                            from dateutil import parser as date_parser
+                            departed = date_parser.parse(self.departed_date)
+                            days_since_departed = (datetime.now() - departed).days
+                            date_lines.append(f"Days from Departed: {days_since_departed}/4")
+                        except:
+                            date_lines.append(f"Days from Departed: ??/4 (Invalid date)")
+                    else:
+                        date_lines.append(f"Days from Departed: ??/4 (N/A)")
                 
                 # Background rectangle (bottom-right), label 100% larger
                 padding = 12
@@ -707,18 +739,50 @@ class EModalBusinessOperations:
                         font = ImageFont.truetype("arial.ttf", 24)
                     except Exception:
                         font = ImageFont.load_default()
-                # Measure text using textbbox when available
-                try:
-                    bbox = draw.textbbox((0,0), text, font=font)
-                    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-                except Exception:
-                    tw, th = draw.textlength(text, font=font), 24
-                box_w = tw + padding * 2
-                box_h = th + padding * 2
-                x0 = img.width - box_w - 10
-                y0 = img.height - box_h - 10
-                draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=(0,0,0,180))
-                draw.text((x0 + padding, y0 + padding), text, font=font, fill=(255,255,255,255))
+                
+                # If we have date lines, display them above the main text
+                if date_lines:
+                    # Calculate dimensions for multi-line text
+                    all_lines = date_lines + [main_text]
+                    max_width = 0
+                    line_height = 30  # Space between lines
+                    
+                    for line in all_lines:
+                        try:
+                            bbox = draw.textbbox((0,0), line, font=font)
+                            line_w = bbox[2]-bbox[0]
+                        except Exception:
+                            line_w = draw.textlength(line, font=font)
+                        if line_w > max_width:
+                            max_width = line_w
+                    
+                    box_w = max_width + padding * 2
+                    box_h = len(all_lines) * line_height + padding * 2
+                    x0 = img.width - box_w - 10
+                    y0 = img.height - box_h - 10
+                    
+                    # Draw background
+                    draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=(0,0,0,180))
+                    
+                    # Draw each line
+                    current_y = y0 + padding
+                    for line in all_lines:
+                        draw.text((x0 + padding, current_y), line, font=font, fill=(255,255,255,255))
+                        current_y += line_height
+                else:
+                    # Single line (no date counters)
+                    try:
+                        bbox = draw.textbbox((0,0), main_text, font=font)
+                        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+                    except Exception:
+                        tw, th = draw.textlength(main_text, font=font), 24
+                    box_w = tw + padding * 2
+                    box_h = th + padding * 2
+                    x0 = img.width - box_w - 10
+                    y0 = img.height - box_h - 10
+                    draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=(0,0,0,180))
+                    draw.text((x0 + padding, y0 + padding), main_text, font=font, fill=(255,255,255,255))
+                
                 img.save(raw_path)
             except Exception:
                 pass
@@ -6167,6 +6231,29 @@ def check_appointments():
             operations.current_container_id = booking_number
         elif container_id:
             operations.current_container_id = container_id
+        
+        # Set date counters for import containers (for screenshot annotations)
+        if container_type == 'import':
+            manifested_date = data.get('manifested_date')
+            departed_date = data.get('departed_date')
+            
+            # Always show manifested counter if it's an import container
+            operations.show_manifested_counter = True
+            operations.show_departed_counter = True
+            
+            if manifested_date:
+                operations.manifested_date = manifested_date
+                print(f"  📅 Manifested Date: {manifested_date}")
+            else:
+                operations.manifested_date = None
+                print(f"  📅 Manifested Date: N/A")
+            
+            if departed_date:
+                operations.departed_date = departed_date
+                print(f"  📅 Departed Date: {departed_date}")
+            else:
+                operations.departed_date = None
+                print(f"  📅 Departed Date: N/A")
         
         # PHASE 1: Dropdowns + Container/Booking Number + Quantity (for export)
         if appt_session.current_phase == 1:
