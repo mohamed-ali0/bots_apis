@@ -6374,10 +6374,19 @@ def check_appointments():
             print("✅ Phase 2 ready")
             
             truck_plate = data.get('truck_plate')
-            own_chassis = data.get('own_chassis', False)
+            own_chassis = data.get('own_chassis')
             
             # Debug: Show what we received
             print(f"  📋 Received own_chassis value: {own_chassis} (type: {type(own_chassis).__name__})")
+            
+            # Check if own_chassis should be ignored
+            ignore_own_chassis = (
+                own_chassis is None or 
+                (isinstance(own_chassis, str) and own_chassis.lower() == 'ignore')
+            )
+            
+            if ignore_own_chassis:
+                print("  ℹ️ Own Chassis: IGNORED (not provided or set to 'ignore')")
             
             # Select checkbox (always required)
             result = operations.select_container_checkbox()
@@ -6456,17 +6465,20 @@ def check_appointments():
                     "current_phase": 2
                 }), 500
             
-            # Own chassis toggle
-            result = operations.toggle_own_chassis(own_chassis)
-            if not result["success"]:
-                return jsonify({
-                    "success": False,
-                    "error": f"Phase 2 failed - Own chassis: {result['error']}",
-                    "session_id": browser_session_id,
-                    "is_new_session": is_new_browser_session,
-                    "appointment_session_id": appt_session.session_id,
-                    "current_phase": 2
-                }), 500
+            # Own chassis toggle (only if not ignored)
+            if not ignore_own_chassis:
+                result = operations.toggle_own_chassis(own_chassis)
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 2 failed - Own chassis: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 2
+                    }), 500
+            else:
+                print("  ⏭️ Skipping Own Chassis toggle (ignored)")
             
             # Click Next
             result = operations.click_next_button(2)
@@ -6489,7 +6501,10 @@ def check_appointments():
                         operations.fill_seal_fields(seal_value)
                     
                     operations.fill_truck_plate(truck_plate)
-                    operations.toggle_own_chassis(own_chassis)
+                    
+                    # Toggle own chassis only if not ignored
+                    if not ignore_own_chassis:
+                        operations.toggle_own_chassis(own_chassis)
                     
                     # Retry Next button
                     print("  🔄 Retrying Next button after re-filling...")
@@ -6733,7 +6748,13 @@ def make_appointment():
         # Phase 2
         pin_code = data.get('pin_code')
         truck_plate = data.get('truck_plate')
-        own_chassis = data.get('own_chassis', False)
+        own_chassis = data.get('own_chassis')
+        
+        # Check if own_chassis should be ignored
+        ignore_own_chassis = (
+            own_chassis is None or 
+            (isinstance(own_chassis, str) and own_chassis.lower() == 'ignore')
+        )
         
         # Phase 3
         appointment_time = data.get('appointment_time')
@@ -6867,9 +6888,13 @@ def make_appointment():
         if not result["success"]:
             return jsonify({"success": False, "error": f"Phase 2 - Truck plate: {result['error']}"}), 500
         
-        result = operations.toggle_own_chassis(own_chassis)
-        if not result["success"]:
-            return jsonify({"success": False, "error": f"Phase 2 - Own chassis: {result['error']}"}), 500
+        # Toggle own chassis only if not ignored
+        if not ignore_own_chassis:
+            result = operations.toggle_own_chassis(own_chassis)
+            if not result["success"]:
+                return jsonify({"success": False, "error": f"Phase 2 - Own chassis: {result['error']}"}), 500
+        else:
+            print("  ⏭️ Skipping Own Chassis toggle (ignored)")
         
         result = operations.click_next_button(2)
         if not result["success"]:
