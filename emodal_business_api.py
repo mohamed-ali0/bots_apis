@@ -1257,7 +1257,7 @@ class EModalBusinessOperations:
             # Track previous content count
             previous_count = 0
             no_new_content_count = 0
-            max_no_new_content_cycles = 6  # 30 seconds (5 sec per cycle)
+            max_no_new_content_cycles = 3  # 15 seconds (5 sec per cycle)
             scroll_cycle = 0
             
             print("🔢 Starting container counting...")
@@ -1587,21 +1587,56 @@ class EModalBusinessOperations:
             self.driver.execute_script("arguments[0].scrollIntoView(true);", dropdown)
             time.sleep(0.5)
             dropdown.click()
-            time.sleep(1)
+            time.sleep(2)  # Increased wait for dropdown to fully open and load options
             
             print(f"  ✅ Opened {dropdown_label} dropdown")
             self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_opened")
             
-            # Find option by exact text
-            options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{option_text}']")
+            # Normalize the search text (remove extra spaces around dashes, hyphens, etc.)
+            normalized_text = option_text.replace(' - ', '-').replace(' -', '-').replace('- ', '-').strip()
+            
+            if normalized_text != option_text:
+                print(f"  📝 Normalized search: '{option_text}' → '{normalized_text}'")
+            
+            # Wait for options to be visible and find option by exact text
+            options = None
+            for attempt in range(3):  # Try 3 times with increasing waits
+                # Try with normalized text first
+                options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{normalized_text}']")
+                
+                # If not found and normalized is different, try original text
+                if not options and normalized_text != option_text:
+                    options = self.driver.find_elements(By.XPATH, f"//mat-option//span[normalize-space(text())='{option_text}']")
+                
+                if options:
+                    break
+                print(f"  ⏳ Waiting for options to load (attempt {attempt + 1}/3)...")
+                time.sleep(1)
             
             if not options:
-                # Close dropdown
+                # Try partial match as fallback (with both normalized and original)
+                print(f"  ⚠️ Exact match failed, trying partial match...")
+                options = self.driver.find_elements(By.XPATH, f"//mat-option//span[contains(text(),'{normalized_text}')]")
+                
+                if not options and normalized_text != option_text:
+                    options = self.driver.find_elements(By.XPATH, f"//mat-option//span[contains(text(),'{option_text}')]")
+            
+            if not options:
+                # Close dropdown and report detailed error
                 try:
                     self.driver.find_element(By.TAG_NAME, "body").click()
                 except:
                     pass
-                return {"success": False, "error": f"Option '{option_text}' not found in {dropdown_label}"}
+                
+                # Try to get all available options for debugging
+                try:
+                    all_options = self.driver.find_elements(By.XPATH, "//mat-option//span[@class='mat-option-text']")
+                    available = [opt.text.strip() for opt in all_options[:10]]  # First 10 options
+                    error_msg = f"Option '{option_text}' not found in {dropdown_label}. Available options: {', '.join(available)}"
+                except:
+                    error_msg = f"Option '{option_text}' not found in {dropdown_label}"
+                
+                return {"success": False, "error": error_msg}
             
             # Click the option
             option = options[0]
@@ -2842,7 +2877,7 @@ class EModalBusinessOperations:
             selected_count = 0
             scroll_cycles = 0
             no_new_content_count = 0
-            max_no_new_content = 6  # Stop after 6 cycles with no new content
+            max_no_new_content = 3  # Stop after 3 cycles with no new content
             
             while True:
                 scroll_cycles += 1
@@ -3670,7 +3705,7 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Search failed: {str(e)}"}
 
-    def search_container_with_scrolling(self, container_id: str, max_no_new_content_cycles: int = 8) -> Dict[str, Any]:
+    def search_container_with_scrolling(self, container_id: str, max_no_new_content_cycles: int = 3) -> Dict[str, Any]:
         """Search for container while progressively scrolling the page to load more rows.
         Returns early when the container is found.
         """
