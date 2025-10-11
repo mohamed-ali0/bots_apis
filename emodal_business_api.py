@@ -3962,6 +3962,84 @@ class EModalBusinessOperations:
         except Exception as e:
             return {"success": False, "error": f"Progressive search failed: {str(e)}"}
 
+    def collapse_container_row(self, container_id: str) -> Dict[str, Any]:
+        """Collapse the expanded timeline row for the container by clicking the down arrow"""
+        try:
+            print(f"⤴️ Collapsing row for: {container_id}")
+            
+            # Wait for page to be ready
+            time.sleep(0.5)
+            
+            # Find the container row
+            row = None
+            try:
+                row = self.driver.find_element(By.XPATH, f"//tr[.//*[contains(text(), '{container_id}')]]")
+                print(f"✅ Found container row")
+            except Exception:
+                try:
+                    container_element = self.driver.find_element(By.XPATH, f"//*[contains(text(), '{container_id}')]")
+                    row = container_element.find_element(By.XPATH, "ancestor::tr")
+                    print(f"✅ Found container row via element ancestor")
+                except Exception as e:
+                    print(f"❌ Could not find container row: {e}")
+                    return {"success": False, "error": f"Container row not found: {e}"}
+            
+            # Check if already collapsed (look for right arrow)
+            try:
+                right_arrow = row.find_element(By.XPATH, ".//mat-icon[contains(text(),'keyboard_arrow_right')]")
+                if right_arrow and right_arrow.is_displayed():
+                    print("✅ Row is already collapsed (right arrow visible)")
+                    return {"success": True, "collapsed": True, "method": "already_collapsed"}
+            except Exception:
+                pass
+            
+            # Find the down arrow to click for collapsing
+            collapse_element = None
+            collapse_selectors = [
+                ".//mat-icon[normalize-space(text())='keyboard_arrow_down']",
+                ".//mat-icon[normalize-space(text())='expand_less']",
+                ".//button[contains(@aria-label,'collapse') or contains(@aria-label,'Collapse')]"
+            ]
+            
+            for selector in collapse_selectors:
+                try:
+                    collapse_element = row.find_element(By.XPATH, selector)
+                    if collapse_element and collapse_element.is_displayed():
+                        print(f"✅ Found collapse element via: {selector}")
+                        break
+                except Exception:
+                    continue
+            
+            if not collapse_element:
+                print("⚠️ No collapse arrow found, row might already be collapsed")
+                return {"success": True, "collapsed": True, "method": "no_arrow_found"}
+            
+            # Click to collapse
+            try:
+                self.driver.execute_script("arguments[0].click();", collapse_element)
+                print("✅ JavaScript click executed on collapse element")
+                time.sleep(1)
+                
+                # Verify collapse by checking for right arrow
+                try:
+                    right_arrow = row.find_element(By.XPATH, ".//mat-icon[contains(text(),'keyboard_arrow_right')]")
+                    if right_arrow.is_displayed():
+                        print("✅ Collapse verified - arrow changed to right")
+                        return {"success": True, "collapsed": True, "method": "collapse_click"}
+                except Exception:
+                    print("⚠️ Could not verify collapse, but click was executed")
+                    return {"success": True, "collapsed": True, "method": "collapse_click_unverified"}
+                
+            except Exception as e:
+                print(f"❌ Failed to click collapse element: {e}")
+                return {"success": False, "error": f"Click failed: {e}"}
+            
+            return {"success": True, "collapsed": True}
+            
+        except Exception as e:
+            print(f"❌ Error collapsing row: {e}")
+            return {"success": False, "error": str(e)}
+    
     def expand_container_row(self, container_id: str) -> Dict[str, Any]:
         """Expand the timeline row for the container by clicking the arrow if needed"""
         try:
@@ -8025,6 +8103,14 @@ def get_info_bulk():
                         results["summary"]["import_failed"] += 1
                         print(f"  ❌ Failed: {pregate_result.get('error')}")
                     
+                    # Collapse the container row before moving to next
+                    print(f"  🔽 Collapsing container row...")
+                    collapse_result = operations.collapse_container_row(container_id)
+                    if collapse_result.get("success"):
+                        print(f"  ✅ Container collapsed")
+                    else:
+                        print(f"  ⚠️ Collapse warning: {collapse_result.get('error')}")
+                    
                 except Exception as e:
                     logger.error(f"Error processing import container {container_id}: {e}")
                     results["import_results"].append({
@@ -8100,6 +8186,14 @@ def get_info_bulk():
                         })
                         results["summary"]["export_failed"] += 1
                         print(f"  ❌ Failed: {booking_result.get('error')}")
+                    
+                    # Collapse the container row before moving to next
+                    print(f"  🔽 Collapsing container row...")
+                    collapse_result = operations.collapse_container_row(container_id)
+                    if collapse_result.get("success"):
+                        print(f"  ✅ Container collapsed")
+                    else:
+                        print(f"  ⚠️ Collapse warning: {collapse_result.get('error')}")
                     
                 except Exception as e:
                     logger.error(f"Error processing export container {container_id}: {e}")
