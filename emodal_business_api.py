@@ -543,7 +543,11 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
                     current_url = (handler.driver.current_url or "").lower()
                     current_title = (handler.driver.title or "")
                     
-                    if ("ecp2.emodal.com" in current_url) and ("identity" not in current_url):
+                    # Accept various eModal domains as valid login
+                    valid_domains = ["ecp2.emodal.com", "account.emodal.com", "truckerportal.emodal.com"]
+                    is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
+                    
+                    if is_valid_url:
                         print(f"✅ Session authenticated successfully (manual recovery)")
                         
                         # Create browser session with keep_alive=True (persistent)
@@ -5701,7 +5705,11 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
         # Verify we're logged in (heuristic)
         current_url = (login_handler.driver.current_url or "").lower()
         current_title = (login_handler.driver.title or "")
-        if ("ecp2.emodal.com" in current_url) and ("identity" not in current_url):
+        # Accept various eModal domains as valid login
+        valid_domains = ["ecp2.emodal.com", "account.emodal.com", "truckerportal.emodal.com"]
+        is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
+        
+        if is_valid_url:
             print(f"✅ Session {session_id} authenticated successfully")
             
             # Create session object (don't quit the driver!)
@@ -5770,7 +5778,11 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
                     current_url = (login_handler.driver.current_url or "").lower()
                     current_title = (login_handler.driver.title or "")
                     
-                    if ("ecp2.emodal.com" in current_url) and ("identity" not in current_url):
+                    # Accept various eModal domains as valid login
+                    valid_domains = ["ecp2.emodal.com", "account.emodal.com", "truckerportal.emodal.com"]
+                    is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
+                    
+                    if is_valid_url:
                         print(f"✅ Session {session_id} authenticated successfully (manual)")
                         
                         # Create session object
@@ -5853,7 +5865,11 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
                     current_url = (login_handler.driver.current_url or "").lower()
                     current_title = (login_handler.driver.title or "")
                     
-                    if ("ecp2.emodal.com" in current_url) and ("identity" not in current_url):
+                    # Accept various eModal domains as valid login
+                    valid_domains = ["ecp2.emodal.com", "account.emodal.com", "truckerportal.emodal.com"]
+                    is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
+                    
+                    if is_valid_url:
                         print(f"✅ Session {session_id} authenticated successfully (manual recovery)")
                         
                         # Create session object
