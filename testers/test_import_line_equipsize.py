@@ -8,12 +8,12 @@ import json
 import time
 
 # Configuration
-API_BASE_URL = "http://localhost:5010"  # Change to your server URL
+API_BASE_URL = "http://37.60.243.201:5010"  # Change to your server URL
 # API_BASE_URL = "http://89.117.63.196:5010"  # Remote server option
 
 # Credentials
 USERNAME = "jfernandez"
-PASSWORD = "Julian_1"
+PASSWORD = "taffie"
 CAPTCHA_API_KEY = "7bf85bb6f37c9799543a2a463aab2b4f"
 
 # Test data for alternative import form

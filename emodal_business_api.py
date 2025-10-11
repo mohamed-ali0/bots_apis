@@ -1956,7 +1956,7 @@ class EModalBusinessOperations:
                     pass
             
             if not container_input:
-                return {"success": False, "error": "Neither container number nor booking number input field found"}
+                return {"success": False, "error": "FIELD_NOT_FOUND: Neither container number nor booking number input field found", "field_not_found": True}
             
             # Click and type
             container_input.click()
@@ -6832,8 +6832,8 @@ def check_appointments():
                 # Try to fill container number first
                 result = operations.fill_container_number(container_id)
                 
-                # If container field not found, check for alternative fields (Line, Equip Size, Quantity)
-                if not result["success"] and "not found" in result.get("error", "").lower():
+                # If container/booking field not found, use alternative fields (Line, Equip Size, Quantity)
+                if not result["success"] and result.get("field_not_found"):
                     print("  ℹ️ Container field not found - checking for Line/Equip Size fields...")
                     
                     # Check if Line and Equip Size fields exist
