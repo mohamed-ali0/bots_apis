@@ -703,6 +703,7 @@ class EModalBusinessOperations:
                 # Check if we should show date counters (if at least one date field is set)
                 show_manifested = hasattr(self, 'show_manifested_counter') and self.show_manifested_counter
                 show_departed = hasattr(self, 'show_departed_counter') and self.show_departed_counter
+                show_last_free_day = hasattr(self, 'show_last_free_day_counter') and self.show_last_free_day_counter
                 
                 if show_manifested:
                     if hasattr(self, 'manifested_date') and self.manifested_date:
@@ -728,6 +729,18 @@ class EModalBusinessOperations:
                             date_lines.append(f"Days from Departed: ??/4 (Invalid date)")
                     else:
                         date_lines.append(f"Days from Departed: ??/4 (N/A)")
+                
+                if show_last_free_day:
+                    if hasattr(self, 'last_free_day_date') and self.last_free_day_date:
+                        try:
+                            from dateutil import parser as date_parser
+                            last_free_day = date_parser.parse(self.last_free_day_date)
+                            days_until_last_free = (last_free_day - datetime.now()).days
+                            date_lines.append(f"Days to Last Free Day: {days_until_last_free}/4")
+                        except:
+                            date_lines.append(f"Days to Last Free Day: ??/4 (Invalid date)")
+                    else:
+                        date_lines.append(f"Days to Last Free Day: ??/4 (N/A)")
                 
                 # Background rectangle (bottom-right), label 100% larger
                 padding = 12
@@ -2006,10 +2019,19 @@ class EModalBusinessOperations:
             print(f"  ❌ Error selecting checkbox: {e}")
             return {"success": False, "error": str(e)}
     
-    def fill_pin_code(self, pin_code: str) -> Dict[str, Any]:
-        """Fill the PIN code field in Phase 2"""
+    def fill_pin_code(self, pin_code: str = None) -> Dict[str, Any]:
+        """
+        Fill the PIN code field in Phase 2.
+        If pin_code is not provided or empty, auto-fills with '1111'.
+        """
         try:
-            print(f"🔢 Filling PIN code...")
+            # Auto-fill with '1111' if no PIN provided
+            if not pin_code:
+                pin_code = "1111"
+                print(f"🔢 Filling PIN code (auto-filled with default: 1111)...")
+            else:
+                print(f"🔢 Filling PIN code: {pin_code}")
+            
             pin_input = None
             try:
                 pin_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='Pin']")
@@ -2025,7 +2047,7 @@ class EModalBusinessOperations:
             pin_input.clear()
             pin_input.send_keys(pin_code)
             time.sleep(0.5)
-            print(f"  ✅ PIN code entered")
+            print(f"  ✅ PIN code entered: {pin_code}")
             self._capture_screenshot("pin_entered")
             return {"success": True, "pin_code": pin_code}
         except Exception as e:
@@ -6314,10 +6336,12 @@ def check_appointments():
         if container_type == 'import':
             manifested_date = data.get('manifested_date')
             departed_date = data.get('departed_date')
+            last_free_day_date = data.get('last_free_day_date')
             
-            # Always show manifested counter if it's an import container
+            # Always show date counters if it's an import container
             operations.show_manifested_counter = True
             operations.show_departed_counter = True
+            operations.show_last_free_day_counter = True
             
             if manifested_date:
                 operations.manifested_date = manifested_date
@@ -6332,6 +6356,13 @@ def check_appointments():
             else:
                 operations.departed_date = None
                 print(f"  📅 Departed Date: N/A")
+            
+            if last_free_day_date:
+                operations.last_free_day_date = last_free_day_date
+                print(f"  📅 Last Free Day Date: {last_free_day_date}")
+            else:
+                operations.last_free_day_date = None
+                print(f"  📅 Last Free Day Date: N/A")
         
         # PHASE 1: Dropdowns + Container/Booking Number + Quantity (for export)
         if appt_session.current_phase == 1:
@@ -6607,19 +6638,18 @@ def check_appointments():
             
             # Type-specific fields
             if container_type == 'import':
-                # Import: PIN code (optional)
+                # Import: PIN code (auto-fills with '1111' if not provided)
                 pin_code = data.get('pin_code')
-                if pin_code:
-                    result = operations.fill_pin_code(pin_code)
-                    if not result["success"]:
-                        return jsonify({
-                            "success": False,
-                            "error": f"Phase 2 failed - PIN: {result['error']}",
-                            "session_id": browser_session_id,
-                            "is_new_session": is_new_browser_session,
-                            "appointment_session_id": appt_session.session_id,
-                            "current_phase": 2
-                        }), 500
+                result = operations.fill_pin_code(pin_code)
+                if not result["success"]:
+                    return jsonify({
+                        "success": False,
+                        "error": f"Phase 2 failed - PIN: {result['error']}",
+                        "session_id": browser_session_id,
+                        "is_new_session": is_new_browser_session,
+                        "appointment_session_id": appt_session.session_id,
+                        "current_phase": 2
+                    }), 500
             else:  # export
                 # Export: Unit number (default "1")
                 unit_number = data.get('unit_number', '1')
@@ -6697,8 +6727,7 @@ def check_appointments():
                     
                     if container_type == 'import':
                         pin_code = data.get('pin_code')
-                        if pin_code:
-                            operations.fill_pin_code(pin_code)
+                        operations.fill_pin_code(pin_code)
                     else:  # export
                         unit_number = data.get('unit_number', '1')
                         seal_value = data.get('seal_value', '1')
@@ -7084,10 +7113,9 @@ def make_appointment():
         if not result["success"]:
             return jsonify({"success": False, "error": f"Phase 2 - Checkbox: {result['error']}"}), 500
         
-        if pin_code:
-            result = operations.fill_pin_code(pin_code)
-            if not result["success"]:
-                return jsonify({"success": False, "error": f"Phase 2 - PIN: {result['error']}"}), 500
+        result = operations.fill_pin_code(pin_code)
+        if not result["success"]:
+            return jsonify({"success": False, "error": f"Phase 2 - PIN: {result['error']}"}), 500
         
         result = operations.fill_truck_plate(truck_plate)
         if not result["success"]:
