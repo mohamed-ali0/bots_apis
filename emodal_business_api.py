@@ -5594,8 +5594,87 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
             
             return session
         else:
-            login_handler.driver.quit()
-            raise Exception(f"Login verification failed. URL: {current_url}, Title: {current_title}")
+            # Login verification failed - offer manual intervention
+            print(f"\n⚠️ Login verification failed!")
+            print(f"   Current URL: {current_url}")
+            print(f"   Current Title: {current_title}")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"❓ Do you want to complete login manually?")
+            print(f"   Press ENTER within 10 seconds to complete manually...")
+            print(f"   (Or wait 10 seconds to abort)")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            # Wait for user input with timeout
+            import sys
+            user_wants_manual = False
+            try:
+                # Windows-compatible timeout input
+                if sys.platform == 'win32':
+                    import msvcrt
+                    import time as time_module
+                    start_time = time_module.time()
+                    while time_module.time() - start_time < 10:
+                        if msvcrt.kbhit():
+                            key = msvcrt.getch()
+                            if key == b'\r':  # Enter key
+                                user_wants_manual = True
+                                break
+                        time_module.sleep(0.1)
+                else:
+                    # Unix-based systems
+                    import select
+                    ready, _, _ = select.select([sys.stdin], [], [], 10)
+                    if ready:
+                        sys.stdin.readline()
+                        user_wants_manual = True
+            except Exception as e:
+                print(f"⚠️ Input timeout error: {e}")
+            
+            if user_wants_manual:
+                print(f"\n✅ Manual login mode activated!")
+                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"📋 Instructions:")
+                print(f"   1. Complete the login in the browser window")
+                print(f"   2. Wait until you see the eModal dashboard")
+                print(f"   3. Press ENTER when done to continue...")
+                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
+                # Wait indefinitely for user to press Enter
+                try:
+                    input()  # This will wait until Enter is pressed
+                    print(f"✅ Continuing with session creation...")
+                    
+                    # Re-verify after manual login
+                    current_url = (login_handler.driver.current_url or "").lower()
+                    current_title = (login_handler.driver.title or "")
+                    
+                    if ("ecp2.emodal.com" in current_url) and ("identity" not in current_url):
+                        print(f"✅ Session {session_id} authenticated successfully (manual)")
+                        
+                        # Create session object
+                        session = BrowserSession(
+                            session_id=session_id,
+                            driver=login_handler.driver,
+                            username=username,
+                            created_at=datetime.now(),
+                            last_used=datetime.now(),
+                            keep_alive=keep_alive
+                        )
+                        
+                        return session
+                    else:
+                        print(f"❌ Still not logged in after manual intervention")
+                        login_handler.driver.quit()
+                        raise Exception(f"Manual login failed. URL: {current_url}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Input error: {e}")
+                    login_handler.driver.quit()
+                    raise Exception(f"Manual login interrupted: {e}")
+            else:
+                print(f"\n❌ No response within 10 seconds - aborting session")
+                login_handler.driver.quit()
+                raise Exception(f"Login verification failed. URL: {current_url}, Title: {current_title}")
             
     except Exception as e:
         if login_handler.driver:
