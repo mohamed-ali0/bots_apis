@@ -6829,8 +6829,68 @@ def check_appointments():
             
             # Fill container or booking number based on type
             if container_type == 'import':
+                # Try to fill container number first
                 result = operations.fill_container_number(container_id)
-                if not result["success"]:
+                
+                # If container field not found, check for alternative fields (Line, Equip Size, Quantity)
+                if not result["success"] and "not found" in result.get("error", "").lower():
+                    print("  ℹ️ Container field not found - checking for Line/Equip Size fields...")
+                    
+                    # Check if Line and Equip Size fields exist
+                    line_value = data.get('line')
+                    equip_size = data.get('equip_size')
+                    
+                    if line_value and equip_size:
+                        print(f"  📋 Using alternative fields: Line={line_value}, Equip Size={equip_size}")
+                        
+                        # Fill Line dropdown
+                        result = operations.select_dropdown_by_text("Line", line_value)
+                        if not result["success"]:
+                            return jsonify({
+                                "success": False,
+                                "error": f"Phase 1 failed - Line: {result['error']}",
+                                "session_id": browser_session_id,
+                                "is_new_session": is_new_browser_session,
+                                "appointment_session_id": appt_session.session_id,
+                                "current_phase": 1
+                            }), 500
+                        
+                        # Fill Equip Size dropdown
+                        result = operations.select_dropdown_by_text("Equip Size", equip_size)
+                        if not result["success"]:
+                            return jsonify({
+                                "success": False,
+                                "error": f"Phase 1 failed - Equip Size: {result['error']}",
+                                "session_id": browser_session_id,
+                                "is_new_session": is_new_browser_session,
+                                "appointment_session_id": appt_session.session_id,
+                                "current_phase": 1
+                            }), 500
+                        
+                        # Fill Quantity (always 1)
+                        result = operations.fill_quantity_field()
+                        if not result["success"]:
+                            return jsonify({
+                                "success": False,
+                                "error": f"Phase 1 failed - Quantity: {result['error']}",
+                                "session_id": browser_session_id,
+                                "is_new_session": is_new_browser_session,
+                                "appointment_session_id": appt_session.session_id,
+                                "current_phase": 1
+                            }), 500
+                    else:
+                        # Neither container field nor alternative fields available
+                        return jsonify({
+                            "success": False,
+                            "error": "Phase 1 failed - Container field not found. Please provide 'line' and 'equip_size' fields for this form type.",
+                            "session_id": browser_session_id,
+                            "is_new_session": is_new_browser_session,
+                            "appointment_session_id": appt_session.session_id,
+                            "current_phase": 1,
+                            "message": "This form requires 'line' and 'equip_size' instead of 'container_id'"
+                        }), 400
+                elif not result["success"]:
+                    # Other error (not "not found")
                     return jsonify({
                         "success": False,
                         "error": f"Phase 1 failed - Container: {result['error']}",
