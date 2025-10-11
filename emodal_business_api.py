@@ -5446,8 +5446,60 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
         # Handle reCAPTCHA
         recaptcha_result = login_handler._handle_recaptcha()
         if not recaptcha_result.success:
-            login_handler.driver.quit()
-            raise Exception(f"reCAPTCHA error: {recaptcha_result.error_message}")
+            print(f"\n⚠️ reCAPTCHA auto-solve failed: {recaptcha_result.error_message}")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"❓ Do you want to solve reCAPTCHA manually?")
+            print(f"   Press ENTER within 10 seconds to solve manually...")
+            print(f"   (Or wait 10 seconds to abort)")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            # Wait for user input with timeout
+            import select
+            import sys
+            
+            user_wants_manual = False
+            try:
+                # Windows-compatible timeout input
+                if sys.platform == 'win32':
+                    import msvcrt
+                    import time as time_module
+                    start_time = time_module.time()
+                    while time_module.time() - start_time < 10:
+                        if msvcrt.kbhit():
+                            key = msvcrt.getch()
+                            if key == b'\r':  # Enter key
+                                user_wants_manual = True
+                                break
+                        time_module.sleep(0.1)
+                else:
+                    # Unix-based systems
+                    ready, _, _ = select.select([sys.stdin], [], [], 10)
+                    if ready:
+                        sys.stdin.readline()
+                        user_wants_manual = True
+            except Exception as e:
+                print(f"⚠️ Input timeout error: {e}")
+            
+            if user_wants_manual:
+                print(f"\n✅ Manual mode activated!")
+                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"📋 Instructions:")
+                print(f"   1. Solve the reCAPTCHA in the browser window")
+                print(f"   2. Press ENTER when done to continue...")
+                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
+                # Wait indefinitely for user to press Enter
+                try:
+                    input()  # This will wait until Enter is pressed
+                    print(f"✅ Continuing with login process...")
+                except Exception as e:
+                    print(f"⚠️ Input error: {e}")
+                    login_handler.driver.quit()
+                    raise Exception(f"Manual reCAPTCHA solve interrupted: {e}")
+            else:
+                print(f"\n❌ No response within 10 seconds - aborting session")
+                login_handler.driver.quit()
+                raise Exception(f"reCAPTCHA error: {recaptcha_result.error_message}")
         
         # Find and click login button
         login_found, login_button = login_handler._locate_login_button()
