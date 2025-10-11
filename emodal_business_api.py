@@ -2023,25 +2023,34 @@ class EModalBusinessOperations:
         """
         Fill the PIN code field in Phase 2.
         If pin_code is not provided or empty, auto-fills with '1111'.
+        If the PIN field doesn't exist, it's skipped (returns success).
         """
         try:
             # Auto-fill with '1111' if no PIN provided
             if not pin_code:
                 pin_code = "1111"
-                print(f"🔢 Filling PIN code (auto-filled with default: 1111)...")
+                print(f"🔢 Checking for PIN code field (default: 1111)...")
             else:
-                print(f"🔢 Filling PIN code: {pin_code}")
+                print(f"🔢 Checking for PIN code field: {pin_code}")
             
+            # Try to find PIN field
             pin_input = None
             try:
                 pin_input = self.driver.find_element(By.XPATH, "//input[@formcontrolname='Pin']")
+                print(f"  ✅ PIN field found (formcontrolname='Pin')")
             except:
                 try:
                     pin_input = self.driver.find_element(By.XPATH, "//input[@matinput and contains(@placeholder,'PIN')]")
+                    print(f"  ✅ PIN field found (placeholder contains 'PIN')")
                 except:
                     pass
+            
+            # If PIN field doesn't exist, skip it (not an error)
             if not pin_input:
-                return {"success": False, "error": "PIN code field not found"}
+                print(f"  ⚠️ PIN field not found - skipping (optional field)")
+                return {"success": True, "skipped": True, "reason": "PIN field not found"}
+            
+            # Fill the PIN field
             pin_input.click()
             time.sleep(0.3)
             pin_input.clear()
@@ -2051,8 +2060,9 @@ class EModalBusinessOperations:
             self._capture_screenshot("pin_entered")
             return {"success": True, "pin_code": pin_code}
         except Exception as e:
-            print(f"  ❌ Error filling PIN: {e}")
-            return {"success": False, "error": str(e)}
+            print(f"  ⚠️ Error filling PIN (ignoring): {e}")
+            # Don't fail the entire process if PIN fails
+            return {"success": True, "skipped": True, "error": str(e)}
     
     def fill_truck_plate(self, truck_plate: str, allow_any_if_missing: bool = True) -> Dict[str, Any]:
         """
