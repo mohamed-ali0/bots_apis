@@ -5443,36 +5443,22 @@ def create_browser_session(username: str, password: str, captcha_api_key: str, k
             login_handler.driver.quit()
             raise Exception(f"Credential error: {cred_result.error_message}")
         
-        # Handle reCAPTCHA with timeout using threading
-        print("🔒 Handling reCAPTCHA (60 second timeout)...")
-        import threading
+        # Handle reCAPTCHA - allow manual override if it takes too long
+        print("🔒 Handling reCAPTCHA...")
+        print("   💡 TIP: If it takes too long, press CTRL+C to switch to manual mode")
         
-        recaptcha_result_container = {'result': None, 'done': False}
-        recaptcha_timeout = 60  # 60 seconds timeout
+        recaptcha_result = None
+        manual_override = False
         
-        def recaptcha_thread():
-            try:
-                result = login_handler._handle_recaptcha()
-                recaptcha_result_container['result'] = result
-                recaptcha_result_container['done'] = True
-            except Exception as e:
-                print(f"⚠️ reCAPTCHA exception in thread: {e}")
-                recaptcha_result_container['result'] = type('obj', (object,), {'success': False, 'error_message': str(e)})()
-                recaptcha_result_container['done'] = True
-        
-        # Start reCAPTCHA in separate thread
-        recaptcha_thread_obj = threading.Thread(target=recaptcha_thread, daemon=True)
-        recaptcha_thread_obj.start()
-        
-        # Wait for thread with timeout
-        recaptcha_thread_obj.join(timeout=recaptcha_timeout)
-        
-        # Check if thread completed
-        if not recaptcha_result_container['done']:
-            print(f"⚠️ reCAPTCHA timed out after {recaptcha_timeout}s")
-            recaptcha_result = type('obj', (object,), {'success': False, 'error_message': f'Timeout after {recaptcha_timeout}s'})()
-        else:
-            recaptcha_result = recaptcha_result_container['result']
+        try:
+            recaptcha_result = login_handler._handle_recaptcha()
+        except KeyboardInterrupt:
+            print(f"\n⚠️ reCAPTCHA auto-solve interrupted by user (CTRL+C)")
+            manual_override = True
+            recaptcha_result = type('obj', (object,), {'success': False, 'error_message': 'User interrupted - manual mode requested'})()
+        except Exception as e:
+            print(f"⚠️ reCAPTCHA exception: {e}")
+            recaptcha_result = type('obj', (object,), {'success': False, 'error_message': str(e)})()
         
         if not recaptcha_result.success:
             print(f"\n⚠️ reCAPTCHA auto-solve failed: {recaptcha_result.error_message}")
