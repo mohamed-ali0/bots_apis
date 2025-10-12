@@ -6164,7 +6164,7 @@ def get_or_create_session():
                         is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
                         
                         if is_valid_url:
-                            print(f"✅ Session {session_id} authenticated successfully (manual recovery)")
+                            print(f"✅ Session authenticated successfully (manual recovery)")
                             
                             # Create browser session with keep_alive=True
                             browser_session = BrowserSession(
