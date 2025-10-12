@@ -44,7 +44,6 @@ app = Flask(__name__)
 active_sessions = {}
 session_timeout = 1800  # 30 minutes (not used for keep-alive sessions)
 MAX_CONCURRENT_SESSIONS = 10  # Maximum Chrome windows allowed
-CHROME_CLEANUP_INTERVAL = 300  # Clean up orphaned Chrome processes every 5 minutes
 
 # Persistent sessions with keep-alive and credential mapping
 persistent_sessions = {}  # Maps credentials hash to session_id
@@ -72,8 +71,6 @@ class BrowserSession:
     credentials_hash: str = None  # Hash of username+password for matching
     last_refresh: datetime = None  # Last time session was refreshed
     in_use: bool = False  # Flag to prevent refresh during active operations
-    connection_errors: int = 0  # Count of consecutive connection errors
-    is_damaged: bool = False  # Flag for sessions with connection issues
     
     def is_expired(self) -> bool:
         """Check if session has expired"""
@@ -256,67 +253,62 @@ def ensure_session_capacity() -> bool:
 def kill_orphaned_chrome_processes():
     """
     Kill all Chrome and ChromeDriver processes that are not associated with active sessions.
-    This aggressively cleans up ALL Chrome background processes that aren't protected.
+    This helps clean up zombie processes that may be consuming resources.
     """
     import psutil
     
     try:
-        # Get ALL PIDs associated with active sessions (ChromeDriver + all Chrome children)
-        protected_pids = set()
-        
+        # Get PIDs of active session drivers
+        active_pids = set()
         for session_id, session in active_sessions.items():
             try:
                 if hasattr(session.driver, 'service') and hasattr(session.driver.service, 'process'):
-                    driver_pid = session.driver.service.process.pid
-                    protected_pids.add(driver_pid)
-                    
-                    # Get ALL child processes recursively (all Chrome background processes)
-                    try:
-                        parent_proc = psutil.Process(driver_pid)
-                        children = parent_proc.children(recursive=True)
-                        for child in children:
-                            protected_pids.add(child.pid)
-                        logger.debug(f"Session {session_id}: Protected {len(children)} child processes")
-                    except:
-                        pass
+                    active_pids.add(session.driver.service.process.pid)
+                    logger.debug(f"Active session {session_id} ChromeDriver PID: {session.driver.service.process.pid}")
             except Exception as e:
-                logger.debug(f"Could not get PIDs for session {session_id}: {e}")
+                logger.debug(f"Could not get PID for session {session_id}: {e}")
         
-        logger.info(f"🛡️ Protected PIDs (active sessions): {len(protected_pids)}")
+        logger.info(f"Active ChromeDriver PIDs: {active_pids}")
         
-        # Find and kill ALL unprotected Chrome processes
+        # Find and kill orphaned processes
         killed_count = 0
-        chrome_processes_found = []
         
-        # Collect all Chrome processes first
+        # Kill orphaned ChromeDriver processes
         for proc in psutil.process_iter(['pid', 'name']):
             try:
-                proc_name = proc.info['name'].lower()
-                if 'chrome' in proc_name:  # Matches chrome.exe, chromedriver.exe, etc.
+                if 'chromedriver' in proc.info['name'].lower():
                     pid = proc.info['pid']
-                    if pid not in protected_pids:
-                        chrome_processes_found.append((pid, proc.info['name']))
+                    if pid not in active_pids:
+                        logger.info(f"Killing orphaned ChromeDriver process: PID {pid}")
+                        proc.kill()
+                        killed_count += 1
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
         
-        # Kill all unprotected Chrome processes
-        for pid, name in chrome_processes_found:
+        # Kill orphaned Chrome processes (those without a parent ChromeDriver)
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
-                logger.info(f"Killing orphaned {name}: PID {pid}")
-                psutil.Process(pid).kill()
-                killed_count += 1
+                if 'chrome' in proc.info['name'].lower() and 'chromedriver' not in proc.info['name'].lower():
+                    # Check if this Chrome process has --test-type flag (managed by ChromeDriver)
+                    cmdline = proc.info.get('cmdline', [])
+                    if cmdline and '--test-type' in ' '.join(cmdline):
+                        # Check if its parent ChromeDriver is in active PIDs
+                        try:
+                            parent = proc.parent()
+                            if parent and 'chromedriver' in parent.name().lower():
+                                if parent.pid not in active_pids:
+                                    logger.info(f"Killing orphaned Chrome process: PID {proc.info['pid']}")
+                                    proc.kill()
+                                    killed_count += 1
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
         
         if killed_count > 0:
-            logger.info(f"✅ Killed {killed_count} orphaned Chrome processes")
+            logger.info(f"✅ Killed {killed_count} orphaned Chrome/ChromeDriver processes")
         else:
-            logger.info("✅ No orphaned Chrome processes found")
-        
-        # Report remaining Chrome processes
-        total_chrome = sum(1 for proc in psutil.process_iter(['name']) 
-                          if 'chrome' in proc.info['name'].lower())
-        logger.info(f"📊 Remaining Chrome processes: {total_chrome} (Protected: {len(protected_pids)})")
+            logger.info("✅ No orphaned processes found")
         
         return killed_count
         
@@ -372,13 +364,12 @@ def kill_all_chrome_instances():
         return 0
 
 
-def is_session_alive(session: BrowserSession, retry_on_connection_error: bool = True) -> bool:
+def is_session_alive(session: BrowserSession) -> bool:
     """
     Check if a browser session is still alive and responsive.
     
     Args:
         session: BrowserSession to check
-        retry_on_connection_error: If True, retry once on connection errors
     
     Returns:
         True if session is alive, False otherwise
@@ -388,39 +379,19 @@ def is_session_alive(session: BrowserSession, retry_on_connection_error: bool = 
         _ = session.driver.current_url
         return True
     except Exception as e:
-        error_str = str(e).lower()
+        logger.warning(f"Session {session.session_id} appears dead: {e}")
         
-        # Check if this is a connection error (ChromeDriver crash)
+        # Check if this is a connection error
+        error_str = str(e).lower()
         if 'connection' in error_str or 'winerror 10061' in error_str or 'newconnectionerror' in error_str:
-            logger.warning(f"⚠️ ChromeDriver connection lost for session {session.session_id}")
-            
-            # Try ONE retry before declaring it dead
-            if retry_on_connection_error:
-                logger.info("🔄 Attempting one retry before marking as dead...")
-                time.sleep(2)  # Wait 2 seconds
-                
-                try:
-                    _ = session.driver.current_url
-                    logger.info(f"✅ Session {session.session_id} recovered after retry!")
-                    return True
-                except:
-                    logger.warning(f"❌ Session {session.session_id} still unresponsive after retry")
-                    
-                    # Clean up orphaned processes but DON'T mark session as dead yet
-                    logger.warning("🔧 Cleaning up orphaned processes but keeping session alive for manual recovery")
-                    try:
-                        kill_orphaned_chrome_processes()
-                    except Exception as cleanup_error:
-                        logger.error(f"Failed to clean up orphaned processes: {cleanup_error}")
-                    
-                    # Return False but session will be marked for manual attention
-                    return False
-            else:
-                return False
-        else:
-            # Other error (not connection error)
-            logger.warning(f"Session {session.session_id} error: {e}")
-            return False
+            logger.warning("🔧 Connection error detected - attempting to clean up orphaned processes")
+            # Try to kill orphaned processes
+            try:
+                kill_orphaned_chrome_processes()
+            except Exception as cleanup_error:
+                logger.error(f"Failed to clean up orphaned processes: {cleanup_error}")
+        
+        return False
 
 
 def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
@@ -446,21 +417,19 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
             
             # Check if session is still alive
             if not is_session_alive(browser_session):
-                logger.warning(f"[{request_id}] ⚠️ Session {session_id} connection error detected")
+                logger.warning(f"[{request_id}] ⚠️ Session {session_id} is dead (browser closed or crashed)")
+                logger.info(f"[{request_id}] Removing dead session and creating new one...")
                 
-                # Increment connection error count
-                browser_session.connection_errors += 1
+                # Clean up dead session
+                try:
+                    del active_sessions[session_id]
+                    # Remove from persistent sessions if present
+                    if browser_session.credentials_hash in persistent_sessions:
+                        del persistent_sessions[browser_session.credentials_hash]
+                except:
+                    pass
                 
-                # If too many errors, mark as damaged but DON'T delete yet
-                if browser_session.connection_errors >= 3:
-                    logger.warning(f"[{request_id}] Session {session_id} marked as DAMAGED after {browser_session.connection_errors} errors")
-                    browser_session.is_damaged = True
-                    # Keep session in active_sessions but don't use it - create new one
-                    # Fall through to create new session
-                else:
-                    logger.info(f"[{request_id}] Session {session_id} error #{browser_session.connection_errors} - keeping alive, creating new session")
-                    # Don't delete - just create a new session for this request
-                    # Fall through to create new session
+                # Fall through to create new session
             else:
                 browser_session.update_last_used()
                 browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
@@ -761,19 +730,6 @@ def periodic_session_refresh():
                         del active_sessions[session_id]
         except Exception as e:
             logger.error(f"Error in periodic session refresh: {e}")
-
-
-def periodic_chrome_cleanup():
-    """Background task to periodically clean up orphaned Chrome processes"""
-    while True:
-        try:
-            time.sleep(CHROME_CLEANUP_INTERVAL)  # Every 5 minutes
-            logger.info("🧹 Running periodic Chrome process cleanup...")
-            killed_count = kill_orphaned_chrome_processes()
-            if killed_count > 0:
-                logger.info(f"✅ Cleaned up {killed_count} orphaned Chrome processes")
-        except Exception as e:
-            logger.error(f"Error in periodic Chrome cleanup: {e}")
 
 
 def cleanup_expired_appointment_sessions():
@@ -8455,85 +8411,24 @@ def get_appointments():
 
 @app.route('/sessions', methods=['GET'])
 def list_sessions():
-    """List active browser sessions with health status"""
+    """List active browser sessions"""
     cleanup_expired_sessions()
     
     sessions_info = []
-    healthy_count = 0
-    damaged_count = 0
-    
     for session_id, session in active_sessions.items():
-        is_healthy = is_session_alive(session, retry_on_connection_error=False)
-        if is_healthy:
-            healthy_count += 1
-            status = "healthy"
-        elif session.is_damaged:
-            damaged_count += 1
-            status = "damaged"
-        else:
-            status = "unknown"
-        
         sessions_info.append({
             "session_id": session_id,
             "username": session.username,
-            "status": status,
-            "connection_errors": session.connection_errors,
-            "is_damaged": session.is_damaged,
-            "in_use": session.in_use,
             "created_at": session.created_at.isoformat(),
             "last_used": session.last_used.isoformat(),
-            "keep_alive": session.keep_alive
+            "keep_alive": session.keep_alive,
+            "current_url": session.driver.current_url if session.driver else "unknown"
         })
     
     return jsonify({
         "active_sessions": len(sessions_info),
-        "healthy_sessions": healthy_count,
-        "damaged_sessions": damaged_count,
         "sessions": sessions_info
     })
-
-
-@app.route('/cleanup_damaged_sessions', methods=['POST'])
-def cleanup_damaged_sessions():
-    """Clean up all damaged sessions (those with connection errors)"""
-    try:
-        damaged_sessions = []
-        
-        for session_id, session in list(active_sessions.items()):
-            if session.is_damaged or session.connection_errors >= 3:
-                damaged_sessions.append(session_id)
-        
-        cleaned_count = 0
-        for session_id in damaged_sessions:
-            session = active_sessions[session_id]
-            logger.info(f"Cleaning up damaged session: {session_id} (errors: {session.connection_errors})")
-            try:
-                session.driver.quit()
-            except:
-                pass  # Already dead, ignore
-            
-            # Remove from tracking
-            try:
-                del active_sessions[session_id]
-                if session.credentials_hash in persistent_sessions:
-                    del persistent_sessions[session.credentials_hash]
-                cleaned_count += 1
-            except:
-                pass
-        
-        # Also clean up orphaned Chrome processes
-        killed_processes = kill_orphaned_chrome_processes()
-        
-        return jsonify({
-            "success": True,
-            "message": f"Cleaned up {cleaned_count} damaged sessions",
-            "cleaned_sessions": cleaned_count,
-            "killed_processes": killed_processes,
-            "remaining_sessions": len(active_sessions)
-        })
-    except Exception as e:
-        logger.error(f"Error cleaning up damaged sessions: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/sessions/<session_id>', methods=['DELETE'])
@@ -9018,20 +8913,9 @@ if __name__ == '__main__':
     refresh_thread = threading.Thread(target=periodic_session_refresh, daemon=True)
     refresh_thread.start()
     
-    # Start background Chrome cleanup thread
-    chrome_cleanup_thread = threading.Thread(target=periodic_chrome_cleanup, daemon=True)
-    chrome_cleanup_thread.start()
-    logger.info("✅ Background Chrome cleanup thread started")
-    
     # Run initial cleanup on startup
     print("🗑️ Running initial cleanup...")
     cleanup_old_files()
-    
-    # Clean up any orphaned Chrome processes from previous runs
-    print("🧹 Cleaning up orphaned Chrome processes from previous runs...")
-    killed = kill_orphaned_chrome_processes()
-    if killed > 0:
-        print(f"✅ Killed {killed} orphaned Chrome processes on startup")
     
     print("=" * 50)
     
