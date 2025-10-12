@@ -6105,16 +6105,147 @@ def get_or_create_session():
         
         login_result = handler.login(username, password)
         if not login_result.success:
-            # Clean up temp profile on failure
+            # Login failed - offer manual intervention before cleanup
+            print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"❓ Do you want to complete login manually?")
+            print(f"   Press ENTER within 10 seconds to complete manually...")
+            print(f"   (Or wait 10 seconds to abort)")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            # Wait for user input with timeout
+            import sys
+            user_wants_manual = False
             try:
-                shutil.rmtree(temp_profile_dir, ignore_errors=True)
-            except:
-                pass
-            return jsonify({
-                "success": False,
-                "error": "Authentication failed",
-                "details": str(login_result.error_type) if login_result.error_type else "Unknown error"
-            }), 401
+                # Windows-compatible timeout input
+                if sys.platform == 'win32':
+                    import msvcrt
+                    import time as time_module
+                    start_time = time_module.time()
+                    while time_module.time() - start_time < 10:
+                        if msvcrt.kbhit():
+                            key = msvcrt.getch()
+                            if key == b'\r':  # Enter key
+                                user_wants_manual = True
+                                break
+                        time_module.sleep(0.1)
+                else:
+                    # Unix-based systems
+                    import select
+                    ready, _, _ = select.select([sys.stdin], [], [], 10)
+                    if ready:
+                        sys.stdin.readline()
+                        user_wants_manual = True
+            except Exception as input_error:
+                print(f"⚠️ Input timeout error: {input_error}")
+            
+            if user_wants_manual and handler.driver:
+                print(f"\n✅ Manual login mode activated!")
+                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                print(f"📋 Instructions:")
+                print(f"   1. Complete the login in the browser window")
+                print(f"   2. Solve any reCAPTCHA or other challenges")
+                print(f"   3. Wait until you see the eModal dashboard")
+                print(f"   4. Press ENTER when done to continue...")
+                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                
+                # Wait indefinitely for user to press Enter
+                try:
+                    input()  # This will wait until Enter is pressed
+                    print(f"✅ Continuing with session creation...")
+                    
+                    # Verify login after manual intervention
+                    try:
+                        current_url = (handler.driver.current_url or "").lower()
+                        current_title = (handler.driver.title or "")
+                        
+                        # Accept various eModal domains as valid login
+                        valid_domains = ["ecp2.emodal.com", "account.emodal.com", "truckerportal.emodal.com"]
+                        is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
+                        
+                        if is_valid_url:
+                            print(f"✅ Session {session_id} authenticated successfully (manual recovery)")
+                            
+                            # Create browser session with keep_alive=True
+                            browser_session = BrowserSession(
+                                session_id=session_id,
+                                driver=handler.driver,
+                                username=username,
+                                created_at=datetime.now(),
+                                last_used=datetime.now(),
+                                keep_alive=True,
+                                credentials_hash=cred_hash,
+                                last_refresh=datetime.now()
+                            )
+                            
+                            active_sessions[session_id] = browser_session
+                            persistent_sessions[cred_hash] = session_id
+                            
+                            logger.info(f"✅ Created persistent session: {session_id} for user: {username} (manual)")
+                            
+                            return jsonify({
+                                "success": True,
+                                "session_id": session_id,
+                                "is_new": True,
+                                "username": username,
+                                "created_at": browser_session.created_at.isoformat(),
+                                "expires_at": None,
+                                "message": "Session created successfully via manual login"
+                            })
+                        else:
+                            print(f"❌ Still not logged in after manual intervention")
+                            print(f"   URL: {current_url}")
+                            print(f"   Title: {current_title}")
+                            # Clean up
+                            try:
+                                handler.driver.quit()
+                                shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                            except:
+                                pass
+                            return jsonify({
+                                "success": False,
+                                "error": "Manual login failed - not on eModal dashboard"
+                            }), 401
+                            
+                    except Exception as verify_error:
+                        print(f"⚠️ Verification error: {verify_error}")
+                        # Clean up
+                        try:
+                            handler.driver.quit()
+                            shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                        except:
+                            pass
+                        return jsonify({
+                            "success": False,
+                            "error": f"Verification failed: {str(verify_error)}"
+                        }), 401
+                        
+                except Exception as input_error:
+                    print(f"⚠️ Input error: {input_error}")
+                    # Clean up
+                    try:
+                        handler.driver.quit()
+                        shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                    except:
+                        pass
+                    return jsonify({
+                        "success": False,
+                        "error": f"Manual login interrupted: {str(input_error)}"
+                    }), 401
+            else:
+                # No manual intervention or timeout
+                print(f"\n❌ No response within 10 seconds - aborting session")
+                # Clean up temp profile on failure
+                try:
+                    handler.driver.quit()
+                    shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                except:
+                    pass
+                return jsonify({
+                    "success": False,
+                    "error": "Authentication failed",
+                    "details": str(login_result.error_type) if login_result.error_type else "Unknown error"
+                }), 401
         
         # Create browser session with keep_alive=True
         browser_session = BrowserSession(
