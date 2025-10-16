@@ -1760,13 +1760,14 @@ class EModalBusinessOperations:
     # APPOINTMENT BOOKING METHODS (3 PHASES)
     # ============================================================================
     
-    def select_dropdown_by_text(self, dropdown_label: str, option_text: str) -> Dict[str, Any]:
+    def select_dropdown_by_text(self, dropdown_label: str, option_text: str, fallback_to_any: bool = False) -> Dict[str, Any]:
         """
         Select an option from a Material dropdown by exact text match.
         
         Args:
             dropdown_label: Label of the dropdown (e.g., "Terminal", "Move Type")
             option_text: Exact text of the option to select
+            fallback_to_any: If True and exact match fails, select any available option (for Line dropdown)
         
         Returns:
             Dict with success status
@@ -1825,6 +1826,32 @@ class EModalBusinessOperations:
                     options = self.driver.find_elements(By.XPATH, f"//mat-option//span[contains(text(),'{option_text}')]")
             
             if not options:
+                # If fallback is enabled (for Line dropdown), try to select any available option
+                if fallback_to_any:
+                    print(f"  ⚠️ Option '{option_text}' not found, selecting any available option...")
+                    try:
+                        all_options = self.driver.find_elements(By.XPATH, "//mat-option//span[@class='mat-option-text']")
+                        if all_options:
+                            # Select the first available option
+                            fallback_option = all_options[0]
+                            fallback_text = fallback_option.text.strip()
+                            
+                            self.driver.execute_script("arguments[0].scrollIntoView(true);", fallback_option)
+                            time.sleep(0.3)
+                            fallback_option.click()
+                            time.sleep(1)
+                            
+                            print(f"  ✅ Fallback: Selected '{fallback_text}' from {dropdown_label}")
+                            self._capture_screenshot(f"dropdown_{dropdown_label.lower().replace(' ', '_')}_fallback_selected")
+                            
+                            return {"success": True, "selected": fallback_text, "fallback": True}
+                        else:
+                            print(f"  ❌ No options available in {dropdown_label} dropdown")
+                            return {"success": False, "error": f"No options available in {dropdown_label} dropdown"}
+                    except Exception as fallback_error:
+                        print(f"  ❌ Fallback selection failed: {fallback_error}")
+                        return {"success": False, "error": f"Fallback selection failed: {str(fallback_error)}"}
+                
                 # Close dropdown and report detailed error
                 try:
                     self.driver.find_element(By.TAG_NAME, "body").click()
@@ -6974,8 +7001,8 @@ def check_appointments():
                     if line_value and equip_size:
                         print(f"  📋 Using alternative fields: Line={line_value}, Equip Size={equip_size}")
                         
-                        # Fill Line dropdown
-                        result = operations.select_dropdown_by_text("Line", line_value)
+                        # Fill Line dropdown with fallback to any option if not found
+                        result = operations.select_dropdown_by_text("Line", line_value, fallback_to_any=True)
                         if not result["success"]:
                             return jsonify({
                                 "success": False,
@@ -6985,6 +7012,10 @@ def check_appointments():
                                 "appointment_session_id": appt_session.session_id,
                                 "current_phase": 1
                             }), 500
+                        
+                        # Log if fallback was used
+                        if result.get("fallback"):
+                            print(f"  ⚠️ Line '{line_value}' not found, used fallback: '{result.get('selected')}'")
                         
                         # Fill Equip Size dropdown
                         result = operations.select_dropdown_by_text("Equip Size", equip_size)
