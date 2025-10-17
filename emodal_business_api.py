@@ -7223,6 +7223,10 @@ def check_appointments():
                         if result.get("fallback"):
                             print(f"  ⚠️ Line '{line_value}' not found, used fallback: '{result.get('selected')}'")
                         
+                        # Wait a moment for Line selection to be processed
+                        print(f"  ⏳ Waiting 2 seconds for Line selection to be processed...")
+                        time.sleep(2)
+                        
                         # Fill Equip Size field directly (just type the value, no selection needed)
                         result = operations.fill_text_field("Equip Size", equip_size)
                         if not result["success"]:
@@ -7234,6 +7238,8 @@ def check_appointments():
                                 "appointment_session_id": appt_session.session_id,
                                 "current_phase": 1
                             }), 500
+                        
+                        print(f"  ✅ Equip Size field filled successfully with '{equip_size}'")
                         
                         # Fill Quantity (always 1)
                         result = operations.fill_quantity_field()
