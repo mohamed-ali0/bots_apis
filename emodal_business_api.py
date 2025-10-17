@@ -1895,6 +1895,21 @@ class EModalBusinessOperations:
                 time.sleep(0.5)
                 print(f"  ✅ Exact match: Selected '{value}' from {field_label}")
                 self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_exact")
+                
+                # Enter the selected value directly in the field
+                input_field.clear()
+                input_field.send_keys(value)
+                time.sleep(0.5)
+                print(f"  📝 Entered '{value}' directly in {field_label} field")
+                
+                # Click blank space to confirm
+                try:
+                    self.driver.find_element(By.TAG_NAME, "body").click()
+                    time.sleep(0.5)
+                    print(f"  ✅ Confirmed {field_label} selection")
+                except:
+                    pass
+                
                 return {"success": True, "selected": value, "exact_match": True}
             
             # No exact match - try partial match
@@ -1912,6 +1927,21 @@ class EModalBusinessOperations:
                 time.sleep(0.5)
                 print(f"  ✅ Partial match: Selected '{partial_text}' from {field_label}")
                 self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_partial")
+                
+                # Enter the selected value directly in the field
+                input_field.clear()
+                input_field.send_keys(partial_text)
+                time.sleep(0.5)
+                print(f"  📝 Entered '{partial_text}' directly in {field_label} field")
+                
+                # Click blank space to confirm
+                try:
+                    self.driver.find_element(By.TAG_NAME, "body").click()
+                    time.sleep(0.5)
+                    print(f"  ✅ Confirmed {field_label} selection")
+                except:
+                    pass
+                
                 return {"success": True, "selected": partial_text, "partial_match": True}
             
             # No match found - use fallback if enabled
@@ -1927,6 +1957,20 @@ class EModalBusinessOperations:
                     
                     print(f"  ✅ Fallback: Selected '{fallback_text}' from {field_label}")
                     self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_fallback")
+                    
+                    # Enter the selected value directly in the field
+                    input_field.clear()
+                    input_field.send_keys(fallback_text)
+                    time.sleep(0.5)
+                    print(f"  📝 Entered '{fallback_text}' directly in {field_label} field")
+                    
+                    # Click blank space to confirm
+                    try:
+                        self.driver.find_element(By.TAG_NAME, "body").click()
+                        time.sleep(0.5)
+                        print(f"  ✅ Confirmed {field_label} selection")
+                    except:
+                        pass
                     
                     return {"success": True, "selected": fallback_text, "fallback": True}
                 except Exception as fallback_error:
