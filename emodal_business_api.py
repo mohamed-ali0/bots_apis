@@ -7271,8 +7271,8 @@ def check_appointments():
                         print(f"  ⏳ Waiting 2 seconds for Line selection to be processed...")
                         time.sleep(2)
                         
-                        # Fill Equip Size field directly (just type the value, no selection needed)
-                        result = operations.fill_text_field("Equip Size", equip_size)
+                        # Fill Equip Size autocomplete field (same as Line - it's also an autocomplete field)
+                        result = operations.fill_autocomplete_field("Equip Size", equip_size, fallback_to_any=True)
                         if not result["success"]:
                             return jsonify({
                                 "success": False,
@@ -7283,7 +7283,11 @@ def check_appointments():
                                 "current_phase": 1
                             }), 500
                         
-                        print(f"  ✅ Equip Size field filled successfully with '{equip_size}'")
+                        # Log if fallback was used for Equip Size
+                        if result.get("fallback"):
+                            print(f"  ⚠️ Equip Size '{equip_size}' not found, used fallback: '{result.get('selected')}'")
+                        
+                        print(f"  ✅ Equip Size field filled successfully with '{result.get('selected')}'")
                         
                         # Fill Quantity (always 1)
                         result = operations.fill_quantity_field()
