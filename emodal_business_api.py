@@ -1844,16 +1844,24 @@ class EModalBusinessOperations:
             try:
                 # Try to find by label first
                 input_field = self.driver.find_element(By.XPATH, f"//mat-label[contains(text(),'{field_label}')]/following-sibling::input[@matinput]")
+                print(f"  🔍 Found {field_label} field by label")
             except:
                 try:
                     # Try alternative: find by placeholder or aria-label
                     input_field = self.driver.find_element(By.XPATH, f"//input[@matinput and contains(@placeholder,'{field_label}')]")
+                    print(f"  🔍 Found {field_label} field by placeholder")
                 except:
                     try:
                         # Try to find any mat-autocomplete-trigger input
                         inputs = self.driver.find_elements(By.XPATH, "//input[@matinput and contains(@class,'mat-autocomplete-trigger')]")
                         if inputs:
-                            input_field = inputs[0]  # Take first one if multiple
+                            # For Equip Size, try to find the second input (after Line)
+                            if field_label == "Equip Size" and len(inputs) > 1:
+                                input_field = inputs[1]  # Second autocomplete field
+                                print(f"  🔍 Found {field_label} field as second autocomplete input")
+                            else:
+                                input_field = inputs[0]  # First autocomplete field
+                                print(f"  🔍 Found {field_label} field as first autocomplete input")
                     except:
                         pass
             
@@ -7272,8 +7280,10 @@ def check_appointments():
                         time.sleep(2)
                         
                         # Fill Equip Size autocomplete field (same as Line - it's also an autocomplete field)
+                        print(f"  🔄 Proceeding to fill Equip Size field...")
                         result = operations.fill_autocomplete_field("Equip Size", equip_size, fallback_to_any=True)
                         if not result["success"]:
+                            print(f"  ❌ Equip Size field failed: {result['error']}")
                             return jsonify({
                                 "success": False,
                                 "error": f"Phase 1 failed - Equip Size: {result['error']}",
@@ -7286,6 +7296,10 @@ def check_appointments():
                         # Log if fallback was used for Equip Size
                         if result.get("fallback"):
                             print(f"  ⚠️ Equip Size '{equip_size}' not found, used fallback: '{result.get('selected')}'")
+                        elif result.get("exact_match"):
+                            print(f"  ✅ Equip Size '{equip_size}' found and selected exactly")
+                        elif result.get("partial_match"):
+                            print(f"  ✅ Equip Size '{equip_size}' found as partial match: '{result.get('selected')}'")
                         
                         print(f"  ✅ Equip Size field filled successfully with '{result.get('selected')}'")
                         
