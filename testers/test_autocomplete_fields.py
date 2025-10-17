@@ -72,7 +72,7 @@ def print_separator(title=""):
     else:
         print(f"{'='*70}")
 
-def test_autocomplete_scenario(scenario):
+def test_autocomplete_scenario(scenario, use_session=False, session_id=None):
     """Test a specific autocomplete scenario"""
     
     print_separator(f"TESTING: {scenario['name']}")
@@ -80,11 +80,31 @@ def test_autocomplete_scenario(scenario):
     print(f"   Line: {scenario['line']}")
     print(f"   Equip Size: {scenario['equip_size']}")
     print(f"   Container: {TEST_DATA['container_id']}")
+    print(f"   Session Mode: {'Existing' if use_session else 'New'}")
     
     # Create test data with scenario values
     test_data = TEST_DATA.copy()
     test_data["line"] = scenario["line"]
     test_data["equip_size"] = scenario["equip_size"]
+    
+    # Remove session credentials if using existing session
+    if use_session and session_id:
+        test_data = {
+            "session_id": session_id,
+            "container_type": "import",
+            "container_id": "TCLU8784503",
+            "container_number": "TCLU8784503",
+            "trucking_company": "K & R TRANSPORTATION LLC",
+            "terminal": "TraPac LLC - Los Angeles",
+            "move_type": "DROP EMPTY",
+            "line": scenario["line"],
+            "equip_size": scenario["equip_size"],
+            "truck_plate": "ABC123",
+            "own_chassis": True,
+            "manifested_date": "2025-09-08",
+            "last_free_day_date": "2025-09-21",
+            "debug": False
+        }
     
     try:
         print(f"\n🚀 Sending request to {API_BASE_URL}/check_appointments...")
@@ -167,7 +187,36 @@ def test_autocomplete_scenario(scenario):
         traceback.print_exc()
         return False
 
-def test_with_session():
+def test_with_new_sessions():
+    """Test each scenario with a new session (complete flow)"""
+    
+    print_separator("TEST WITH NEW SESSIONS")
+    print("📝 Each scenario will create a new session (complete flow)")
+    
+    success_count = 0
+    total_count = len(TEST_SCENARIOS)
+    
+    for i, scenario in enumerate(TEST_SCENARIOS, 1):
+        print(f"\n--- Scenario {i}/{total_count} ---")
+        success = test_autocomplete_scenario(scenario, use_session=False)
+        if success:
+            success_count += 1
+        
+        # Small delay between tests
+        if i < total_count:
+            print(f"\n⏳ Waiting 3 seconds before next scenario...")
+            time.sleep(3)
+    
+    print_separator("NEW SESSION TEST RESULTS")
+    print(f"✅ Successful: {success_count}/{total_count}")
+    print(f"❌ Failed: {total_count - success_count}/{total_count}")
+    
+    if success_count == total_count:
+        print(f"🎉 All scenarios passed with new sessions!")
+    else:
+        print(f"⚠️ Some scenarios failed - check logs above")
+
+def test_with_existing_session():
     """Test using an existing session (faster for repeated tests)"""
     
     print_separator("TEST WITH EXISTING SESSION")
@@ -195,43 +244,21 @@ def test_with_session():
             # Test scenarios with session
             print(f"\n📝 Step 2: Testing autocomplete scenarios with session...")
             
+            success_count = 0
+            total_count = len(TEST_SCENARIOS)
+            
             for i, scenario in enumerate(TEST_SCENARIOS, 1):
-                print(f"\n--- Scenario {i}/{len(TEST_SCENARIOS)} ---")
-                
-                # Create test data with session
-                test_data = {
-                    "session_id": session_id,
-                    "container_type": "import",
-                    "container_id": "TCLU8784503",
-                    "container_number": "TCLU8784503",
-                    "trucking_company": "K & R TRANSPORTATION LLC",
-                    "terminal": "TraPac LLC - Los Angeles",
-                    "move_type": "DROP EMPTY",
-                    "line": scenario["line"],
-                    "equip_size": scenario["equip_size"],
-                    "truck_plate": "ABC123",
-                    "own_chassis": True,
-                    "manifested_date": "2025-09-08",
-                    "last_free_day_date": "2025-09-21",
-                    "debug": False
-                }
-                
-                response = requests.post(
-                    f"{API_BASE_URL}/check_appointments",
-                    json=test_data,
-                    timeout=600
-                )
-                
-                print(f"📊 Status Code: {response.status_code}")
-                result = response.json()
-                
-                if response.status_code == 200 and result.get('success'):
-                    print(f"✅ {scenario['name']} - SUCCESS")
-                else:
-                    print(f"❌ {scenario['name']} - FAILED: {result.get('error', 'Unknown error')}")
+                print(f"\n--- Scenario {i}/{total_count} ---")
+                success = test_autocomplete_scenario(scenario, use_session=True, session_id=session_id)
+                if success:
+                    success_count += 1
                 
                 # Small delay between tests
                 time.sleep(2)
+            
+            print_separator("EXISTING SESSION TEST RESULTS")
+            print(f"✅ Successful: {success_count}/{total_count}")
+            print(f"❌ Failed: {total_count - success_count}/{total_count}")
             
         else:
             print(f"❌ Session creation failed: {response.status_code}")
@@ -264,27 +291,22 @@ def main():
     
     # Choose test mode
     print(f"\n📋 Test Options:")
-    print(f"   1. Test individual scenarios (slower, complete flow)")
+    print(f"   1. Test all scenarios with NEW sessions (complete flow)")
     print(f"   2. Test all scenarios with existing session (faster)")
-    print(f"   3. Test specific scenario")
+    print(f"   3. Test specific scenario with new session")
+    print(f"   4. Test individual scenarios (interactive)")
     
-    choice = input(f"\nEnter choice (1-3) [default: 2]: ").strip() or "2"
+    choice = input(f"\nEnter choice (1-4) [default: 1]: ").strip() or "1"
     
     if choice == "1":
-        # Test individual scenarios
-        for i, scenario in enumerate(TEST_SCENARIOS, 1):
-            print(f"\n{'='*70}")
-            print(f"SCENARIO {i}/{len(TEST_SCENARIOS)}")
-            print(f"{'='*70}")
-            test_autocomplete_scenario(scenario)
-            if i < len(TEST_SCENARIOS):
-                input(f"\nPress Enter to continue to next scenario...")
-                
+        # Test all scenarios with new sessions (default)
+        test_with_new_sessions()
+        
     elif choice == "2":
-        test_with_session()
+        test_with_existing_session()
         
     elif choice == "3":
-        # Test specific scenario
+        # Test specific scenario with new session
         print(f"\nAvailable scenarios:")
         for i, scenario in enumerate(TEST_SCENARIOS, 1):
             print(f"   {i}. {scenario['name']} - {scenario['description']}")
@@ -292,16 +314,26 @@ def main():
         try:
             scenario_choice = int(input(f"\nEnter scenario number (1-{len(TEST_SCENARIOS)}): "))
             if 1 <= scenario_choice <= len(TEST_SCENARIOS):
-                test_autocomplete_scenario(TEST_SCENARIOS[scenario_choice - 1])
+                test_autocomplete_scenario(TEST_SCENARIOS[scenario_choice - 1], use_session=False)
             else:
                 print(f"Invalid choice. Running default test...")
-                test_with_session()
+                test_with_new_sessions()
         except ValueError:
             print(f"Invalid input. Running default test...")
-            test_with_session()
+            test_with_new_sessions()
+            
+    elif choice == "4":
+        # Test individual scenarios (interactive)
+        for i, scenario in enumerate(TEST_SCENARIOS, 1):
+            print(f"\n{'='*70}")
+            print(f"SCENARIO {i}/{len(TEST_SCENARIOS)}")
+            print(f"{'='*70}")
+            test_autocomplete_scenario(scenario, use_session=False)
+            if i < len(TEST_SCENARIOS):
+                input(f"\nPress Enter to continue to next scenario...")
     else:
         print(f"Invalid choice. Running default test...")
-        test_with_session()
+        test_with_new_sessions()
     
     print_separator("TEST COMPLETE")
 

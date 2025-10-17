@@ -1799,64 +1799,79 @@ class EModalBusinessOperations:
             # Clear and focus the field
             input_field.clear()
             input_field.click()
-            time.sleep(0.5)
+            time.sleep(1.0)  # Wait for autocomplete to open
             
             print(f"  ✅ Found and focused {field_label} field")
             self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_focused")
             
-            # Type the value
-            input_field.send_keys(value)
-            time.sleep(1.5)  # Wait for autocomplete to populate
+            # Get all available options from the expanded list
+            print(f"  🔍 Getting available options from {field_label} autocomplete...")
+            all_options = self.driver.find_elements(By.XPATH, "//mat-option//span")
+            available_options = [opt.text.strip() for opt in all_options if opt.text.strip()]
             
-            print(f"  📝 Typed '{value}' in {field_label} field")
-            self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_typed")
+            if available_options:
+                print(f"  📋 Available options: {', '.join(available_options[:10])}")  # Show first 10
+                if len(available_options) > 10:
+                    print(f"  📋 ... and {len(available_options) - 10} more options")
+            else:
+                print(f"  ⚠️ No options found in autocomplete list")
+                return {"success": False, "error": f"No options available in {field_label} autocomplete"}
             
-            # Try to find exact match in autocomplete options
-            options = self.driver.find_elements(By.XPATH, f"//mat-option//span[contains(text(),'{value}')]")
+            # Search for our value in the available options (exact match)
+            print(f"  🔍 Searching for '{value}' in available options...")
+            exact_match = None
+            for option in all_options:
+                if option.text.strip() == value:
+                    exact_match = option
+                    break
             
-            if options:
-                # Found exact match
-                options[0].click()
+            if exact_match:
+                # Found exact match - select it
+                exact_match.click()
                 time.sleep(0.5)
-                print(f"  ✅ Selected '{value}' from {field_label} autocomplete")
-                self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_selected")
+                print(f"  ✅ Exact match: Selected '{value}' from {field_label}")
+                self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_exact")
                 return {"success": True, "selected": value, "exact_match": True}
             
-            # No exact match found
+            # No exact match - try partial match
+            print(f"  🔍 No exact match for '{value}', trying partial match...")
+            partial_match = None
+            for option in all_options:
+                if value.lower() in option.text.strip().lower():
+                    partial_match = option
+                    break
+            
+            if partial_match:
+                # Found partial match - select it
+                partial_text = partial_match.text.strip()
+                partial_match.click()
+                time.sleep(0.5)
+                print(f"  ✅ Partial match: Selected '{partial_text}' from {field_label}")
+                self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_partial")
+                return {"success": True, "selected": partial_text, "partial_match": True}
+            
+            # No match found - use fallback if enabled
             if fallback_to_any:
                 print(f"  ⚠️ '{value}' not found, selecting any available option...")
                 try:
-                    all_options = self.driver.find_elements(By.XPATH, "//mat-option//span")
-                    if all_options:
-                        # Select the first available option
-                        fallback_option = all_options[0]
-                        fallback_text = fallback_option.text.strip()
-                        
-                        fallback_option.click()
-                        time.sleep(0.5)
-                        
-                        print(f"  ✅ Fallback: Selected '{fallback_text}' from {field_label}")
-                        self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_fallback")
-                        
-                        return {"success": True, "selected": fallback_text, "fallback": True}
-                    else:
-                        print(f"  ❌ No options available in {field_label} autocomplete")
-                        return {"success": False, "error": f"No options available in {field_label} autocomplete"}
+                    # Select the first available option
+                    fallback_option = all_options[0]
+                    fallback_text = fallback_option.text.strip()
+                    
+                    fallback_option.click()
+                    time.sleep(0.5)
+                    
+                    print(f"  ✅ Fallback: Selected '{fallback_text}' from {field_label}")
+                    self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_fallback")
+                    
+                    return {"success": True, "selected": fallback_text, "fallback": True}
                 except Exception as fallback_error:
                     print(f"  ❌ Fallback selection failed: {fallback_error}")
                     return {"success": False, "error": f"Fallback selection failed: {str(fallback_error)}"}
             else:
-                # No fallback, just accept what was typed
-                print(f"  ⚠️ '{value}' not found in autocomplete, using typed value")
-                
-                # Click blank area to confirm
-                try:
-                    self.driver.find_element(By.TAG_NAME, "body").click()
-                    time.sleep(0.5)
-                except:
-                    pass
-                
-                return {"success": True, "selected": value, "exact_match": False}
+                # No fallback enabled - return error
+                print(f"  ❌ '{value}' not found in available options")
+                return {"success": False, "error": f"'{value}' not found in {field_label} options. Available: {', '.join(available_options[:5])}"}
             
         except Exception as e:
             print(f"  ❌ Error filling autocomplete field: {e}")
