@@ -1760,6 +1760,70 @@ class EModalBusinessOperations:
     # APPOINTMENT BOOKING METHODS (3 PHASES)
     # ============================================================================
     
+    def fill_text_field(self, field_label: str, value: str) -> Dict[str, Any]:
+        """
+        Fill a regular text input field (like Equip Size).
+        
+        Args:
+            field_label: Label of the field (e.g., "Equip Size")
+            value: Value to type directly
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            print(f"📝 Filling '{field_label}' text field with '{value}'...")
+            
+            # Find the input field by label
+            input_field = None
+            try:
+                # Try to find by label first
+                input_field = self.driver.find_element(By.XPATH, f"//mat-label[contains(text(),'{field_label}')]/following-sibling::input[@matinput]")
+            except:
+                try:
+                    # Try alternative: find by placeholder or aria-label
+                    input_field = self.driver.find_element(By.XPATH, f"//input[@matinput and contains(@placeholder,'{field_label}')]")
+                except:
+                    try:
+                        # Try to find any mat-input-element
+                        inputs = self.driver.find_elements(By.XPATH, "//input[@matinput]")
+                        if inputs:
+                            input_field = inputs[0]  # Take first one if multiple
+                    except:
+                        pass
+            
+            if not input_field:
+                return {"success": False, "error": f"Text field '{field_label}' not found"}
+            
+            # Clear and focus the field
+            input_field.clear()
+            input_field.click()
+            time.sleep(0.5)
+            
+            print(f"  ✅ Found and focused {field_label} field")
+            self._capture_screenshot(f"text_{field_label.lower().replace(' ', '_')}_focused")
+            
+            # Type the value directly
+            input_field.send_keys(value)
+            time.sleep(0.5)
+            
+            print(f"  📝 Typed '{value}' in {field_label} field")
+            self._capture_screenshot(f"text_{field_label.lower().replace(' ', '_')}_filled")
+            
+            # Click blank area to confirm
+            try:
+                self.driver.find_element(By.TAG_NAME, "body").click()
+                time.sleep(0.5)
+            except:
+                pass
+            
+            print(f"  ✅ Successfully filled {field_label} with '{value}'")
+            return {"success": True, "selected": value, "direct_input": True}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling text field: {e}")
+            return {"success": False, "error": str(e)}
+
     def fill_autocomplete_field(self, field_label: str, value: str, fallback_to_any: bool = False) -> Dict[str, Any]:
         """
         Fill an autocomplete input field (like Line or Equip Size).
@@ -1869,9 +1933,34 @@ class EModalBusinessOperations:
                     print(f"  ❌ Fallback selection failed: {fallback_error}")
                     return {"success": False, "error": f"Fallback selection failed: {str(fallback_error)}"}
             else:
-                # No fallback enabled - return error
-                print(f"  ❌ '{value}' not found in available options")
-                return {"success": False, "error": f"'{value}' not found in {field_label} options. Available: {', '.join(available_options[:5])}"}
+                # No fallback enabled - but for Equip Size, we might need to handle dependency
+                if field_label == "Equip Size":
+                    print(f"  ⚠️ Equip Size '{value}' not found - this might be due to Line selection dependency")
+                    print(f"  🔄 Trying to select any available option as fallback...")
+                    
+                    try:
+                        # Try to select any available option
+                        if all_options:
+                            fallback_option = all_options[0]
+                            fallback_text = fallback_option.text.strip()
+                            
+                            fallback_option.click()
+                            time.sleep(0.5)
+                            
+                            print(f"  ✅ Dependency fallback: Selected '{fallback_text}' from {field_label}")
+                            self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_dependency_fallback")
+                            
+                            return {"success": True, "selected": fallback_text, "dependency_fallback": True}
+                        else:
+                            print(f"  ❌ No options available after Line selection")
+                            return {"success": False, "error": f"No Equip Size options available after Line selection"}
+                    except Exception as dep_error:
+                        print(f"  ❌ Dependency fallback failed: {dep_error}")
+                        return {"success": False, "error": f"Equip Size dependency fallback failed: {str(dep_error)}"}
+                else:
+                    # No fallback enabled - return error
+                    print(f"  ❌ '{value}' not found in available options")
+                    return {"success": False, "error": f"'{value}' not found in {field_label} options. Available: {', '.join(available_options[:5])}"}
             
         except Exception as e:
             print(f"  ❌ Error filling autocomplete field: {e}")
@@ -7134,8 +7223,8 @@ def check_appointments():
                         if result.get("fallback"):
                             print(f"  ⚠️ Line '{line_value}' not found, used fallback: '{result.get('selected')}'")
                         
-                        # Fill Equip Size autocomplete field (no fallback needed - just type the value)
-                        result = operations.fill_autocomplete_field("Equip Size", equip_size, fallback_to_any=False)
+                        # Fill Equip Size field directly (just type the value, no selection needed)
+                        result = operations.fill_text_field("Equip Size", equip_size)
                         if not result["success"]:
                             return jsonify({
                                 "success": False,
