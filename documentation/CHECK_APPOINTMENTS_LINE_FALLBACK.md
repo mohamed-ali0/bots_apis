@@ -1,8 +1,10 @@
-# Check Appointments API - Line Dropdown Fallback
+# Check Appointments API - Line Autocomplete Fallback
 
 ## Overview
 
-The `/check_appointments` endpoint now includes intelligent fallback handling for the Line dropdown selection. When the specified line is not found in the dropdown options, the system will automatically select any available option to continue the appointment flow.
+The `/check_appointments` endpoint now includes intelligent fallback handling for the Line autocomplete field. When the specified line is not found in the autocomplete options, the system will automatically select any available option to continue the appointment flow.
+
+**Important:** Line and Equip Size are **autocomplete input fields**, not dropdowns. They open a list when clicked, but work differently from regular dropdowns.
 
 ## Request Format
 
@@ -25,30 +27,33 @@ The `/check_appointments` endpoint now includes intelligent fallback handling fo
 }
 ```
 
-### New Line Fallback Behavior
+### New Line Autocomplete Fallback Behavior
 
-When using the alternative import form (Line/Equip Size fields), the system now handles missing line options gracefully:
+When using the alternative import form (Line/Equip Size fields), the system now handles autocomplete fields intelligently:
 
-#### Before (Old Behavior)
+#### Line Field (with fallback)
 ```json
 {
   "line": "COSCO",
   "equip_size": "40"
 }
 ```
-- If "COSCO" not found → **FAILS** with error
-- User must retry with correct line name
-
-#### After (New Behavior)
-```json
-{
-  "line": "COSCO",
-  "equip_size": "40"
-}
-```
+- Types "COSCO" in Line autocomplete field
+- If "COSCO" found in list → **SELECTS** "COSCO"
 - If "COSCO" not found → **AUTOMATICALLY** selects any available line
 - Continues with appointment flow
 - Logs the fallback selection
+
+#### Equip Size Field (direct input)
+```json
+{
+  "line": "COSCO", 
+  "equip_size": "40"
+}
+```
+- Types "40" directly in Equip Size field
+- No selection needed - just accepts the typed value
+- Continues with appointment flow
 
 ## Request Parameters
 
@@ -173,16 +178,16 @@ When container/booking number fields are not available, use:
 }
 ```
 
-## Line Fallback Examples
+## Line Autocomplete Examples
 
-### Example 1: Line Found
+### Example 1: Line Found in Autocomplete
 ```json
 {
   "line": "MSC",
   "equip_size": "40"
 }
 ```
-**Result:** ✅ Selects "MSC" (exact match)
+**Result:** ✅ Types "MSC", finds in autocomplete list, selects "MSC"
 
 ### Example 2: Line Not Found - Fallback Used
 ```json
@@ -191,17 +196,26 @@ When container/booking number fields are not available, use:
   "equip_size": "40"
 }
 ```
-**Result:** ⚠️ Selects first available option (e.g., "MSC")
+**Result:** ⚠️ Types "UNKNOWN_LINE", not found in list, selects first available option (e.g., "MSC")
 **Log:** `Line 'UNKNOWN_LINE' not found, used fallback: 'MSC'`
 
-### Example 3: No Options Available
+### Example 3: Equip Size Direct Input
+```json
+{
+  "line": "MSC",
+  "equip_size": "40DH"
+}
+```
+**Result:** ✅ Types "40DH" directly in Equip Size field, accepts typed value
+
+### Example 4: No Options Available
 ```json
 {
   "line": "ANY_LINE",
   "equip_size": "40"
 }
 ```
-**Result:** ❌ Fails with "No options available in Line dropdown"
+**Result:** ❌ Fails with "No options available in Line autocomplete"
 
 ## Benefits
 

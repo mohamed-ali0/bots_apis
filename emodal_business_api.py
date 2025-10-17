@@ -1760,6 +1760,108 @@ class EModalBusinessOperations:
     # APPOINTMENT BOOKING METHODS (3 PHASES)
     # ============================================================================
     
+    def fill_autocomplete_field(self, field_label: str, value: str, fallback_to_any: bool = False) -> Dict[str, Any]:
+        """
+        Fill an autocomplete input field (like Line or Equip Size).
+        
+        Args:
+            field_label: Label of the field (e.g., "Line", "Equip Size")
+            value: Value to type and search for
+            fallback_to_any: If True and exact match fails, select any available option
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            print(f"🔤 Filling '{field_label}' autocomplete field with '{value}'...")
+            
+            # Find the input field by label
+            input_field = None
+            try:
+                # Try to find by label first
+                input_field = self.driver.find_element(By.XPATH, f"//mat-label[contains(text(),'{field_label}')]/following-sibling::input[@matinput]")
+            except:
+                try:
+                    # Try alternative: find by placeholder or aria-label
+                    input_field = self.driver.find_element(By.XPATH, f"//input[@matinput and contains(@placeholder,'{field_label}')]")
+                except:
+                    try:
+                        # Try to find any mat-autocomplete-trigger input
+                        inputs = self.driver.find_elements(By.XPATH, "//input[@matinput and contains(@class,'mat-autocomplete-trigger')]")
+                        if inputs:
+                            input_field = inputs[0]  # Take first one if multiple
+                    except:
+                        pass
+            
+            if not input_field:
+                return {"success": False, "error": f"Autocomplete field '{field_label}' not found"}
+            
+            # Clear and focus the field
+            input_field.clear()
+            input_field.click()
+            time.sleep(0.5)
+            
+            print(f"  ✅ Found and focused {field_label} field")
+            self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_focused")
+            
+            # Type the value
+            input_field.send_keys(value)
+            time.sleep(1.5)  # Wait for autocomplete to populate
+            
+            print(f"  📝 Typed '{value}' in {field_label} field")
+            self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_typed")
+            
+            # Try to find exact match in autocomplete options
+            options = self.driver.find_elements(By.XPATH, f"//mat-option//span[contains(text(),'{value}')]")
+            
+            if options:
+                # Found exact match
+                options[0].click()
+                time.sleep(0.5)
+                print(f"  ✅ Selected '{value}' from {field_label} autocomplete")
+                self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_selected")
+                return {"success": True, "selected": value, "exact_match": True}
+            
+            # No exact match found
+            if fallback_to_any:
+                print(f"  ⚠️ '{value}' not found, selecting any available option...")
+                try:
+                    all_options = self.driver.find_elements(By.XPATH, "//mat-option//span")
+                    if all_options:
+                        # Select the first available option
+                        fallback_option = all_options[0]
+                        fallback_text = fallback_option.text.strip()
+                        
+                        fallback_option.click()
+                        time.sleep(0.5)
+                        
+                        print(f"  ✅ Fallback: Selected '{fallback_text}' from {field_label}")
+                        self._capture_screenshot(f"autocomplete_{field_label.lower().replace(' ', '_')}_fallback")
+                        
+                        return {"success": True, "selected": fallback_text, "fallback": True}
+                    else:
+                        print(f"  ❌ No options available in {field_label} autocomplete")
+                        return {"success": False, "error": f"No options available in {field_label} autocomplete"}
+                except Exception as fallback_error:
+                    print(f"  ❌ Fallback selection failed: {fallback_error}")
+                    return {"success": False, "error": f"Fallback selection failed: {str(fallback_error)}"}
+            else:
+                # No fallback, just accept what was typed
+                print(f"  ⚠️ '{value}' not found in autocomplete, using typed value")
+                
+                # Click blank area to confirm
+                try:
+                    self.driver.find_element(By.TAG_NAME, "body").click()
+                    time.sleep(0.5)
+                except:
+                    pass
+                
+                return {"success": True, "selected": value, "exact_match": False}
+            
+        except Exception as e:
+            print(f"  ❌ Error filling autocomplete field: {e}")
+            return {"success": False, "error": str(e)}
+
     def select_dropdown_by_text(self, dropdown_label: str, option_text: str, fallback_to_any: bool = False) -> Dict[str, Any]:
         """
         Select an option from a Material dropdown by exact text match.
@@ -7001,8 +7103,8 @@ def check_appointments():
                     if line_value and equip_size:
                         print(f"  📋 Using alternative fields: Line={line_value}, Equip Size={equip_size}")
                         
-                        # Fill Line dropdown with fallback to any option if not found
-                        result = operations.select_dropdown_by_text("Line", line_value, fallback_to_any=True)
+                        # Fill Line autocomplete field with fallback to any option if not found
+                        result = operations.fill_autocomplete_field("Line", line_value, fallback_to_any=True)
                         if not result["success"]:
                             return jsonify({
                                 "success": False,
@@ -7017,8 +7119,8 @@ def check_appointments():
                         if result.get("fallback"):
                             print(f"  ⚠️ Line '{line_value}' not found, used fallback: '{result.get('selected')}'")
                         
-                        # Fill Equip Size dropdown
-                        result = operations.select_dropdown_by_text("Equip Size", equip_size)
+                        # Fill Equip Size autocomplete field (no fallback needed - just type the value)
+                        result = operations.fill_autocomplete_field("Equip Size", equip_size, fallback_to_any=False)
                         if not result["success"]:
                             return jsonify({
                                 "success": False,
