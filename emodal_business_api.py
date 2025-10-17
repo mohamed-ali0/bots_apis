@@ -2375,8 +2375,8 @@ class EModalBusinessOperations:
                 print(f"  ✅ Clicked Next button (JavaScript click)")
             
             # Wait for transition and stepper UI to update
-            print(f"  ⏳ Waiting 15 seconds for stepper to update...")
-            time.sleep(15)
+            print(f"  ⏳ Waiting 25 seconds for stepper to update...")
+            time.sleep(25)
             print(f"  ✅ Wait complete, checking stepper...")
             
             # Verify phase transition using stepper
