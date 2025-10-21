@@ -487,84 +487,160 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
         user_data_dir=temp_profile_dir
     )
     
-        login_result = handler.login(username, password)
-        if not login_result.success:
-            # Check if this is a "Play button not found" error - only then offer manual intervention
-            error_message = login_result.error_message or ""
-            is_play_button_error = "Play button not found" in error_message
-            
-            if is_play_button_error:
-                # Only offer manual intervention for "Play button not found" errors
-                print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
-                print(f"   Error: {error_message}")
-                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print(f"❓ Do you want to complete login manually?")
-                print(f"   Press ENTER within 10 seconds to complete manually...")
-                print(f"   (Or wait 10 seconds to abort)")
-                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                
-                # Wait for user input with timeout (only for play button errors)
-                import sys
-                user_wants_manual = False
-                try:
-                    # Windows-compatible timeout input
-                    if sys.platform == 'win32':
-                        import msvcrt
-                        import time as time_module
-                        start_time = time_module.time()
-                        while time_module.time() - start_time < 10:
-                            if msvcrt.kbhit():
-                                key = msvcrt.getch()
-                                if key == b'\r':  # Enter key
-                                    user_wants_manual = True
-                                    break
-                            time_module.sleep(0.1)
-                    else:
-                        # Unix/Linux timeout input
-                        import select
-                        import sys
-                        ready, _, _ = select.select([sys.stdin], [], [], 10)
-                        if ready:
+    login_result = handler.login(username, password)
+    if not login_result.success:
+        # Login failed - offer manual intervention before cleanup
+        print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
+        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        print(f"❓ Do you want to complete login manually?")
+        print(f"   Press ENTER within 10 seconds to complete manually...")
+        print(f"   (Or wait 10 seconds to abort)")
+        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        # Wait for user input with timeout
+        import sys
+        user_wants_manual = False
+        try:
+            # Windows-compatible timeout input
+            if sys.platform == 'win32':
+                import msvcrt
+                import time as time_module
+                start_time = time_module.time()
+                while time_module.time() - start_time < 10:
+                    if msvcrt.kbhit():
+                        key = msvcrt.getch()
+                        if key == b'\r':  # Enter key
                             user_wants_manual = True
-                except Exception as e:
-                    print(f"⚠️ Input handling error: {e}")
-                    user_wants_manual = False
-                
-                if user_wants_manual:
-                    print(f"\n✅ Manual intervention requested - keeping browser open")
-                    print(f"   Complete login manually and press ENTER when done...")
-                    try:
-                        input()  # Wait for user to press Enter
-                        print(f"✅ Manual login completed - continuing...")
-                    except KeyboardInterrupt:
-                        print(f"\n❌ Manual login interrupted")
-                        login_handler.driver.quit()
-                        raise Exception(f"Manual login interrupted")
-                else:
-                    print(f"\n❌ No response within 10 seconds - aborting session")
-                    login_handler.driver.quit()
-                    raise Exception(f"Login failed: {error_message}")
+                            break
+                    time_module.sleep(0.1)
             else:
-                # For other reCAPTCHA failures, just fail without manual intervention
-                print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
-                print(f"   Error: {error_message}")
-                login_handler.driver.quit()
-                raise Exception(f"Login failed: {error_message}")
+                # Unix-based systems
+                import select
+                ready, _, _ = select.select([sys.stdin], [], [], 10)
+                if ready:
+                    sys.stdin.readline()
+                    user_wants_manual = True
+        except Exception as input_error:
+            print(f"⚠️ Input timeout error: {input_error}")
         
-        # Create browser session with keep_alive=True (persistent)
-        browser_session = BrowserSession(
-            session_id=new_session_id,
-            driver=handler.driver,
-            username=username,
-            created_at=datetime.now(),
-            last_used=datetime.now(),
-            keep_alive=True,  # All sessions are persistent by default
-            credentials_hash=cred_hash,
-            last_refresh=datetime.now()
-        )
-        
-        active_sessions[new_session_id] = browser_session
-        persistent_sessions[cred_hash] = new_session_id
+        if user_wants_manual and handler.driver:
+            print(f"\n✅ Manual login mode activated!")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"📋 Instructions:")
+            print(f"   1. Complete the login in the browser window")
+            print(f"   2. Solve any reCAPTCHA or other challenges")
+            print(f"   3. Wait until you see the eModal dashboard")
+            print(f"   4. Press ENTER when done to continue...")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            
+            # Wait indefinitely for user to press Enter
+            try:
+                input()  # This will wait until Enter is pressed
+                print(f"✅ Continuing with session creation...")
+                
+                # Verify login after manual intervention
+                try:
+                    current_url = (handler.driver.current_url or "").lower()
+                    current_title = (handler.driver.title or "")
+                    
+                    # Accept various eModal domains as valid login
+                    valid_domains = ["ecp2.emodal.com", "account.emodal.com", "truckerportal.emodal.com"]
+                    is_valid_url = any(domain in current_url for domain in valid_domains) and ("identity" not in current_url)
+                    
+                    if is_valid_url:
+                        print(f"✅ Session authenticated successfully (manual recovery)")
+                        
+                        # Create browser session with keep_alive=True (persistent)
+                        browser_session = BrowserSession(
+                            session_id=new_session_id,
+                            driver=handler.driver,
+                            username=username,
+                            created_at=datetime.now(),
+                            last_used=datetime.now(),
+                            keep_alive=True,  # All sessions are persistent by default
+                            credentials_hash=cred_hash,
+                            last_refresh=datetime.now()
+                        )
+                        
+                        active_sessions[new_session_id] = browser_session
+                        persistent_sessions[cred_hash] = new_session_id
+                        
+                        logger.info(f"[{request_id}] ✅ Session {new_session_id} created successfully (manual)")
+                        browser_session.mark_in_use()  # Mark as in use
+                        return (browser_session.driver, username, new_session_id, True)
+                    else:
+                        print(f"❌ Still not logged in after manual intervention")
+                        print(f"   URL: {current_url}")
+                        print(f"   Title: {current_title}")
+                        # Clean up
+                        try:
+                            handler.driver.quit()
+                            shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                        except:
+                            pass
+                        error_response = jsonify({
+                            "success": False,
+                            "error": "Manual login failed - not on eModal dashboard"
+                        }), 401
+                        return (None, None, None, None, error_response)
+                        
+                except Exception as verify_error:
+                    print(f"⚠️ Verification error: {verify_error}")
+                    # Clean up
+                    try:
+                        handler.driver.quit()
+                        shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                    except:
+                        pass
+                    error_response = jsonify({
+                        "success": False,
+                        "error": f"Verification failed: {str(verify_error)}"
+                    }), 401
+                    return (None, None, None, None, error_response)
+                    
+            except Exception as input_error:
+                print(f"⚠️ Input error: {input_error}")
+                # Clean up
+                try:
+                    handler.driver.quit()
+                    shutil.rmtree(temp_profile_dir, ignore_errors=True)
+                except:
+                    pass
+                error_response = jsonify({
+                    "success": False,
+                    "error": f"Manual login interrupted: {str(input_error)}"
+                }), 401
+                return (None, None, None, None, error_response)
+        else:
+            # No manual intervention or timeout
+            print(f"\n❌ No response within 10 seconds - aborting session")
+            # Clean up temp profile on failure
+            try:
+                handler.driver.quit()
+                shutil.rmtree(temp_profile_dir, ignore_errors=True)
+            except:
+                pass
+            error_response = jsonify({
+                "success": False,
+                "error": "Authentication failed",
+                "details": str(login_result.error_type) if login_result.error_type else "Unknown error"
+            }), 401
+            return (None, None, None, None, error_response)
+    
+    # Create browser session with keep_alive=True (persistent)
+    browser_session = BrowserSession(
+        session_id=new_session_id,
+        driver=handler.driver,
+        username=username,
+        created_at=datetime.now(),
+        last_used=datetime.now(),
+        keep_alive=True,  # All sessions are persistent by default
+        credentials_hash=cred_hash,
+        last_refresh=datetime.now()
+    )
+    
+    active_sessions[new_session_id] = browser_session
+    persistent_sessions[cred_hash] = new_session_id
     
     browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
     
@@ -6330,25 +6406,13 @@ def get_or_create_session():
         
         login_result = handler.login(username, password)
         if not login_result.success:
-            # Check if this is a "Play button not found" error - only then offer manual intervention
-            error_message = login_result.error_message or ""
-            is_play_button_error = "Play button not found" in error_message
-            
-            if is_play_button_error:
-                # Only offer manual intervention for "Play button not found" errors
-                print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
-                print(f"   Error: {error_message}")
-                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                print(f"❓ Do you want to complete login manually?")
-                print(f"   Press ENTER within 10 seconds to complete manually...")
-                print(f"   (Or wait 10 seconds to abort)")
-                print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-            else:
-                # For other reCAPTCHA failures, just fail without manual intervention
-                print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
-                print(f"   Error: {error_message}")
-                login_handler.driver.quit()
-                raise Exception(f"Login failed: {error_message}")
+            # Login failed - offer manual intervention before cleanup
+            print(f"\n⚠️ Authentication failed: {login_result.error_type if login_result.error_type else 'Unknown error'}")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            print(f"❓ Do you want to complete login manually?")
+            print(f"   Press ENTER within 10 seconds to complete manually...")
+            print(f"   (Or wait 10 seconds to abort)")
+            print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             # Wait for user input with timeout
             import sys
