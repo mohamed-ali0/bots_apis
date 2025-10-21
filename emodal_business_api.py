@@ -7545,6 +7545,8 @@ def check_appointments():
                         "appointment_session_id": appt_session.session_id,
                         "current_phase": 2
                     }), 500
+                elif result.get("skipped"):
+                    print("  ℹ️ PIN field skipped (not found) - continuing...")
             else:  # export
                 # Export: Unit number (default "1")
                 unit_number = data.get('unit_number', '1')
@@ -8011,6 +8013,8 @@ def make_appointment():
         result = operations.fill_pin_code(pin_code)
         if not result["success"]:
             return jsonify({"success": False, "error": f"Phase 2 - PIN: {result['error']}"}), 500
+        elif result.get("skipped"):
+            print("  ℹ️ PIN field skipped (not found) - continuing...")
         
         result = operations.fill_truck_plate(truck_plate)
         if not result["success"]:
