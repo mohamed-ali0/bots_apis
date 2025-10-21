@@ -804,84 +804,12 @@ class EModalBusinessOperations:
         try:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
-            
-            # Ensure browser window is visible, on top, and maximized to capture full browser including URL bar
-            try:
-                # First, bring window to front and ensure it's not minimized
-                self.driver.switch_to.window(self.driver.current_window_handle)
-                
-                # Force browser window to be on top of all other windows
-                try:
-                    # Method 1: Use JavaScript to focus the window
-                    self.driver.execute_script("window.focus();")
-                    
-                    # Method 2: Click on the browser window to bring it to front
-                    self.driver.execute_script("window.click();")
-                    
-                    # Method 3: Use JavaScript to bring window to front
-                    self.driver.execute_script("""
-                        if (window.chrome && window.chrome.runtime) {
-                            window.chrome.runtime.sendMessage({action: 'bringToFront'});
-                        }
-                    """)
-                    
-                except Exception as e:
-                    print(f"⚠️ Could not bring window to front: {e}")
-                
-                # Try to restore window if it's minimized
-                try:
-                    self.driver.minimize_window()
-                    time.sleep(0.2)
-                    self.driver.maximize_window()
-                except Exception:
-                    # If minimize/maximize fails, just try to maximize
-                    self.driver.maximize_window()
-                
-                time.sleep(0.5)  # Wait for window to maximize
-                
-                # Additional focus attempts after maximization
-                try:
-                    self.driver.execute_script("window.focus();")
-                    # Click on a safe area of the page to ensure focus
-                    self.driver.execute_script("document.body.click();")
-                except Exception:
-                    pass
-                
-                # Verify window is actually visible
-                window_size = self.driver.get_window_size()
-                if window_size['width'] < 800 or window_size['height'] < 600:
-                    print(f"⚠️ Window size too small: {window_size}, trying to resize...")
-                    self.driver.set_window_size(1920, 1080)
-                    time.sleep(0.3)
-                    
-            except Exception as e:
-                print(f"⚠️ Could not maximize window: {e}")
-                # Try alternative approach
-                try:
-                    self.driver.set_window_size(1920, 1080)
-                    self.driver.set_window_position(0, 0)
-                except Exception as e2:
-                    print(f"⚠️ Could not resize window: {e2}")
-            
-            # Capture full browser window including URL bar and browser chrome
-            # Use get_screenshot_as_png() for better full window capture
-            try:
-                screenshot_png = self.driver.get_screenshot_as_png()
-                with open(raw_path, 'wb') as f:
-                    f.write(screenshot_png)
-                print(f"📸 Full browser screenshot captured: {os.path.basename(raw_path)}")
-            except Exception as e:
-                print(f"⚠️ get_screenshot_as_png failed: {e}, trying save_screenshot...")
-                # Fallback to save_screenshot
-                self.driver.save_screenshot(raw_path)
-                print(f"📸 Fallback screenshot saved: {os.path.basename(raw_path)}")
-            
-            print(f"📸 Full browser screenshot saved: {os.path.basename(raw_path)}")
-            # Annotate top-right with label, timestamp, container number (if available), and URL
+            self.driver.save_screenshot(raw_path)
+            print(f"📸 Screenshot saved: {os.path.basename(raw_path)}")
+            # Annotate bottom-right with label, timestamp, container number (if available), vm_email, and platform
             try:
                 img = Image.open(raw_path).convert("RGBA")
                 draw = ImageDraw.Draw(img)
-                url = self.driver.current_url or ""
                 
                 # Build annotation text with timestamp and container number if available
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -893,10 +821,11 @@ class EModalBusinessOperations:
                 
                 # Add vm_email if available
                 if hasattr(self, 'vm_email') and self.vm_email:
-                    text_parts.append(f"Email: {self.vm_email}")
+                    text_parts.append(f"VM: {self.vm_email}")
                 
-                # Use hardcoded platform name instead of URL
+                # Add platform name (hardcoded)
                 text_parts.append("emodal")
+                
                 main_text = " | ".join(text_parts)
                 
                 # Background rectangle (bottom-right), label 100% larger
@@ -910,33 +839,18 @@ class EModalBusinessOperations:
                     except Exception:
                         font = ImageFont.load_default()
                 
-                # Calculate dimensions for single line text
-                all_lines = [main_text]
-                max_width = 0
-                line_height = 30  # Space between lines
-                
-                for line in all_lines:
-                    try:
-                        bbox = draw.textbbox((0,0), line, font=font)
-                        line_w = bbox[2]-bbox[0]
-                    except Exception:
-                        line_w = draw.textlength(line, font=font)
-                    if line_w > max_width:
-                        max_width = line_w
-                
-                box_w = max_width + padding * 2
-                box_h = len(all_lines) * line_height + padding * 2
+                # Single line display
+                try:
+                    bbox = draw.textbbox((0,0), main_text, font=font)
+                    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+                except Exception:
+                    tw, th = draw.textlength(main_text, font=font), 24
+                box_w = tw + padding * 2
+                box_h = th + padding * 2
                 x0 = img.width - box_w - 10
                 y0 = img.height - box_h - 10
-                
-                # Draw background
                 draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=(0,0,0,180))
-                
-                # Draw each line
-                current_y = y0 + padding
-                for line in all_lines:
-                    draw.text((x0 + padding, current_y), line, font=font, fill=(255,255,255,255))
-                    current_y += line_height
+                draw.text((x0 + padding, y0 + padding), main_text, font=font, fill=(255,255,255,255))
                 
                 img.save(raw_path)
             except Exception:
@@ -7039,7 +6953,6 @@ def check_appointments():
         data = request.get_json()
         appointment_session_id = data.get('appointment_session_id')
         debug_mode = data.get('debug', False)  # Default: working mode (no bundle)
-        vm_email = data.get('vm_email', '')  # VM email for screenshot labels
         
         # Validate container_type
         container_type = data.get('container_type', '').lower()
@@ -7052,6 +6965,9 @@ def check_appointments():
         print(f"📦 Container Type: {container_type.upper()}")
         print(f"🔧 Debug Mode: {'ENABLED' if debug_mode else 'DISABLED (working mode)'}")
         
+        # Get vm_email from request (optional)
+        vm_email = data.get('vm_email', None)
+        
         # Check if continuing from existing appointment workflow session
         if appointment_session_id and appointment_session_id in appointment_sessions:
             print(f"🔄 Continuing from existing appointment session: {appointment_session_id}")
@@ -7063,6 +6979,10 @@ def check_appointments():
             browser_session_id = appt_session.browser_session.session_id
             is_new_browser_session = False
             username = appt_session.browser_session.username
+            
+            # Set vm_email for screenshot annotations
+            if vm_email:
+                operations.vm_email = vm_email
             
         else:
             # New appointment workflow - get or create browser session
@@ -7100,7 +7020,10 @@ def check_appointments():
             operations = EModalBusinessOperations(browser_session)
             operations.screens_enabled = True
             operations.screens_label = username
-            operations.vm_email = vm_email  # Set VM email for screenshot labels
+            
+            # Set vm_email for screenshot annotations
+            if vm_email:
+                operations.vm_email = vm_email
             
             # Set container ID for screenshot annotations (import or export)
             container_id = data.get('container_id')
@@ -7133,7 +7056,10 @@ def check_appointments():
         operations = EModalBusinessOperations(appt_session.browser_session)
         operations.screens_enabled = True
         operations.screens_label = appt_session.browser_session.username
-        operations.vm_email = vm_email  # Set VM email for screenshot labels
+        
+        # Set vm_email for screenshot annotations
+        if vm_email:
+            operations.vm_email = vm_email
         
         # Set container ID for screenshot annotations (import or export)
         container_id = data.get('container_id')
@@ -7146,38 +7072,6 @@ def check_appointments():
             operations.current_container_id = booking_number
         elif container_id:
             operations.current_container_id = container_id
-        
-        # Set date counters for import containers (for screenshot annotations)
-        if container_type == 'import':
-            manifested_date = data.get('manifested_date')
-            departed_date = data.get('departed_date')
-            last_free_day_date = data.get('last_free_day_date')
-            
-            # Always show date counters if it's an import container
-            operations.show_manifested_counter = True
-            operations.show_departed_counter = True
-            operations.show_last_free_day_counter = True
-            
-            if manifested_date:
-                operations.manifested_date = manifested_date
-                print(f"  📅 Manifested Date: {manifested_date}")
-            else:
-                operations.manifested_date = None
-                print(f"  📅 Manifested Date: N/A")
-            
-            if departed_date:
-                operations.departed_date = departed_date
-                print(f"  📅 Departed Date: {departed_date}")
-            else:
-                operations.departed_date = None
-                print(f"  📅 Departed Date: N/A")
-            
-            if last_free_day_date:
-                operations.last_free_day_date = last_free_day_date
-                print(f"  📅 Last Free Day Date: {last_free_day_date}")
-            else:
-                operations.last_free_day_date = None
-                print(f"  📅 Last Free Day Date: N/A")
         
         # PHASE 1: Dropdowns + Container/Booking Number + Quantity (for export)
         if appt_session.current_phase == 1:
@@ -7545,8 +7439,6 @@ def check_appointments():
                         "appointment_session_id": appt_session.session_id,
                         "current_phase": 2
                     }), 500
-                elif result.get("skipped"):
-                    print("  ℹ️ PIN field skipped (not found) - continuing...")
             else:  # export
                 # Export: Unit number (default "1")
                 unit_number = data.get('unit_number', '1')
@@ -8013,8 +7905,6 @@ def make_appointment():
         result = operations.fill_pin_code(pin_code)
         if not result["success"]:
             return jsonify({"success": False, "error": f"Phase 2 - PIN: {result['error']}"}), 500
-        elif result.get("skipped"):
-            print("  ℹ️ PIN field skipped (not found) - continuing...")
         
         result = operations.fill_truck_plate(truck_plate)
         if not result["success"]:
