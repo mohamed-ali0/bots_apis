@@ -797,6 +797,40 @@ class EModalBusinessOperations:
         if last_err:
             print(f"⚠️ App readiness wait ended with last error: {last_err}")
 
+    def _load_url_bar(self, target_width):
+        """Load the existing url_bar_appointment.png and resize it to target width"""
+        try:
+            # Look for URL bar in multiple possible locations
+            url_bar_paths = [
+                "url_bar_appointment.png",
+                "test_new_screenshots/url_bar_appointment.png",
+                os.path.join(os.path.dirname(__file__), "test_new_screenshots", "url_bar_appointment.png")
+            ]
+            
+            url_bar_path = None
+            for path in url_bar_paths:
+                if os.path.exists(path):
+                    url_bar_path = path
+                    break
+            
+            if not url_bar_path:
+                print(f"⚠️ URL bar file not found in any location")
+                return None
+                
+            url_bar = Image.open(url_bar_path)
+            original_width, original_height = url_bar.size
+            
+            # Resize to target width (stretch if needed)
+            if target_width != original_width:
+                url_bar = url_bar.resize((target_width, original_height), Image.Resampling.LANCZOS)
+                print(f"📏 Resized URL bar to: {target_width}x{original_height}")
+            
+            return url_bar
+            
+        except Exception as e:
+            print(f"⚠️ Error loading URL bar: {e}")
+            return None
+
     def _capture_screenshot(self, tag: str):
         if not self.screens_enabled:
             print(f"📸 Screenshot skipped (disabled): {tag}")
@@ -806,55 +840,123 @@ class EModalBusinessOperations:
             raw_path = os.path.join(self.screens_dir, f"{ts}_{tag}.png")
             self.driver.save_screenshot(raw_path)
             print(f"📸 Screenshot saved: {os.path.basename(raw_path)}")
-            # Annotate bottom-right with label, timestamp, container number (if available), vm_email, and platform
+            
+            # Annotate with URL bar at top and multiline label at bottom
             try:
+                # Load original screenshot
                 img = Image.open(raw_path).convert("RGBA")
-                draw = ImageDraw.Draw(img)
+                original_width, original_height = img.size
                 
-                # Build annotation text with timestamp and container number if available
-                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                text_parts = [self.screens_label, timestamp]
+                # Load and resize URL bar (stretch to screenshot width if needed)
+                url_bar_width = max(2074, original_width)  # At least 2074px, or screenshot width if larger
+                url_bar = self._load_url_bar(url_bar_width)
                 
-                # Add container number if available
+                if url_bar is None:
+                    print("⚠️ Failed to load URL bar, saving original screenshot")
+                    self.screens.append(raw_path)
+                    return raw_path
+                
+                url_bar_height = url_bar.size[1]
+                
+                # Create new image with URL bar + screenshot
+                new_height = url_bar_height + original_height
+                new_width = max(url_bar_width, original_width)
+                
+                # Create new image
+                new_img = Image.new('RGB', (new_width, new_height), color=(255, 255, 255))
+                
+                # Paste URL bar at top
+                new_img.paste(url_bar, (0, 0))
+                
+                # Paste original screenshot below URL bar
+                if original_width < new_width:
+                    # Center the screenshot if it's narrower
+                    x_offset = (new_width - original_width) // 2
+                    new_img.paste(img, (x_offset, url_bar_height), img if img.mode == 'RGBA' else None)
+                else:
+                    new_img.paste(img, (0, url_bar_height), img if img.mode == 'RGBA' else None)
+                
+                # Add multiline label at bottom
+                draw = ImageDraw.Draw(new_img)
+                
+                # Build multiline label text
+                timestamp = datetime.now()
+                date_str = timestamp.strftime('%Y-%m-%d')
+                time_str = timestamp.strftime('%H:%M:%S')
+                
+                label_lines = [
+                    f"Username: {self.screens_label}",
+                    f"Platform: emodal"
+                ]
+                
+                # Add container information if available
                 if hasattr(self, 'current_container_id') and self.current_container_id:
-                    text_parts.append(f"Container: {self.current_container_id}")
+                    container_type = getattr(self, 'container_type', 'unknown')
+                    move_type = getattr(self, 'move_type', 'unknown')
+                    label_lines.append(f"Container: {self.current_container_id}, {container_type}, {move_type}")
+                else:
+                    label_lines.append("Container: N/A")
+                
+                label_lines.append(f"Date and time: {date_str} | {time_str}")
                 
                 # Add vm_email if available
                 if hasattr(self, 'vm_email') and self.vm_email:
-                    text_parts.append(f"VM: {self.vm_email}")
+                    label_lines.append(f"VM Email: {self.vm_email}")
                 
-                # Add platform name (hardcoded)
-                text_parts.append("emodal")
-                
-                main_text = " | ".join(text_parts)
-                
-                # Background rectangle (bottom-right), label 100% larger
-                padding = 12
-                # Try a truetype font for better scaling
+                # Enhanced font (50% larger, bold, yellow)
                 try:
-                    font = ImageFont.truetype("DejaVuSans.ttf", 24)
-                except Exception:
+                    enhanced_font = ImageFont.truetype("arial.ttf", 36)
+                except:
                     try:
-                        font = ImageFont.truetype("arial.ttf", 24)
-                    except Exception:
-                        font = ImageFont.load_default()
+                        enhanced_font = ImageFont.truetype("DejaVuSans.ttf", 36)
+                    except:
+                        enhanced_font = ImageFont.load_default()
                 
-                # Single line display
-                try:
-                    bbox = draw.textbbox((0,0), main_text, font=font)
-                    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-                except Exception:
-                    tw, th = draw.textlength(main_text, font=font), 24
-                box_w = tw + padding * 2
-                box_h = th + padding * 2
-                x0 = img.width - box_w - 10
-                y0 = img.height - box_h - 10
-                draw.rectangle([x0, y0, x0 + box_w, y0 + box_h], fill=(0,0,0,180))
-                draw.text((x0 + padding, y0 + padding), main_text, font=font, fill=(255,255,255,255))
+                # Calculate dimensions for multiline text
+                line_height = 45  # Space between lines
+                max_width = 0
                 
-                img.save(raw_path)
-            except Exception:
+                for line in label_lines:
+                    try:
+                        bbox = draw.textbbox((0, 0), line, font=enhanced_font)
+                        line_width = bbox[2] - bbox[0]
+                    except:
+                        line_width = draw.textlength(line, font=enhanced_font)
+                    if line_width > max_width:
+                        max_width = line_width
+                
+                # Calculate total dimensions
+                total_height = len(label_lines) * line_height
+                padding = 20
+                
+                # Position label at bottom-right
+                label_x = new_width - max_width - padding
+                label_y = new_height - total_height - padding
+                
+                # Draw background rectangle for label
+                bg_padding = 15
+                draw.rectangle([
+                    label_x - bg_padding, 
+                    label_y - bg_padding, 
+                    label_x + max_width + bg_padding, 
+                    label_y + total_height + bg_padding
+                ], fill=(0, 0, 0, 200))  # Semi-transparent black background
+                
+                # Draw each line
+                current_y = label_y
+                for line in label_lines:
+                    draw.text((label_x, current_y), line, font=enhanced_font, fill=(255, 255, 0))  # Yellow text
+                    current_y += line_height
+                
+                # Save annotated image
+                new_img.save(raw_path)
+                print(f"📸 Annotated screenshot saved: {os.path.basename(raw_path)}")
+                
+            except Exception as e:
+                print(f"⚠️ Annotation failed: {e}")
+                # Save original screenshot if annotation fails
                 pass
+                
             self.screens.append(raw_path)
             return raw_path  # Return the file path
         except Exception as e:
@@ -7025,9 +7127,11 @@ def check_appointments():
             if vm_email:
                 operations.vm_email = vm_email
             
-            # Set container ID for screenshot annotations (import or export)
+            # Set container information for screenshot annotations
             container_id = data.get('container_id')
             container_number = data.get('container_number')  # For display in screenshots
+            operations.container_type = container_type
+            operations.move_type = data.get('move_type', 'unknown')
             
             if container_number:
                 operations.current_container_id = container_number
@@ -7061,10 +7165,12 @@ def check_appointments():
         if vm_email:
             operations.vm_email = vm_email
         
-        # Set container ID for screenshot annotations (import or export)
+        # Set container information for screenshot annotations
         container_id = data.get('container_id')
         container_number = data.get('container_number')  # For display in screenshots
         booking_number = data.get('booking_number')  # For export
+        operations.container_type = container_type
+        operations.move_type = data.get('move_type', 'unknown')
         
         if container_number:
             operations.current_container_id = container_number
