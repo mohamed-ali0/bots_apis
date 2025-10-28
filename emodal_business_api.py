@@ -765,6 +765,13 @@ class EModalBusinessOperations:
             os.makedirs(self.screens_dir, exist_ok=True)
         except Exception:
             pass
+        
+        # Screenshot label element controls (easy enable/disable flags)
+        self.label_show_username = True
+        self.label_show_platform = True
+        self.label_show_container = True
+        self.label_show_datetime = True
+        self.label_show_vm_email = False  # Disabled by default
     
     def _wait_for_app_ready(self, timeout_seconds: int = 25) -> None:
         """Wait until SPA main app finishes initial loading."""
@@ -796,6 +803,24 @@ class EModalBusinessOperations:
             time.sleep(0.3)
         if last_err:
             print(f"⚠️ App readiness wait ended with last error: {last_err}")
+
+    def set_screenshot_labels(self, username=True, platform=True, container=True, datetime=True, vm_email=False):
+        """
+        Easy way to control which screenshot label elements are shown.
+        
+        Args:
+            username: Show username field (default: True)
+            platform: Show platform field (default: True)
+            container: Show container info field (default: True)
+            datetime: Show date/time field (default: True)
+            vm_email: Show VM email field (default: False)
+        """
+        self.label_show_username = username
+        self.label_show_platform = platform
+        self.label_show_container = container
+        self.label_show_datetime = datetime
+        self.label_show_vm_email = vm_email
+        print(f"📸 Screenshot labels updated: username={username}, platform={platform}, container={container}, datetime={datetime}, vm_email={vm_email}")
 
     def _load_url_bar(self, target_width):
         """Load the existing url_bar_appointment.png and resize it to target width"""
@@ -879,28 +904,36 @@ class EModalBusinessOperations:
                 # Add multiline label at bottom
                 draw = ImageDraw.Draw(new_img)
                 
-                # Build multiline label text
+                # Build multiline label text (based on enabled flags)
                 timestamp = datetime.now()
                 date_str = timestamp.strftime('%Y-%m-%d')
                 time_str = timestamp.strftime('%H:%M:%S')
                 
-                label_lines = [
-                    f"Username: {self.screens_label}",
-                    f"Platform: emodal"
-                ]
+                label_lines = []
                 
-                # Add container information if available
-                if hasattr(self, 'current_container_id') and self.current_container_id:
-                    container_type = getattr(self, 'container_type', 'unknown')
-                    move_type = getattr(self, 'move_type', 'unknown')
-                    label_lines.append(f"Container: {self.current_container_id}, {container_type}, {move_type}")
-                else:
-                    label_lines.append("Container: N/A")
+                # Username (if enabled)
+                if self.label_show_username:
+                    label_lines.append(f"Username: {self.screens_label}")
                 
-                label_lines.append(f"Date and time: {date_str} | {time_str}")
+                # Platform (if enabled)
+                if self.label_show_platform:
+                    label_lines.append(f"Platform: emodal")
                 
-                # Add vm_email if available
-                if hasattr(self, 'vm_email') and self.vm_email:
+                # Container information (if enabled)
+                if self.label_show_container:
+                    if hasattr(self, 'current_container_id') and self.current_container_id:
+                        container_type = getattr(self, 'container_type', 'unknown')
+                        move_type = getattr(self, 'move_type', 'unknown')
+                        label_lines.append(f"Container: {self.current_container_id}, {container_type}, {move_type}")
+                    else:
+                        label_lines.append("Container: N/A")
+                
+                # Date and time (if enabled)
+                if self.label_show_datetime:
+                    label_lines.append(f"Date and time: {date_str} | {time_str}")
+                
+                # VM Email (if enabled and available)
+                if self.label_show_vm_email and hasattr(self, 'vm_email') and self.vm_email:
                     label_lines.append(f"VM Email: {self.vm_email}")
                 
                 # Enhanced font (50% larger, bold, yellow)
