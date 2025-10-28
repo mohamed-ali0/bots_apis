@@ -47,7 +47,7 @@ MAX_CONCURRENT_SESSIONS = 10  # Maximum Chrome windows allowed
 
 # Persistent sessions with keep-alive and credential mapping
 persistent_sessions = {}  # Maps credentials hash to session_id
-session_refresh_interval = 300  # 5 minutes - refresh session to keep it alive
+session_refresh_interval = 120  # 2 minutes - refresh session to keep it alive (increased frequency for 401 detection)
 
 # Appointment sessions with extended timeout for multi-phase operations
 appointment_sessions = {}
@@ -431,10 +431,29 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
                 
                 # Fall through to create new session
             else:
-                browser_session.update_last_used()
-                browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
-                logger.info(f"[{request_id}] ✅ Found existing session for user: {browser_session.username}")
-                return (browser_session.driver, browser_session.username, session_id, False)
+                # QUICK HEALTH CHECK - Look for 401 errors
+                is_healthy = check_session_health(browser_session)
+                
+                if not is_healthy:
+                    # 401 Error detected - session expired
+                    logger.error(f"[{request_id}] ❌ Session expired (401): {session_id}")
+                    logger.error(f"[{request_id}]    Removing expired session and creating new one...")
+                    
+                    # Clean up expired session
+                    try:
+                        del active_sessions[session_id]
+                        # Remove from persistent sessions if present
+                        if browser_session.credentials_hash in persistent_sessions:
+                            del persistent_sessions[browser_session.credentials_hash]
+                    except:
+                        pass
+                    
+                    # Fall through to create new session
+                else:
+                    browser_session.update_last_used()
+                    browser_session.mark_in_use()  # Mark as in use to prevent refresh during operation
+                    logger.info(f"[{request_id}] ✅ Found existing session for user: {browser_session.username}")
+                    return (browser_session.driver, browser_session.username, session_id, False)
         else:
             logger.warning(f"[{request_id}] ⚠️ Session ID not found or expired: {session_id}")
             logger.info(f"[{request_id}] Creating new session instead...")
@@ -650,6 +669,25 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
     return (handler.driver, username, new_session_id, True)
 
 
+def check_session_health(session: BrowserSession) -> bool:
+    """
+    Quick health check for session - checks for 401 errors without full refresh
+    Returns True if healthy, False if 401 detected
+    """
+    try:
+        # Get current page and check for 401 errors
+        page_source = session.driver.page_source.lower()
+        if "you are either not logged in" in page_source or \
+           "your session has expired" in page_source or \
+           "please use your back button" in page_source:
+            logger.error(f"❌ 401 Error detected in session: {session.session_id}")
+            return False
+        return True
+    except Exception as e:
+        logger.warning(f"Error checking session health: {e}")
+        return True  # Assume healthy if we can't check
+
+
 def refresh_session(session: BrowserSession) -> bool:
     """Refresh a session to keep it authenticated"""
     try:
@@ -665,6 +703,19 @@ def refresh_session(session: BrowserSession) -> bool:
         # Navigate to containers page to verify session is still valid
         session.driver.get("https://termops.emodal.com/trucker/web/")
         time.sleep(3)  # Give page time to load
+        
+        # CHECK FOR 401 ERROR FIRST
+        try:
+            page_source = session.driver.page_source.lower()
+            # Look for the 401 error messages
+            if "you are either not logged in" in page_source or \
+               "your session has expired" in page_source or \
+               "please use your back button" in page_source:
+                logger.error(f"❌ 401 Error detected in session: {session.session_id}")
+                logger.error(f"   Session expired - will terminate and create new one")
+                return False
+        except:
+            pass  # Continue with other checks if we can't get page source
         
         # Check if we're still logged in (multiple ways to verify)
         try:
@@ -714,13 +765,15 @@ def periodic_session_refresh():
     """Background task to periodically refresh keep-alive sessions"""
     while True:
         try:
-            time.sleep(60)  # Check every minute
+            time.sleep(20)  # Check every 20 seconds (increased frequency)
             
             for session_id, session in list(active_sessions.items()):
                 if session.keep_alive and session.needs_refresh():
+                    logger.info(f"🔄 Refreshing session: {session_id}")
                     if not refresh_session(session):
-                        # Session is dead, clean it up
-                        logger.warning(f"Removing dead session: {session_id}")
+                        # 401 Error detected - session is dead, clean it up
+                        logger.error(f"❌ Session expired (401): {session_id}")
+                        logger.error(f"   Removing dead session and will create new one on next request")
                         if session.credentials_hash and session.credentials_hash in persistent_sessions:
                             del persistent_sessions[session.credentials_hash]
                         try:
@@ -728,6 +781,7 @@ def periodic_session_refresh():
                         except:
                             pass
                         del active_sessions[session_id]
+                        logger.info(f"✅ Dead session cleaned up: {session_id}")
         except Exception as e:
             logger.error(f"Error in periodic session refresh: {e}")
 
@@ -6417,16 +6471,43 @@ def get_or_create_session():
         existing_session = find_session_by_credentials(username, password)
         
         if existing_session:
-            existing_session.update_last_used()
-            return jsonify({
-                "success": True,
-                "session_id": existing_session.session_id,
-                "is_new": False,
-                "username": existing_session.username,
-                "created_at": existing_session.created_at.isoformat(),
-                "expires_at": None,  # Keep-alive sessions don't expire
-                "message": "Using existing persistent session"
-            })
+            # QUICK HEALTH CHECK - Look for 401 errors
+            is_healthy = check_session_health(existing_session)
+            
+            if not is_healthy:
+                # 401 Error detected - session expired, remove it
+                logger.error(f"❌ Session expired (401): {existing_session.session_id}")
+                logger.error(f"   Removing expired session, will create new one")
+                
+                # Remove from persistent sessions
+                cred_hash = get_credentials_hash(username, password)
+                if cred_hash in persistent_sessions:
+                    del persistent_sessions[cred_hash]
+                
+                # Clean up browser
+                try:
+                    existing_session.driver.quit()
+                except:
+                    pass
+                
+                # Remove from active sessions
+                if existing_session.session_id in active_sessions:
+                    del active_sessions[existing_session.session_id]
+                
+                # Fall through to create new session
+                logger.info(f"✅ Expired session cleaned up, creating new one")
+            else:
+                # Session is healthy
+                existing_session.update_last_used()
+                return jsonify({
+                    "success": True,
+                    "session_id": existing_session.session_id,
+                    "is_new": False,
+                    "username": existing_session.username,
+                    "created_at": existing_session.created_at.isoformat(),
+                    "expires_at": None,  # Keep-alive sessions don't expire
+                    "message": "Using existing persistent session"
+                })
         
         # Create new session
         logger.info(f"Creating new persistent session for user: {username}")
