@@ -910,6 +910,40 @@ class EModalBusinessOperations:
             print(f"⚠️ Error loading URL bar: {e}")
             return None
 
+    def _load_taskbar(self, target_width):
+        """Load the existing taskbar_appointment.png and resize it to target width"""
+        try:
+            # Look for taskbar in multiple possible locations
+            taskbar_paths = [
+                "taskbar_appointment.png",
+                "test_new_screenshots/taskbar_appointment.png",
+                os.path.join(os.path.dirname(__file__), "test_new_screenshots", "taskbar_appointment.png")
+            ]
+            
+            taskbar_path = None
+            for path in taskbar_paths:
+                if os.path.exists(path):
+                    taskbar_path = path
+                    break
+            
+            if not taskbar_path:
+                print(f"⚠️ Taskbar file not found in any location")
+                return None
+                
+            taskbar = Image.open(taskbar_path)
+            original_width, original_height = taskbar.size
+            
+            # Resize to target width (stretch if needed)
+            if target_width != original_width:
+                taskbar = taskbar.resize((target_width, original_height), Image.Resampling.LANCZOS)
+                print(f"📏 Resized taskbar to: {target_width}x{original_height}")
+            
+            return taskbar
+            
+        except Exception as e:
+            print(f"⚠️ Error loading taskbar: {e}")
+            return None
+
     def _capture_screenshot(self, tag: str):
         if not self.screens_enabled:
             print(f"📸 Screenshot skipped (disabled): {tag}")
@@ -920,45 +954,46 @@ class EModalBusinessOperations:
             self.driver.save_screenshot(raw_path)
             print(f"📸 Screenshot saved: {os.path.basename(raw_path)}")
             
-            # Annotate with URL bar at top and multiline label at bottom
+            # Annotate with URL bar at top, taskbar at bottom, and labels on left
             try:
                 # Load original screenshot
                 img = Image.open(raw_path).convert("RGBA")
                 original_width, original_height = img.size
                 
-                # Load and resize URL bar (stretch to screenshot width if needed)
-                url_bar_width = max(2074, original_width)  # At least 2074px, or screenshot width if larger
-                url_bar = self._load_url_bar(url_bar_width)
+                # Load and resize URL bar and taskbar
+                final_width = max(2074, original_width)  # At least 2074px, or screenshot width if larger
+                url_bar = self._load_url_bar(final_width)
+                taskbar = self._load_taskbar(final_width)
                 
-                if url_bar is None:
-                    print("⚠️ Failed to load URL bar, saving original screenshot")
+                if url_bar is None or taskbar is None:
+                    print("⚠️ Failed to load URL bar or taskbar, saving original screenshot")
                     self.screens.append(raw_path)
                     return raw_path
                 
                 url_bar_height = url_bar.size[1]
+                taskbar_height = taskbar.size[1]
                 
-                # Create new image with URL bar + screenshot
-                new_height = url_bar_height + original_height
-                new_width = max(url_bar_width, original_width)
-                
-                # Create new image
-                new_img = Image.new('RGB', (new_width, new_height), color=(255, 255, 255))
+                # Create composite image: URL bar + screenshot + taskbar
+                composite_height = url_bar_height + original_height + taskbar_height
+                composite = Image.new('RGB', (final_width, composite_height), color=(255, 255, 255))
                 
                 # Paste URL bar at top
-                new_img.paste(url_bar, (0, 0))
+                composite.paste(url_bar, (0, 0))
                 
-                # Paste original screenshot below URL bar
-                if original_width < new_width:
-                    # Center the screenshot if it's narrower
-                    x_offset = (new_width - original_width) // 2
-                    new_img.paste(img, (x_offset, url_bar_height), img if img.mode == 'RGBA' else None)
+                # Paste original screenshot in middle (center if narrower)
+                if original_width < final_width:
+                    x_offset = (final_width - original_width) // 2
+                    composite.paste(img, (x_offset, url_bar_height), img if img.mode == 'RGBA' else None)
                 else:
-                    new_img.paste(img, (0, url_bar_height), img if img.mode == 'RGBA' else None)
+                    composite.paste(img, (0, url_bar_height), img if img.mode == 'RGBA' else None)
                 
-                # Add multiline label at bottom
-                draw = ImageDraw.Draw(new_img)
+                # Paste taskbar at bottom
+                composite.paste(taskbar, (0, url_bar_height + original_height))
                 
-                # Build multiline label text (based on enabled flags)
+                # Add labels on LEFT side, just above taskbar
+                draw = ImageDraw.Draw(composite)
+                
+                # Build label text (based on enabled flags)
                 timestamp = datetime.now()
                 date_str = timestamp.strftime('%Y-%m-%d')
                 time_str = timestamp.strftime('%H:%M:%S')
@@ -990,54 +1025,105 @@ class EModalBusinessOperations:
                 if self.label_show_vm_email and hasattr(self, 'vm_email') and self.vm_email:
                     label_lines.append(f"VM Email: {self.vm_email}")
                 
-                # Enhanced font (50% larger, bold, yellow)
+                # Enhanced font for labels (36px, yellow)
                 try:
-                    enhanced_font = ImageFont.truetype("arial.ttf", 36)
+                    label_font = ImageFont.truetype("arial.ttf", 36)
                 except:
                     try:
-                        enhanced_font = ImageFont.truetype("DejaVuSans.ttf", 36)
+                        label_font = ImageFont.truetype("DejaVuSans.ttf", 36)
                     except:
-                        enhanced_font = ImageFont.load_default()
+                        label_font = ImageFont.load_default()
                 
-                # Calculate dimensions for multiline text
-                line_height = 45  # Space between lines
-                max_width = 0
+                # Calculate label dimensions
+                line_height = 45
+                max_label_width = 0
                 
                 for line in label_lines:
                     try:
-                        bbox = draw.textbbox((0, 0), line, font=enhanced_font)
+                        bbox = draw.textbbox((0, 0), line, font=label_font)
                         line_width = bbox[2] - bbox[0]
                     except:
-                        line_width = draw.textlength(line, font=enhanced_font)
-                    if line_width > max_width:
-                        max_width = line_width
+                        line_width = draw.textlength(line, font=label_font)
+                    if line_width > max_label_width:
+                        max_label_width = line_width
                 
-                # Calculate total dimensions
-                total_height = len(label_lines) * line_height
+                total_label_height = len(label_lines) * line_height
                 padding = 20
                 
-                # Position label at bottom-right
-                label_x = new_width - max_width - padding
-                label_y = new_height - total_height - padding
+                # Position labels on LEFT side, just above taskbar
+                label_x = padding
+                label_y = url_bar_height + original_height - total_label_height - padding
                 
-                # Draw background rectangle for label
+                # Draw background rectangle for labels
                 bg_padding = 15
                 draw.rectangle([
-                    label_x - bg_padding, 
-                    label_y - bg_padding, 
-                    label_x + max_width + bg_padding, 
-                    label_y + total_height + bg_padding
+                    label_x - bg_padding,
+                    label_y - bg_padding,
+                    label_x + max_label_width + bg_padding,
+                    label_y + total_label_height + bg_padding
                 ], fill=(0, 0, 0, 200))  # Semi-transparent black background
                 
-                # Draw each line
+                # Draw each label line
                 current_y = label_y
                 for line in label_lines:
-                    draw.text((label_x, current_y), line, font=enhanced_font, fill=(255, 255, 0))  # Yellow text
+                    draw.text((label_x, current_y), line, font=label_font, fill=(255, 255, 0))  # Yellow text
                     current_y += line_height
                 
+                # ADD DATE AND TIME ON TASKBAR (with exact settings from test)
+                taskbar_start_y = url_bar_height + original_height
+                
+                # Taskbar font controls (exact from test)
+                taskbar_font_size = 24
+                taskbar_font_bold = False
+                
+                # Load taskbar font based on bold setting
+                if taskbar_font_bold:
+                    try:
+                        taskbar_font = ImageFont.truetype("segoeuib.ttf", taskbar_font_size)  # Segoe UI Bold
+                    except:
+                        try:
+                            taskbar_font = ImageFont.truetype("arialbd.ttf", taskbar_font_size)  # Arial Bold
+                        except:
+                            try:
+                                taskbar_font = ImageFont.truetype("DejaVuSans-Bold.ttf", taskbar_font_size)  # DejaVu Bold
+                            except:
+                                taskbar_font = ImageFont.load_default()
+                else:
+                    try:
+                        taskbar_font = ImageFont.truetype("segoeui.ttf", taskbar_font_size)  # Segoe UI Regular
+                    except:
+                        try:
+                            taskbar_font = ImageFont.truetype("arial.ttf", taskbar_font_size)  # Arial Regular
+                        except:
+                            try:
+                                taskbar_font = ImageFont.truetype("DejaVuSans.ttf", taskbar_font_size)  # DejaVu Regular
+                            except:
+                                taskbar_font = ImageFont.load_default()
+                
+                # Position control for taskbar text (exact from test)
+                date_x_offset = 216  # Distance from right edge
+                date_y_offset = 40   # Distance from top of taskbar
+                time_x_offset = 200  # Distance from right edge  
+                time_y_offset = 5    # Distance from top of taskbar
+                
+                # Format time and date using system time
+                current_time = datetime.now()
+                time_text = current_time.strftime("%I:%M %p").lstrip('0')  # e.g., "6:12 PM" (remove leading zero)
+                date_text = current_time.strftime("%m/%d/%Y")   # e.g., "10/28/2025"
+                
+                # Calculate positions
+                date_x = final_width - date_x_offset
+                date_y = taskbar_start_y + date_y_offset
+                time_x = final_width - time_x_offset
+                time_y = taskbar_start_y + time_y_offset
+                
+                # Draw time and date with WHITE font
+                draw.text((time_x, time_y), time_text, font=taskbar_font, fill=(255, 255, 255))  # White text
+                draw.text((date_x, date_y), date_text, font=taskbar_font, fill=(255, 255, 255))  # White text
+                
                 # Save annotated image
-                new_img.save(raw_path)
-                print(f"📸 Annotated screenshot saved: {os.path.basename(raw_path)}")
+                composite.save(raw_path)
+                print(f"📸 Enhanced screenshot saved: {os.path.basename(raw_path)}")
                 
             except Exception as e:
                 print(f"⚠️ Annotation failed: {e}")
