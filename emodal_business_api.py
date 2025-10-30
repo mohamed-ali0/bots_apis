@@ -676,8 +676,9 @@ def check_session_health(session: BrowserSession) -> bool:
     """
     try:
         page_source = session.driver.page_source.lower()
+        page_title = session.driver.title.lower()
 
-        # 401/session expired indicators
+        # 401/session expired indicators (specific messages only)
         if (
             "you are either not logged in" in page_source or
             "your session has expired" in page_source or
@@ -686,22 +687,61 @@ def check_session_health(session: BrowserSession) -> bool:
             logger.error(f"❌ 401/Session expired detected in session: {session.session_id}")
             return False
 
-        # 403/404/500 and generic error indicators
-        error_indicators = [
-            "403", "forbidden", "access denied", "not authorized",
-            "404", "page not found", "resource not found",
-            "500", "server error", "internal server error",
-            "unexpected error", "something went wrong"
+        # Check page title first - error pages usually have specific error patterns in title
+        error_title_patterns = [
+            "403 forbidden", "404 not found", "500 error", "500 internal server error",
+            "access denied", "forbidden", "page not found", "not found"
         ]
-        if any(ind in page_source for ind in error_indicators):
-            logger.error(f"❌ HTTP error page detected in session: {session.session_id}")
+        if any(pattern in page_title for pattern in error_title_patterns):
+            logger.error(f"❌ Error page title detected: '{page_title}' in session: {session.session_id}")
             return False
+
+        # Check for error page structure (h1/h2 with error messages)
+        try:
+            # Look for common error page structures
+            error_headings = session.driver.find_elements(By.XPATH, 
+                "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'error')] | "
+                "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '403')] | "
+                "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '404')] | "
+                "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '500')] | "
+                "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'forbidden')] | "
+                "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'not found')]"
+            )
+            if error_headings:
+                error_text = error_headings[0].text.lower()
+                logger.error(f"❌ Error heading detected: '{error_text}' in session: {session.session_id}")
+                return False
+        except:
+            pass
+
+        # Only check for error codes in specific contexts (avoid false positives)
+        # Look for error codes followed by common error keywords
+        error_patterns = [
+            "403 forbidden", "403 error", "access denied",
+            "404 not found", "404 error", "page not found",
+            "500 internal server error", "500 server error"
+        ]
+        if any(pattern in page_source for pattern in error_patterns):
+            # Double-check: make sure it's not in a URL or normal text context
+            # If it appears near error-related keywords, it's likely a real error page
+            error_contexts = [
+                "http status", "status code", "error code",
+                "forbidden", "not found", "server error"
+            ]
+            for pattern in error_patterns:
+                if pattern in page_source:
+                    # Check if it appears in an error context
+                    pattern_index = page_source.find(pattern)
+                    context_snippet = page_source[max(0, pattern_index-50):pattern_index+len(pattern)+50]
+                    if any(ctx in context_snippet for ctx in error_contexts):
+                        logger.error(f"❌ HTTP error detected in context: '{pattern}' in session: {session.session_id}")
+                        return False
 
         return True
     except Exception as e:
         logger.warning(f"Error checking session health: {e}")
-        # If we cannot read page source, treat as unhealthy to avoid endless refresh loops
-        return False
+        # If we cannot read page source, assume healthy (safer than false positives)
+        return True
 
 
 def refresh_session(session: BrowserSession) -> bool:
@@ -720,10 +760,12 @@ def refresh_session(session: BrowserSession) -> bool:
         session.driver.get("https://termops.emodal.com/trucker/web/")
         time.sleep(3)  # Give page time to load
         
-        # CHECK FOR ERROR STATES FIRST (401/403/404/500)
+        # CHECK FOR ERROR STATES FIRST (401/403/404/500) - Use specific detection to avoid false positives
         try:
             page_source = session.driver.page_source.lower()
-            # 401/session expired
+            page_title = session.driver.title.lower()
+            
+            # 401/session expired (specific messages only)
             if (
                 "you are either not logged in" in page_source or
                 "your session has expired" in page_source or
@@ -732,15 +774,51 @@ def refresh_session(session: BrowserSession) -> bool:
                 logger.error(f"❌ 401/Session expired detected in session: {session.session_id}")
                 return False
 
-            # 403/404/500 and generic error indicators
-            if any(ind in page_source for ind in [
-                "403", "forbidden", "access denied", "not authorized",
-                "404", "page not found", "resource not found",
-                "500", "server error", "internal server error",
-                "unexpected error", "something went wrong"
-            ]):
-                logger.error(f"❌ HTTP error page detected during refresh: {session.session_id}")
+            # Check page title for error pages (more reliable)
+            error_title_patterns = [
+                "403 forbidden", "404 not found", "500 error", "500 internal server error",
+                "access denied", "forbidden", "page not found", "not found"
+            ]
+            if any(pattern in page_title for pattern in error_title_patterns):
+                logger.error(f"❌ Error page title detected: '{page_title}' in session: {session.session_id}")
                 return False
+
+            # Check for error page structure (h1 headings with error messages)
+            try:
+                error_headings = session.driver.find_elements(By.XPATH, 
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'error')] | "
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '403')] | "
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '404')] | "
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '500')] | "
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'forbidden')] | "
+                    "//h1[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'not found')]"
+                )
+                if error_headings:
+                    error_text = error_headings[0].text.lower()
+                    logger.error(f"❌ Error heading detected: '{error_text}' in session: {session.session_id}")
+                    return False
+            except:
+                pass
+
+            # Only check for error codes in specific contexts (avoid false positives)
+            error_patterns = [
+                "403 forbidden", "403 error", "access denied",
+                "404 not found", "404 error", "page not found",
+                "500 internal server error", "500 server error"
+            ]
+            if any(pattern in page_source for pattern in error_patterns):
+                # Verify it's in an error context
+                error_contexts = [
+                    "http status", "status code", "error code",
+                    "forbidden", "not found", "server error"
+                ]
+                for pattern in error_patterns:
+                    if pattern in page_source:
+                        pattern_index = page_source.find(pattern)
+                        context_snippet = page_source[max(0, pattern_index-50):pattern_index+len(pattern)+50]
+                        if any(ctx in context_snippet for ctx in error_contexts):
+                            logger.error(f"❌ HTTP error detected in context: '{pattern}' in session: {session.session_id}")
+                            return False
         except:
             pass  # Continue with other checks if we can't get page source
         
