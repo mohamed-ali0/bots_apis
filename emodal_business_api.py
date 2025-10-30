@@ -671,21 +671,37 @@ def get_or_create_browser_session(data: dict, request_id: str) -> tuple:
 
 def check_session_health(session: BrowserSession) -> bool:
     """
-    Quick health check for session - checks for 401 errors without full refresh
-    Returns True if healthy, False if 401 detected
+    Quick health check for session - checks for common error states without full navigation.
+    Returns True if healthy, False if an error state is detected (401/403/404/500, access denied, etc.).
     """
     try:
-        # Get current page and check for 401 errors
         page_source = session.driver.page_source.lower()
-        if "you are either not logged in" in page_source or \
-           "your session has expired" in page_source or \
-           "please use your back button" in page_source:
-            logger.error(f"❌ 401 Error detected in session: {session.session_id}")
+
+        # 401/session expired indicators
+        if (
+            "you are either not logged in" in page_source or
+            "your session has expired" in page_source or
+            "please use your back button" in page_source
+        ):
+            logger.error(f"❌ 401/Session expired detected in session: {session.session_id}")
             return False
+
+        # 403/404/500 and generic error indicators
+        error_indicators = [
+            "403", "forbidden", "access denied", "not authorized",
+            "404", "page not found", "resource not found",
+            "500", "server error", "internal server error",
+            "unexpected error", "something went wrong"
+        ]
+        if any(ind in page_source for ind in error_indicators):
+            logger.error(f"❌ HTTP error page detected in session: {session.session_id}")
+            return False
+
         return True
     except Exception as e:
         logger.warning(f"Error checking session health: {e}")
-        return True  # Assume healthy if we can't check
+        # If we cannot read page source, treat as unhealthy to avoid endless refresh loops
+        return False
 
 
 def refresh_session(session: BrowserSession) -> bool:
@@ -704,15 +720,26 @@ def refresh_session(session: BrowserSession) -> bool:
         session.driver.get("https://termops.emodal.com/trucker/web/")
         time.sleep(3)  # Give page time to load
         
-        # CHECK FOR 401 ERROR FIRST
+        # CHECK FOR ERROR STATES FIRST (401/403/404/500)
         try:
             page_source = session.driver.page_source.lower()
-            # Look for the 401 error messages
-            if "you are either not logged in" in page_source or \
-               "your session has expired" in page_source or \
-               "please use your back button" in page_source:
-                logger.error(f"❌ 401 Error detected in session: {session.session_id}")
-                logger.error(f"   Session expired - will terminate and create new one")
+            # 401/session expired
+            if (
+                "you are either not logged in" in page_source or
+                "your session has expired" in page_source or
+                "please use your back button" in page_source
+            ):
+                logger.error(f"❌ 401/Session expired detected in session: {session.session_id}")
+                return False
+
+            # 403/404/500 and generic error indicators
+            if any(ind in page_source for ind in [
+                "403", "forbidden", "access denied", "not authorized",
+                "404", "page not found", "resource not found",
+                "500", "server error", "internal server error",
+                "unexpected error", "something went wrong"
+            ]):
+                logger.error(f"❌ HTTP error page detected during refresh: {session.session_id}")
                 return False
         except:
             pass  # Continue with other checks if we can't get page source
@@ -771,9 +798,9 @@ def periodic_session_refresh():
                 if session.keep_alive and session.needs_refresh():
                     logger.info(f"🔄 Refreshing session: {session_id}")
                     if not refresh_session(session):
-                        # 401 Error detected - session is dead, clean it up
-                        logger.error(f"❌ Session expired (401): {session_id}")
-                        logger.error(f"   Removing dead session and will create new one on next request")
+                        # Any error state detected - session is dead, clean it up
+                        logger.error(f"❌ Session unhealthy: {session_id}")
+                        logger.error(f"   Removing unhealthy session; a new one will be created on next request")
                         if session.credentials_hash and session.credentials_hash in persistent_sessions:
                             del persistent_sessions[session.credentials_hash]
                         try:
