@@ -744,41 +744,56 @@ def check_session_health(session: BrowserSession) -> bool:
         except:
             pass
 
-        # Check for error messages in body text (with better context detection)
-        # Look for standalone error codes that appear prominently (not in URLs or data)
+        # Remove CSS/style blocks and HTML attributes to avoid false positives
+        # Keep only actual page content/text
+        try:
+            # Remove <style> blocks
+            page_content = re.sub(r'<style[^>]*>.*?</style>', '', page_source, flags=re.DOTALL | re.IGNORECASE)
+            # Remove style attributes
+            page_content = re.sub(r'style\s*=\s*["\'][^"\']*["\']', '', page_content, flags=re.IGNORECASE)
+            # Remove CSS class names from HTML (keep text content)
+            page_content = re.sub(r'class\s*=\s*["\'][^"\']*["\']', '', page_content, flags=re.IGNORECASE)
+            # Remove HTML tags, keep only text content
+            page_content = re.sub(r'<[^>]+>', ' ', page_content)
+            # Normalize whitespace
+            page_content = ' '.join(page_content.split())
+        except:
+            page_content = page_source  # Fallback to original if cleaning fails
+
+        # Check for error messages in actual page content (not CSS/HTML)
+        # Look for standalone error codes that appear prominently
         error_code_patterns = [
             r"\b404\b.*not found",
             r"\b403\b.*forbidden",
             r"\b500\b.*server error",
-            r"error.*404",
-            r"error.*403",
-            r"error.*500"
+            r"\berror\s+(404|403|500)\b",
+            r"\b(404|403|500)\s+error\b"
         ]
         for pattern in error_code_patterns:
-            if re.search(pattern, page_source, re.IGNORECASE):
-                # Check if it's not in a URL or data field
-                matches = re.finditer(pattern, page_source, re.IGNORECASE)
+            if re.search(pattern, page_content, re.IGNORECASE):
+                # Check context - make sure it's not just CSS or HTML attributes
+                matches = re.finditer(pattern, page_content, re.IGNORECASE)
                 for match in matches:
-                    start = max(0, match.start() - 100)
-                    end = min(len(page_source), match.end() + 100)
-                    context = page_source[start:end]
-                    # If it's in a URL, skip it
-                    if "http" in context or "url" in context or "href" in context:
+                    start = max(0, match.start() - 50)
+                    end = min(len(page_content), match.end() + 50)
+                    context = page_content[start:end]
+                    # Skip if it looks like CSS, HTML attributes, or URLs
+                    if any(skip in context for skip in ["css", "style", "class=", "href=", "url(", "http", "#", "var("]):
                         continue
-                    # If it's clearly an error message, flag it
-                    if any(indicator in context for indicator in ["error", "not found", "forbidden", "server", "page"]):
+                    # Only flag if it's clearly an error message in actual content
+                    if any(indicator in context for indicator in ["page not found", "not found", "forbidden", "server error", "access denied"]):
                         logger.error(f"❌ HTTP error detected: '{match.group()}' in session: {session.session_id}")
                         return False
 
-        # Check for common error page messages (final check)
+        # Check for common error page messages in actual content (final check)
         error_message_patterns = [
             "page not found", "resource not found", "not found",
             "access denied", "forbidden", "you do not have permission",
             "internal server error", "server error", "something went wrong",
             "an error occurred", "the page you are looking for"
         ]
-        # Only flag if multiple indicators are present (to avoid false positives)
-        found_indicators = sum(1 for pattern in error_message_patterns if pattern in page_source)
+        # Only flag if multiple indicators are present in actual content (not CSS/HTML)
+        found_indicators = sum(1 for pattern in error_message_patterns if pattern in page_content)
         if found_indicators >= 2:  # Need at least 2 indicators for reliability
             logger.error(f"❌ Multiple error indicators detected ({found_indicators}) in session: {session.session_id}")
             return False
@@ -869,40 +884,55 @@ def refresh_session(session: BrowserSession) -> bool:
             except:
                 pass
 
-            # Check for error messages in body text (with better context detection)
+            # Remove CSS/style blocks and HTML attributes to avoid false positives
+            # Keep only actual page content/text
+            try:
+                # Remove <style> blocks
+                page_content = re.sub(r'<style[^>]*>.*?</style>', '', page_source, flags=re.DOTALL | re.IGNORECASE)
+                # Remove style attributes
+                page_content = re.sub(r'style\s*=\s*["\'][^"\']*["\']', '', page_content, flags=re.IGNORECASE)
+                # Remove CSS class names from HTML (keep text content)
+                page_content = re.sub(r'class\s*=\s*["\'][^"\']*["\']', '', page_content, flags=re.IGNORECASE)
+                # Remove HTML tags, keep only text content
+                page_content = re.sub(r'<[^>]+>', ' ', page_content)
+                # Normalize whitespace
+                page_content = ' '.join(page_content.split())
+            except:
+                page_content = page_source  # Fallback to original if cleaning fails
+
+            # Check for error messages in actual page content (not CSS/HTML)
             error_code_patterns = [
                 r"\b404\b.*not found",
                 r"\b403\b.*forbidden",
                 r"\b500\b.*server error",
-                r"error.*404",
-                r"error.*403",
-                r"error.*500"
+                r"\berror\s+(404|403|500)\b",
+                r"\b(404|403|500)\s+error\b"
             ]
             for pattern in error_code_patterns:
-                if re.search(pattern, page_source, re.IGNORECASE):
-                    # Check if it's not in a URL or data field
-                    matches = re.finditer(pattern, page_source, re.IGNORECASE)
+                if re.search(pattern, page_content, re.IGNORECASE):
+                    # Check context - make sure it's not just CSS or HTML attributes
+                    matches = re.finditer(pattern, page_content, re.IGNORECASE)
                     for match in matches:
-                        start = max(0, match.start() - 100)
-                        end = min(len(page_source), match.end() + 100)
-                        context = page_source[start:end]
-                        # If it's in a URL, skip it
-                        if "http" in context or "url" in context or "href" in context:
+                        start = max(0, match.start() - 50)
+                        end = min(len(page_content), match.end() + 50)
+                        context = page_content[start:end]
+                        # Skip if it looks like CSS, HTML attributes, or URLs
+                        if any(skip in context for skip in ["css", "style", "class=", "href=", "url(", "http", "#", "var("]):
                             continue
-                        # If it's clearly an error message, flag it
-                        if any(indicator in context for indicator in ["error", "not found", "forbidden", "server", "page"]):
+                        # Only flag if it's clearly an error message in actual content
+                        if any(indicator in context for indicator in ["page not found", "not found", "forbidden", "server error", "access denied"]):
                             logger.error(f"❌ HTTP error detected: '{match.group()}' in session: {session.session_id}")
                             return False
 
-            # Check for common error page messages (final check)
+            # Check for common error page messages in actual content (final check)
             error_message_patterns = [
                 "page not found", "resource not found", "not found",
                 "access denied", "forbidden", "you do not have permission",
                 "internal server error", "server error", "something went wrong",
                 "an error occurred", "the page you are looking for"
             ]
-            # Only flag if multiple indicators are present (to avoid false positives)
-            found_indicators = sum(1 for pattern in error_message_patterns if pattern in page_source)
+            # Only flag if multiple indicators are present in actual content (not CSS/HTML)
+            found_indicators = sum(1 for pattern in error_message_patterns if pattern in page_content)
             if found_indicators >= 2:  # Need at least 2 indicators for reliability
                 logger.error(f"❌ Multiple error indicators detected ({found_indicators}) in session: {session.session_id}")
                 return False
